@@ -41,7 +41,7 @@ export const scheduleFestivalGreeting = onSchedule({ schedule: "0 5 * * *", time
                     systemInstruction: { role: "system", parts: [{ text: "Output JSON only. Be accurate with the Telugu calendar and regional events." }] },
                     temperature: 0.2,
                     responseMimeType: "application/json",
-                    responseJsonSchema: schema
+                    responseSchema: schema
                 }
             } as any);
             const data = parseAIJson(checkRes.text || "{}");
@@ -104,7 +104,7 @@ export const scheduleQuoteOfTheDay = onSchedule({ schedule: "0 4 * * *", timeZon
                 contents: [{ role: "user", parts: [{ text: `Today is ${todayStr}. Provide a highly unique, rare, and deeply inspirational Telugu quote by ${selectedTheme}. Do NOT repeat common quotes. Make sure it is 100% unique for this specific date. Output JSON.` }] }],
                 config: {
                     responseMimeType: "application/json",
-                    responseJsonSchema: schema,
+                    responseSchema: schema,
                     temperature: 0.8
                 }
             } as any);
@@ -156,13 +156,14 @@ export const scheduleHistoryOfTheDay = onSchedule({ schedule: "30 4 * * *", time
         await runWithAIFallback(async (ai, modelName) => {
             const res = await ai.models.generateContent({
                 model: modelName,
-                contents: [{ role: "user", parts: [{ text: `Out of all historical events that happened on ${dateStr}, pick the single most important event. Write a 60 words detailed news about it.
-                Also, provide a HIGHLY DETAILED, photorealistic, and safe image prompt that describes the scene without mentioning specific living people, modern politicians, or controversial figures. Focus on the era-appropriate architecture, clothing, and the general atmosphere.
-                Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). Output JSON.` }] }],
+                contents: [{ role: "user", parts: [{ text: `Pick the single most significant verified historical event that happened on ${dateStr}.
+                Write a crisp, natural Telugu short news item (50-65 words, single paragraph, pure Telugu script, lead-first style without filler) and its accurate English translation.
+                Write a clear, natural Telugu headline (6-10 words, no colons or quotes) and matching English headline.
+                Also provide a detailed, era-appropriate, safe image prompt without living politicians or text. Output JSON only.` }] }],
                 config: {
                     responseMimeType: "application/json",
-                    responseJsonSchema: schema,
-                    temperature: 0.5
+                    responseSchema: schema,
+                    temperature: 0.3
                 }
             } as any);
             const data = parseAIJson(res.text || "{}");
@@ -271,7 +272,7 @@ Output strict JSON.` }] }],
                     config: {
                         temperature: 0.85,
                         responseMimeType: "application/json",
-                        responseJsonSchema: schema
+                        responseSchema: schema
                     }
                 } as any);
 

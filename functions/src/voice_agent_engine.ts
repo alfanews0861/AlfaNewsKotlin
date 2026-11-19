@@ -86,7 +86,7 @@ export async function processVoiceCallTurn(
   };
 
   const formattedHistory = history
-    .map(turn => `${turn.speaker === 'ai' ? 'AI డెస్క్' : 'విలేకరి'}: ${turn.text}`)
+    .map(turn => `${turn.speaker === 'ai' ? 'ఎడిటోరియల్ డెస్క్' : 'విలేకరి'}: ${turn.text}`)
     .join('\n');
 
   const systemInstruction = `మీరు "ఆల్ఫా న్యూస్ (Alfa News)" ఎడిటోరియల్ డెస్క్ కో-ఆర్డినేటర్. 
@@ -131,7 +131,8 @@ ${formattedHistory}
         }
       } as any);
 
-      const parsed = parseAIJson(response);
+      const rawText = response.text || response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+      const parsed = parseAIJson(rawText);
       return parsed;
     });
 

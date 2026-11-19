@@ -41,6 +41,7 @@ export const MobileAppView: React.FC<MobileAppViewProps> = ({
   });
   const [showDistrictModal, setShowDistrictModal] = useState(false);
   const [showPreferencesModal, setShowPreferencesModal] = useState(false);
+  const [preferencesVersion, setPreferencesVersion] = useState(0);
   const [createSubView, setCreateSubView] = useState<'citizen' | 'news' | 'classified' | 'job_application' | null>(null);
 
   // Keep district in sync with currentUser
@@ -100,6 +101,8 @@ export const MobileAppView: React.FC<MobileAppViewProps> = ({
               onProfileClick={onLoginClick}
               initialPostId={initialPostId}
               hideHeader={true}
+              selectedDistrict={activeDistrict}
+              refreshVersion={preferencesVersion}
               onReporterClick={(reporterId) => {
                 navigateTo(`/reporter/${reporterId}`);
               }}
@@ -250,6 +253,7 @@ export const MobileAppView: React.FC<MobileAppViewProps> = ({
           onClose={() => setShowPreferencesModal(false)}
           onSave={() => {
             setShowPreferencesModal(false);
+            setPreferencesVersion((v) => v + 1);
           }}
         />
       )}

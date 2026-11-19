@@ -1,13 +1,18 @@
 {
   "name": "alfanews-monorepo",
   "private": true,
+  "workspaces": [
+    "web"
+  ],
   "scripts": {
-    "dev:web": "npm --prefix web run dev",
-    "build:web": "npm.cmd --prefix web run build",
-    "build:functions": "npm.cmd --prefix functions run build",
+    "dev": "npm run dev --workspace=web",
+    "dev:web": "npm run dev --workspace=web",
+    "build:web": "npm run build --workspace=web",
+    "build:functions": "npm --prefix functions run build",
     "build": "npm run build:functions && npm run build:web",
-    "test:web": "npm.cmd --prefix web test",
-    "test:functions": "npm.cmd --prefix functions test",
+    "lint": "npm run lint --workspace=web",
+    "test:web": "npm run test --workspace=web",
+    "test:functions": "npm --prefix functions test",
     "test": "npm run test:web && npm run test:functions",
     "deploy:hosting": "npm run build:web && firebase deploy --only hosting",
     "deploy:functions": "npm run build:functions && firebase deploy --only functions"

@@ -87,6 +87,7 @@ function extractProxyAuth(proxyUrl) {
 class ProxyManager {
     constructor() {
         this.proxies = [];
+        this.cooldowns = new Map(); // proxyUrl -> expiresAtMs
         this.currentIndex = 0;
         this.init();
     }
@@ -108,22 +109,59 @@ class ProxyManager {
 
     getNextProxy() {
         if (this.proxies.length === 0) return null;
-        const proxy = this.proxies[this.currentIndex];
-        this.currentIndex = (this.currentIndex + 1) % this.proxies.length;
-        return proxy;
+        const now = Date.now();
+        const total = this.proxies.length;
+
+        // Prefer a proxy not currently in cooldown
+        for (let i = 0; i < total; i++) {
+            const idx = (this.currentIndex + i) % total;
+            const candidate = this.proxies[idx];
+            const cooldownUntil = this.cooldowns.get(candidate) || 0;
+            if (cooldownUntil <= now) {
+                if (cooldownUntil > 0) this.cooldowns.delete(candidate);
+                this.currentIndex = (idx + 1) % total;
+                return candidate;
+            }
+        }
+
+        // All proxies are cooling down: pick the one expiring soonest instead of permanently emptying pool
+        let bestIdx = 0;
+        let earliestExpiry = Infinity;
+        for (let i = 0; i < total; i++) {
+            const exp = this.cooldowns.get(this.proxies[i]) || 0;
+            if (exp < earliestExpiry) {
+                earliestExpiry = exp;
+                bestIdx = i;
+            }
+        }
+        this.currentIndex = (bestIdx + 1) % total;
+        return this.proxies[bestIdx];
+    }
+
+    markCooldownProxy(proxyUrl, durationMs = 5 * 60 * 1000, reason = 'rate-limit') {
+        if (!proxyUrl || !this.proxies.includes(proxyUrl)) return;
+        const clean = proxyUrl.includes('@') ? proxyUrl.split('@')[1] : proxyUrl;
+        this.cooldowns.set(proxyUrl, Date.now() + durationMs);
+        console.warn(`[PROXY] ⏳ Cooldown proxy ${clean} for ${Math.round(durationMs / 1000)}s (${reason}). Healthy: ${this.getHealthyProxyCount()}/${this.proxies.length}`);
     }
 
     markBadProxy(proxyUrl) {
         if (!proxyUrl) return;
         const initialCount = this.proxies.length;
         this.proxies = this.proxies.filter(p => p !== proxyUrl);
+        this.cooldowns.delete(proxyUrl);
         if (this.proxies.length < initialCount) {
             const clean = proxyUrl.includes('@') ? proxyUrl.split('@')[1] : proxyUrl;
-            console.warn(`[PROXY] 🚫 Quarantined bad proxy ${clean}. Remaining active proxies: ${this.proxies.length}`);
+            console.warn(`[PROXY] 🚫 Quarantined bad auth proxy ${clean}. Remaining active proxies: ${this.proxies.length}`);
             if (this.currentIndex >= this.proxies.length) {
                 this.currentIndex = 0;
             }
         }
+    }
+
+    getHealthyProxyCount() {
+        const now = Date.now();
+        return this.proxies.filter(p => (this.cooldowns.get(p) || 0) <= now).length;
     }
 
     getProxyCount() {
@@ -218,7 +256,7 @@ const GENERIC_IMAGE_PATTERNS = [
     'greatandhra_logo', 'gulte_logo', 'thehindu_logo', 'deccanchronicle_logo', 'watermark', 'banner_logo',
     'static.toiimg.com/photo/108381831', 'static.toiimg.com/photo/4752938',
     'scorecardresearch.com', 'google-analytics', 'facebook.com/tr',
-    'assets/_images/logos/', 'e-paper.webp', 'bell-icon.webp', 'gg-pref.gif',
+    'assets/_images/logos/', 'assets/_images/banners/', '_site.webp', 'e-paper.webp', 'bell-icon.webp', 'gg-pref.gif',
     'andhra-pradesh-logo.webp', 'telangana-logo.webp', 'eenadu.webp',
     'assets/images/logos/', 'assets/images/logo.webp', 'assets/avif_logos/'
 ];
@@ -249,8 +287,8 @@ function isGenericImage(url) {
         return true;
     }
 
-    // Directory-level logo assets
-    if (/\/(?:logos|branding|placeholders|watermarks|brand_assets|avif_logos|site_logos)\//i.test(lowerUrl)) {
+    // Directory-level logo/banner assets
+    if (/\/(?:logos|branding|placeholders|watermarks|brand_assets|avif_logos|site_logos|_images\/banners)\//i.test(lowerUrl)) {
         return true;
     }
 
@@ -265,11 +303,15 @@ function isGenericImage(url) {
         }
     }
 
-    // Eenadu specifics: reject known header/brand assets, but accept all article media
+    // Eenadu specifics: reject known header/brand/ad-banner assets, accept all real article media
     if (lowerUrl.includes('eenadu.net')) {
-        if (lowerUrl.includes('_assets/_images/logos') || 
+        if (lowerUrl.includes('_assets/_images/logos') ||
+            lowerUrl.includes('_assets/_images/banners') ||
+            lowerUrl.includes('/_assets/') ||
+            lowerUrl.includes('_site.webp') ||
             lowerUrl.includes('e-paper.webp') || 
             lowerUrl.includes('bell-icon.webp') || 
+            lowerUrl.includes('gg-pref') ||
             lowerUrl.includes('eenadu.webp') || 
             lowerUrl.includes('andhra-pradesh-logo') || 
             lowerUrl.includes('telangana-logo') ||
@@ -279,9 +321,10 @@ function isGenericImage(url) {
             return true;
         }
         // Genuine article media across Eenadu CDN paths
-        const isActualArticleImage = lowerUrl.includes('/featureimages/') ||
+        const isActualArticleImage = lowerUrl.includes('/article_img/') ||
                                      lowerUrl.includes('/article_multiple_images/') ||
                                      lowerUrl.includes('/article_images/') ||
+                                     lowerUrl.includes('/featureimages/') ||
                                      lowerUrl.includes('/video_images/') ||
                                      lowerUrl.includes('/metaimages/') ||
                                      lowerUrl.includes('/districts/') || 
@@ -290,15 +333,15 @@ function isGenericImage(url) {
                                      lowerUrl.includes('/stories/') || 
                                      lowerUrl.includes('/news/') || 
                                      lowerUrl.includes('_1.jpg') || 
-                                     lowerUrl.includes('_1.webp') ||
-                                     /\d{6,}/.test(lowerUrl);
+                                     lowerUrl.includes('_1.webp');
         if (isActualArticleImage) return false;
     }
 
     // Check generic blacklist patterns
     if (GENERIC_IMAGE_PATTERNS.some(p => lowerUrl.includes(p))) {
         // Exception: actual article image with specific folder paths
-        if (lowerUrl.includes('article_images/') || 
+        if (lowerUrl.includes('/article_img/') ||
+            lowerUrl.includes('article_images/') || 
             lowerUrl.includes('article_multiple_images/') || 
             lowerUrl.includes('/uploads/') || 
             lowerUrl.includes('/featureimages/') ||
@@ -310,6 +353,126 @@ function isGenericImage(url) {
     }
 
     return false;
+}
+
+const NEWS_AGGREGATOR_PATTERNS = [
+    'teluguscribe', 'telugu scribe', 'greatandhra', 'great andhra', 'ap7am', 'gulte',
+    'samayam', 'eenadu', 'sakshi', 'andhrajyothy', 'andhra jyothy', 'abntelugu', 'abn',
+    'tv9', 'ntv', 'tv5', '10tv', 'v6news', 'v6 news', 'hmtv', 'abpdesam', 'abp desam',
+    'news18', 'etvbharat', 'etv bharat', 'bigtv', 'mahaanews', 'mahaa news', 'way2news',
+    'telugu360', 'tupaki', 'mirchi9', 'm9news', 'indiaglitz', 'telugustop', '123telugu',
+    'chitrajyothy', 'namasthetelangana', 'telanganatoday', 'thehansindia', 'hansindia',
+    'deccanchronicle', 'thehindu', 'timesofindia', 'hindustantimes', 'indianexpress',
+    'siasat', 'dishadaily', 'prajasakti', 'vaartha', 'oneindia', 'filmibeat', 'ani', 'pti',
+    'telugubulletin', 'teluguglobal', 'ntnews', 'tnews', 'rtvlive', 'prime9', 'cvrnews',
+    'manatelangana', 'andhraprabha', 'visalaandhra', 'navatelangana', 'bhaarat', 'newsmeter'
+];
+
+/**
+ * Identifies whether a social account / source name is a news portal, TV channel, or aggregator.
+ * Aggregators must NEVER be credited as the speaker ("తెలుగు స్క్రైబ్ వెల్లడించింది") and
+ * their profile avatars must NEVER be used as fallback news photos.
+ */
+function isNewsAggregatorOrPortal(authorName = '', handle = '') {
+    const combined = `${authorName || ''} ${handle || ''}`.toLowerCase().replace(/[^a-z0-9\s]/g, ' ');
+    const compact = combined.replace(/\s+/g, '');
+    return NEWS_AGGREGATOR_PATTERNS.some(p => {
+        const cleanP = p.replace(/\s+/g, '');
+        if (cleanP.length <= 3) {
+            // Exact word/handle match for short tokens like ani, pti, ntv, tv9, tv5, abn, abp
+            return new RegExp(`(?:^|\\s)${cleanP}(?:$|\\s|telugu|news|live|digital)`).test(combined) || compact === cleanP;
+        }
+        return compact.includes(cleanP);
+    });
+}
+
+/**
+ * Strips accidental external news portal / aggregator attribution phrases so articles always
+ * read cleanly in Alfa News's own original newsroom voice.
+ */
+function stripAggregatorAttribution(text) {
+    if (!text || typeof text !== 'string') return '';
+    return text
+        .replace(/(?:తెలుగు\s*స్క్రైబ్|గ్రేట్\s*ఆంధ్ర|ఏపీ\s*7\s*ఏఎం|గుల్టే|సమయం\s*తెలుగు|సమయం|ఈనాడు|సాక్షి|ఆంధ్రజ్యోతి|ఏబీఎన్|టీవీ\s*9|ఎన్టీవీ|టీవీ\s*5|10\s*టీవీ|వీ\s*6|హెచ్‌ఎంటీవీ|ఏబీపీ\s*దేశం|న్యూస్\s*18|ఈటీవీ\s*భారత్|వే2న్యూస్|తెలుగు\s*360|తుపాకీ|ఏఎన్ఐ|పీటీఐ)\s*(?:వెల్లడించింది|వెల్లడించారు|తెలిపింది|తెలిపారు|పేర్కొంది|పేర్కొన్నారు|నివేదించింది|ట్వీట్\s*చేసింది|ప్రకటించింది|ప్రకారం)[.,]?\s*/gu, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+}
+
+/**
+ * Validates that a downloaded buffer is a genuine raster image (not HTML/403/1x1 pixel).
+ */
+function isValidImageBuffer(buffer, contentType = '') {
+    if (!buffer || !Buffer.isBuffer(buffer) || buffer.length < 4000) return false;
+    const ct = String(contentType || '').toLowerCase();
+    if (ct && (ct.includes('text/html') || ct.includes('application/json') || ct.includes('image/svg') || ct.includes('image/gif'))) {
+        return false;
+    }
+    // Check magic bytes: JPEG (FF D8 FF), PNG (89 50 4E 47), WebP (RIFF....WEBP), AVIF/HEIC (ftyp)
+    const isJpeg = buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF;
+    const isPng = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47;
+    const isWebp = buffer.length >= 12 && buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP';
+    const isAvif = buffer.length >= 12 && buffer.toString('ascii', 4, 8) === 'ftyp';
+    return isJpeg || isPng || isWebp || isAvif;
+}
+
+/**
+ * Downloads and validates an image buffer with 3-tier fallback:
+ * 1. Direct fetch with smart domain Referer
+ * 2. Direct fetch without Referer
+ * 3. wsrv.nl edge proxy (bypasses Cloudflare/hotlink blocks)
+ */
+async function fetchValidatedImageBuffer(url, { maxWidth = null, timeout = 12000 } = {}) {
+    if (!url || !url.startsWith('http') || isGenericImage(url)) return null;
+
+    let referer = 'https://www.google.com/';
+    try {
+        const parsedUrl = new URL(url);
+        if (parsedUrl.hostname.includes('eenadu.net')) referer = 'https://www.eenadu.net/';
+        else if (parsedUrl.hostname.includes('sakshi.com')) referer = 'https://www.sakshi.com/';
+        else referer = `${parsedUrl.protocol}//${parsedUrl.hostname}/`;
+    } catch (e) {}
+
+    const baseHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'image/webp,image/jpeg,image/png,image/*;q=0.8'
+    };
+
+    const normalizeMime = (buf, headerCt) => {
+        if (buf[0] === 0x89 && buf[1] === 0x50) return { contentType: 'image/png', extension: 'png' };
+        if (buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return { contentType: 'image/webp', extension: 'webp' };
+        if (buf.length >= 12 && buf.toString('ascii', 4, 8) === 'ftyp') return { contentType: 'image/avif', extension: 'avif' };
+        if (buf[0] === 0xFF && buf[1] === 0xD8) return { contentType: 'image/jpeg', extension: 'jpg' };
+        const ct = String(headerCt || '').toLowerCase();
+        if (ct.includes('png')) return { contentType: 'image/png', extension: 'png' };
+        if (ct.includes('webp')) return { contentType: 'image/webp', extension: 'webp' };
+        if (ct.includes('avif')) return { contentType: 'image/avif', extension: 'avif' };
+        return { contentType: 'image/jpeg', extension: 'jpg' };
+    };
+
+    const attempts = [
+        () => axios.get(url, { responseType: 'arraybuffer', timeout, headers: { ...baseHeaders, Referer: referer } }),
+        () => axios.get(url, { responseType: 'arraybuffer', timeout, headers: baseHeaders }),
+        () => {
+            const widthParam = maxWidth ? `&w=${maxWidth}` : '';
+            const proxyUrl = `https://wsrv.nl/?url=${encodeURIComponent(url)}${widthParam}&output=webp&q=80`;
+            return axios.get(proxyUrl, { responseType: 'arraybuffer', timeout });
+        }
+    ];
+
+    for (const attempt of attempts) {
+        try {
+            const res = await attempt();
+            const buf = Buffer.from(res.data);
+            const ct = res.headers?.['content-type'] || '';
+            if (isValidImageBuffer(buf, ct)) {
+                const { contentType, extension } = normalizeMime(buf, ct);
+                return { buffer: buf, contentType, extension };
+            }
+        } catch (e) {
+            // Try next fallback
+        }
+    }
+    return null;
 }
 
 /**
@@ -350,33 +513,26 @@ function sanitizeTeluguText(text) {
         // 6. Fix any accidental spaces before valid Telugu combining marks
         .replace(/\s+([\u0C01-\u0C03\u0C3E-\u0C4D\u0C55\u0C56\u0C62\u0C63])/g, '$1')
         
-        // 7. Fix compound English words that lost spacing/virama (e.g. క్లాస్రూమ్ -> క్లాస్ రూమ్)
-        .replace(/క్లాస్రూ/g, 'క్లాస్ రూ')
-        .replace(/బెడ్రూ/g, 'బెడ్ రూ')
-        .replace(/లివింగ్రూ/g, 'లివింగ్ రూ')
-        .replace(/షోరూ/g, 'షో రూ')
-        .replace(/బంజారాహిల్స్/g, 'బంజారా హిల్స్')
-        .replace(/జూబ్లీహిల్స్/g, 'జూబ్లీ హిల్స్')
+        // 7. Safe fixes for genuinely clumped compound loanwords
+        .replace(/క్లాస్రూమ్/gu, 'క్లాస్ రూమ్')
+        .replace(/బెడ్రూమ్/gu, 'బెడ్ రూమ్')
+        .replace(/లివింగ్రూమ్/gu, 'లివింగ్ రూమ్')
+        .replace(/షోరూమ్/gu, 'షో రూమ్')
+        .replace(/బంజారాహిల్స్/gu, 'బంజారా హిల్స్')
+        .replace(/జూబ్లీహిల్స్/gu, 'జూబ్లీ హిల్స్')
 
-        // 8. Fix English loanwords ending in virama (్) glued directly to postpositions (లో, పై, తో, కు, కి, వద్ద, నుండి, లోని, తోని)
-        // Loan consonants EXCLUDE 'ల' (\u0C32) to prevent breaking native Telugu plurals like 'పాత్రల్లో' into 'పాత్రల్ లో'
-        .replace(/([\u0C38\u0C28\u0C2E\u0C2A\u0C1C\u0C21\u0C2C\u0C15\u0C1F]\u0C4D)(లో|పై|తో|కు|కి|వద్ద|నుండి|లోని|తోని)(?=[\s\p{P}]|$)/gu, '$1 $2')
-        .replace(/([\u0C15-\u0C39]\u0C4D)(పై|నుంచి|నుండి|వరకు)(?=[\s\p{P}]|$)/gu, '$1 $2')
-
-        // 8.1 Rejoin unnatural splits of Telugu plural locative 'ల్లో' (e.g. 'పాత్రల్ లో' -> 'పాత్రల్లో', 'సినిమాల్ లో' -> 'సినిమాల్లో', 'గ్రామాల్ లో' -> 'గ్రామాల్లో')
+        // 8. Rejoin unnatural splits of native Telugu 'ల్లో' and 'ట్లో'
         .replace(/ల్\s+లో(?=[\s\p{P}]|$)/gu, 'ల్లో')
+        .replace(/(ఇం|కం|నో|ఒం|గొం|పుం|తుం|పెం|చో|చె|కో)ట్\s+లో(?=[\s\p{P}]|$)/gu, '$1ట్లో')
 
-        // 8.2 Rejoin native Telugu words unnaturally split with 'ట్ లో' (e.g. 'ఇంట్ లో' -> 'ఇంట్లో', 'నోట్ లో' -> 'నోట్లో', 'కంట్ లో' -> 'కంట్లో')
-        .replace(/(ఇం|కం|నో|ఒం|గొం|పుం|తుం|పెం)ట్\s+లో(?=[\s\p{P}]|$)/gu, '$1ట్లో')
-
-        // 8.3 Fix numbers & currencies glued to words (e.g. 'రూ.100కోట్లు' -> 'రూ. 100 కోట్లు', '10వేల' -> '10 వేల', '5మంది' -> '5 మంది')
+        // 8.1 Fix numbers & currencies glued to words (e.g. 'రూ.100కోట్లు' -> 'రూ. 100 కోట్లు')
         .replace(/(రూ\.|రూ)(?=\d)/gu, 'రూ. ')
         .replace(/(\d+)(కోట్లు|కోట్ల|లక్షలు|లక్షల|వేలు|వేల|మంది|శాతం|శాతానికి|కిలోమీటర్ల?|గంటల?|రోజుల?|నెలల?|సంవత్సరాల?|ఏళ్ల|మందికి|మందితో)(?=[\s\p{P}]|$)/gu, '$1 $2')
 
-        // 8.4 Fix punctuation glued to Telugu words without space (e.g. 'జరిగింది.దీనిపై' -> 'జరిగింది. దీనిపై')
+        // 8.2 Fix punctuation glued to Telugu words without space (e.g. 'జరిగింది.దీనిపై' -> 'జరిగింది. దీనిపై')
         .replace(/([\u0C00-\u0C7F])([.,:;!?])([\u0C00-\u0C7F])/gu, '$1$2 $3')
 
-        // 8.5 Fix unnatural literal translations and conflicting collocations in Telugu news
+        // 8.3 Fix conflicting collocations in positive Telugu news
         .replace(/తీవ్రంగా\s+స్పందిస్తూ(?=\s+(?:[^\s.,;]+\s+){0,4}(?:అభినంది|ప్రశంసి|హర్షం|స్వాగతి|మురిసి|జైకొ|మెచ్చుకు))/gu, 'ప్రశంసల వర్షం కురిపిస్తూ')
         .replace(/తీవ్రంగా\s+స్పందించి(?=\s+(?:[^\s.,;]+\s+){0,4}(?:అభినంది|ప్రశంసి|హర్షం|స్వాగతి|మురిసి|జైకొ|మెచ్చుకు))/gu, 'ప్రశంసల వర్షం కురిపించి')
         .replace(/తీవ్రంగా\s+స్పందించిన(?=\s+(?:[^\s.,;]+\s+){0,4}(?:అభినంది|ప్రశంసి|హర్షం|స్వాగతి|మురిసి|జైకొ|మెచ్చుకు))/gu, 'హర్షం వ్యక్తం చేసిన')
@@ -426,24 +582,14 @@ function cleanTeluguHeadline(headline) {
     // 1. Strip all quotation marks (single, double, smart/curly quotes, backticks, backslashes)
     clean = clean.replace(/['"“‘”’`\\/]/g, '');
 
-    // 2. Replace semicolons and long ellipses with space
-    clean = clean.replace(/\s*;\s*/g, ' ');
-    clean = clean.replace(/\.{3,}/g, ' ');
+    // 2. Strip colons, semicolons, and ellipses for one clean flowing headline (aligned with backend)
+    clean = clean.replace(/\s*[:;]\s*/g, ' ');
+    clean = clean.replace(/\.{2,}/g, ' ');
 
-    // 3. Normalize colons: allow at most ONE colon (journalistic hook separator e.g. "లీడ్: సంఘటన"), replace subsequent colons with space
-    let colonFound = false;
-    clean = clean.replace(/\s*:\s*/g, () => {
-        if (!colonFound) {
-            colonFound = true;
-            return ': ';
-        }
-        return ' ';
-    });
-
-    // 4. Remove leading or trailing hyphens, dashes, commas, dots, colons, or spaces
+    // 3. Remove leading or trailing punctuation
     clean = clean.replace(/^[\s.,:;!?'"“”‘’\-\—]+|[\s.,:;!?'"“”‘’\-\—]+$/g, '');
 
-    // 5. Normalize multiple whitespace
+    // 4. Normalize multiple whitespace
     clean = clean.replace(/\s+/g, ' ').trim();
 
     return sanitizeTeluguText(clean);
@@ -456,16 +602,8 @@ function cleanEnglishHeadline(headline) {
     if (!headline || typeof headline !== 'string') return "";
     let clean = headline.trim();
     clean = clean.replace(/['"“‘”’`\\/]/g, '');
-    clean = clean.replace(/\s*;\s*/g, ' ');
-    clean = clean.replace(/\.{3,}/g, ' ');
-    let colonFound = false;
-    clean = clean.replace(/\s*:\s*/g, () => {
-        if (!colonFound) {
-            colonFound = true;
-            return ': ';
-        }
-        return ' ';
-    });
+    clean = clean.replace(/\s*[:;]\s*/g, ' ');
+    clean = clean.replace(/\.{2,}/g, ' ');
     clean = clean.replace(/^[\s.,:;!?'"“”‘’\-\—]+|[\s.,:;!?'"“”‘’\-\—]+$/g, '');
     return clean.replace(/\s+/g, ' ').trim();
 }
@@ -884,7 +1022,7 @@ const MODERN_BODY_SELECTORS = [
     // News18 Telugu
     '._article_body', '.articleBody', '.content-wrapper',
     // Eenadu
-    '.story-full-text', '.full-story', '.story-details',
+    '.text-justify', '.story-full-text', '.full-story', '.story-details',
     // General CMS standard selectors
     'article .story-content', 'article .entry-content', 'article .post-content',
     '[itemprop="articleBody"]', 'div[data-articlebody]', '._3WlLe',
@@ -941,9 +1079,9 @@ function extractArticleData(html, articleUrl) {
         } catch (e) {}
     });
 
-    // 2. Strip noise elements, tickers, related stories, and logo tags from DOM
+    // 2. Strip noise elements, tickers, related stories, and logo/banner tags from DOM (NEVER strip genuine Eenadu/Sakshi/ETV article photos!)
     $('nav, header, footer, script, style, .ads, .sidebar, .comments, aside, #sidebar, .related, .trending, .popular, .latest-news, .logo, .site-logo, .brand, .header-logo, .menu, .navigation, .social-share, .footer-tags, .tags, .widget, .promo, .about-us, .author-bio, [role="complementary"], .breadcrumb, .taboola, .outbrain, .google_ads_wrap_in_image, .next-article, .infinite-scroll, .related-stories, .side-bar, .more-news, .also-read, .trending-news, .other-news, .story-related, .news-ticker, .ticker, .scroll-news, .news-strip, .breaking-strip').remove();
-    $('img[src*="logo" i], img[class*="logo" i], img[id*="logo" i], img[alt*="logo" i], img[alt*="ETV" i], img[alt*="Sakshi" i], img[alt*="Eenadu" i], img[src*="etvbharat" i], img[src*="etv-bharat" i]').remove();
+    $('img[src*="logo" i], img[class*="logo" i], img[id*="logo" i], img[alt="logo" i], img[alt*="site logo" i], img[src*="_assets/_images/logos" i], img[src*="_assets/_images/banners" i], figure#dist-logo2, figure.nd-logo, figure.thumb').remove();
 
     // 3. Extract DOM Article Body
     let domBody = '';
@@ -1003,57 +1141,107 @@ function extractArticleData(html, articleUrl) {
     }
     finalHeadline = finalHeadline.replace(/\s+/g, ' ').trim();
 
-    // 5. Image Extraction
-    let candidateImage = null;
-    if (jsonLdImage && !isGenericImage(jsonLdImage)) {
-        candidateImage = jsonLdImage;
-    }
+    // 5. Multi-Candidate Image Extraction (Clean in-article photos FIRST, social og:image as fallback)
+    const candidateImages = [];
+    const seenImgUrls = new Set();
 
-    if (!candidateImage) {
-        const metaImg = $('meta[property="og:image"]').attr('content') || 
-                       $('meta[property="og:image:secure_url"]').attr('content') ||
-                       $('meta[property="og:image:url"]').attr('content') ||
-                       $('meta[name="twitter:image"]').attr('content') ||
-                       $('meta[name="twitter:image:src"]').attr('content') ||
-                       $('meta[property="twitter:image"]').attr('content') ||
-                       $('meta[itemprop="image"]').attr('content') ||
-                       $('link[rel="image_src"]').attr('href');
-        if (metaImg && !isGenericImage(metaImg)) {
-            candidateImage = metaImg;
+    const addCandidateImage = (rawUrl) => {
+        if (!rawUrl || typeof rawUrl !== 'string') return;
+        let clean = rawUrl.trim();
+        if (!clean || clean.startsWith('data:image') || clean.startsWith('blob:')) return;
+        try {
+            const resolved = clean.startsWith('http') ? clean : new URL(clean, articleUrl).href;
+            if (!resolved || !resolved.startsWith('http')) return;
+            if (isGenericImage(resolved)) return;
+            // Skip UI asset icons, author avatars, social share buttons, or video play overlays (never reject news slugs mentioning social platforms)
+            if (/(?:\/avatars?\/|\/icons?\/|\/emojis?\/|\/sprites?\/|\/banners?\/|\/badges?\/|play[-_]?btn|share[-_]?(?:icon|btn)|(?:whatsapp|telegram|facebook|twitter|youtube)[-_]?(?:icon|logo|share|btn)|(?:loading|loader|spinner|blank|spacer|1x1|pixel)\.(?:png|jpg|jpeg|webp|gif)|gg-pref)/i.test(resolved)) return;
+            if (!seenImgUrls.has(resolved)) {
+                seenImgUrls.add(resolved);
+                candidateImages.push(resolved);
+            }
+        } catch (e) {}
+    };
+
+    const pickBestSrcsetUrl = (srcsetStr) => {
+        if (!srcsetStr || typeof srcsetStr !== 'string') return '';
+        // Split ONLY on comma+space followed by a URL so CDN params like w_800,q_80,f_auto are never corrupted
+        const entries = srcsetStr.trim().split(/,\s+(?=https?:|\/)/);
+        let bestUrl = '';
+        let bestScore = -1;
+        for (const entry of entries) {
+            const parts = entry.trim().split(/\s+/);
+            const u = parts[0];
+            if (!u) continue;
+            const descriptor = parts[1] || '';
+            const score = descriptor.endsWith('w') ? parseInt(descriptor, 10) || 0
+                        : descriptor.endsWith('x') ? Math.round((parseFloat(descriptor) || 1) * 1000)
+                        : 1;
+            if (score >= bestScore) {
+                bestScore = score;
+                bestUrl = u;
+            }
         }
-    }
+        return bestUrl || srcsetStr.trim().split(/\s+/)[0];
+    };
 
-    if (!candidateImage) {
-        $('article img, main img, figure img, picture source, picture img, .news-story-body img, .detailBody img, .category_desc img, .ArticleBodyCont img, ._article_body img, .story-details img, .article-image img, .article-page__img-cmpnt, .story-image img').each((_, el) => {
-            const raw = $(el).attr('src') || $(el).attr('data-src') || $(el).attr('data-original') || $(el).attr('data-lazy-src') || $(el).attr('data-hi-res-src') || $(el).attr('data-url') || $(el).attr('srcset');
-            if (raw && typeof raw === 'string') {
-                let clean = raw.trim();
-                if (clean.includes(',')) {
-                    // Extract highest resolution or first URL from srcset
-                    const sources = clean.split(',').map(s => s.trim().split(/\s+/)[0]).filter(Boolean);
-                    clean = sources[sources.length - 1] || sources[0];
+    const collectDomImages = (selectorStr, maxCount = 4) => {
+        $(selectorStr).each((_, el) => {
+            if (candidateImages.length >= maxCount) return false;
+            const w = parseInt($(el).attr('width') || '0', 10);
+            const h = parseInt($(el).attr('height') || '0', 10);
+            if ((w > 0 && w < 200) || (h > 0 && h < 120)) return;
+            const cls = `${$(el).attr('class') || ''} ${$(el).attr('alt') || ''}`.toLowerCase();
+            if (/(?:author|avatar|logo|icon|badge|emoji|ad-banner|promo)/.test(cls)) return;
+
+            // Prefer lazy-load high-res attributes BEFORE src (src is often a 1x1 blank/loading placeholder)
+            const lazyCandidates = [
+                $(el).attr('data-hi-res-src'),
+                $(el).attr('data-original'),
+                $(el).attr('data-lazy-src'),
+                $(el).attr('data-src'),
+                $(el).attr('data-url'),
+                $(el).attr('data-srcset') ? pickBestSrcsetUrl($(el).attr('data-srcset')) : null,
+                $(el).attr('srcset') ? pickBestSrcsetUrl($(el).attr('srcset')) : null,
+                $(el).attr('src')
+            ];
+            for (const c of lazyCandidates) {
+                if (c && typeof c === 'string' && !c.trim().startsWith('data:image')) {
+                    // Skip Eenadu's small related-story listing thumbnails (365X255) in favor of the actual article photo
+                    if (/eenadu\.net\/featureimages\/365x255\//i.test(c)) continue;
+                    const beforeLen = candidateImages.length;
+                    addCandidateImage(c);
+                    if (candidateImages.length > beforeLen) break;
                 }
-                if (clean.startsWith('data:image')) return; // Skip inline base64 placeholders
-
-                try {
-                    const resolved = clean.startsWith('http') ? clean : new URL(clean, articleUrl).href;
-                    if (resolved && resolved.startsWith('http') && !isGenericImage(resolved)) {
-                        candidateImage = resolved;
-                        return false;
-                    }
-                } catch (e) {}
             }
         });
+    };
+
+    // Priority 1A: Exact editorial body photos first (Eenadu .text-justify / image-editor / article_img, Sakshi, NT, AJ, TV9, News18)
+    collectDomImages('.text-justify img, img.image-editor, img[src*="/article_img/"], img[src*="/article_multiple_images/"], .news-story-body img, .detailBody img, .category_desc img, .ArticleBodyCont img, ._article_body img, .story-details img, .article-image img, .article-page__img-cmpnt, .story-image img, .featured-image img, .post-thumbnail img', 3);
+
+    // Priority 1B: Broader article/figure/picture/main images if fewer than 3 found
+    if (candidateImages.length < 3) {
+        collectDomImages('article img, figure:not(.thumb) img, picture source, picture img, main img', 4);
     }
 
-    // Resolve relative image URLs if candidateImage wasn't already absolute
-    if (candidateImage && !candidateImage.startsWith('http')) {
-        try {
-            candidateImage = new URL(candidateImage, articleUrl).href;
-        } catch (e) {
-            candidateImage = null;
-        }
+    // Priority 2: JSON-LD and OpenGraph / Twitter meta images as fallback candidates
+    addCandidateImage(jsonLdImage);
+    const metaSelectors = [
+        'meta[property="og:image"]',
+        'meta[property="og:image:secure_url"]',
+        'meta[property="og:image:url"]',
+        'meta[name="twitter:image"]',
+        'meta[name="twitter:image:src"]',
+        'meta[property="twitter:image"]',
+        'meta[itemprop="image"]'
+    ];
+    for (const sel of metaSelectors) {
+        if (candidateImages.length >= 5) break;
+        addCandidateImage($(sel).attr('content'));
     }
+    addCandidateImage($('link[rel="image_src"]').attr('href'));
+
+    const candidateImage = candidateImages[0] || null;
 
     // 6. Date Extraction
     let finalDate = jsonLdDate;
@@ -1084,6 +1272,7 @@ function extractArticleData(html, articleUrl) {
         headline: finalHeadline,
         body: finalBody,
         image: candidateImage,
+        images: candidateImages,
         date: finalDate
     };
 }
@@ -1434,22 +1623,6 @@ function calculateTextSimilarity(text1, text2) {
     return union > 0 ? (intersection / union) : 0;
 }
 
-/**
- * Extracts thread marker info like 1/4, (1/4), [1/4], 1/4:, 1/1, 1/2, 1/3, (1/n) from tweet text.
- * @param {string} text 
- * @returns {{part: number, total: number|null, raw: string}|null}
- */
-function extractThreadMarker(text) {
-    if (!text) return null;
-    const match = text.match(/(?:^|[\s\(\[\{])(\d+)\s*[/／]\s*(\d+|n)(?:[\s\)\]\}.,:]|$)/i);
-    if (match) {
-        const part = parseInt(match[1], 10);
-        const total = match[2].toLowerCase() === 'n' ? null : parseInt(match[2], 10);
-        return { part, total, raw: match[0].trim() };
-    }
-    return null;
-}
-
 
 puppeteerExtra.use(StealthPlugin());
 const rssParser = new Parser({
@@ -1586,89 +1759,42 @@ let currentModelIndex = 0;
 // ============================================================================
 const ALFA_NEWS_LOGO = "https://alfanews.app/logo.png";
 
-async function uploadMediaToStorage(url, folder = 'news-media') {
+async function uploadMediaToStorage(url, folder = 'news-media', preFetched = null) {
     if (!url || !url.startsWith('http')) return null;
     let buffer = null;
     let contentType = 'image/jpeg';
     let extension = 'jpg';
 
-    // Determine smart referer based on image URL domain
-    let referer = 'https://www.google.com/';
-    try {
-        const parsedUrl = new URL(url);
-        if (parsedUrl.hostname.includes('eenadu.net')) {
-            referer = 'https://www.eenadu.net/';
-        } else if (parsedUrl.hostname.includes('sakshi.com')) {
-            referer = 'https://www.sakshi.com/';
-        } else {
-            referer = `${parsedUrl.protocol}//${parsedUrl.hostname}/`;
-        }
-    } catch (e) {}
-
-    // 1. First attempt: Direct fetch with domain Referer
-    try {
-        const response = await axios.get(url, { 
-            responseType: 'arraybuffer',
-            timeout: 15000,
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-                'Referer': referer
-            }
-        });
-        buffer = Buffer.from(response.data, 'binary');
-        contentType = response.headers['content-type'] || 'image/jpeg';
-        extension = contentType.split('/')[1] || 'jpg';
-    } catch (directErr) {
-        // 2. Second attempt: Direct fetch without referer
-        try {
-            const responseNoRef = await axios.get(url, { 
-                responseType: 'arraybuffer',
-                timeout: 15000,
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                    'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
-                }
-            });
-            buffer = Buffer.from(responseNoRef.data, 'binary');
-            contentType = responseNoRef.headers['content-type'] || 'image/jpeg';
-            extension = contentType.split('/')[1] || 'jpg';
-        } catch (noRefErr) {
-            // 3. Fallback: Proxy fetch via wsrv.nl
-            try {
-                const proxyUrl = `https://wsrv.nl/?url=${encodeURIComponent(url)}&output=webp`;
-                const proxyRes = await axios.get(proxyUrl, {
-                    responseType: 'arraybuffer',
-                    timeout: 15000
-                });
-                buffer = Buffer.from(proxyRes.data, 'binary');
-                contentType = 'image/webp';
-                extension = 'webp';
-            } catch (proxyErr) {
-                console.error(`Failed to download media for storage (direct: ${directErr.message}, noRef: ${noRefErr.message}, proxy: ${proxyErr.message})`);
-                return null;
-            }
-        }
-    }
-
-    if (!buffer) return null;
-
-    try {
-        const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(7)}.${extension}`;
-        const file = admin.storage().bucket().file(fileName);
-
-        const savePromise = file.save(buffer, {
-            metadata: { contentType },
-            public: true
-        });
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Firebase Storage Upload Timeout')), 30000));
-        await Promise.race([savePromise, timeoutPromise]);
-
-        return `https://firebasestorage.googleapis.com/v0/b/${admin.storage().bucket().name}/o/${encodeURIComponent(fileName)}?alt=media`;
-    } catch (error) {
-        console.error(`Failed to upload media to storage: ${error.message}`);
+    const fetched = (preFetched && preFetched.buffer) ? preFetched : await fetchValidatedImageBuffer(url, { timeout: 15000 });
+    if (!fetched) {
+        console.error(`Failed to download valid image for storage: ${url}`);
         return null;
     }
+    buffer = fetched.buffer;
+    contentType = fetched.contentType;
+    extension = fetched.extension;
+
+    for (let uploadAttempt = 0; uploadAttempt < 2; uploadAttempt++) {
+        try {
+            const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(7)}.${extension}`;
+            const file = admin.storage().bucket().file(fileName);
+
+            const savePromise = file.save(buffer, {
+                metadata: { contentType },
+                public: true
+            });
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Firebase Storage Upload Timeout')), 30000));
+            await Promise.race([savePromise, timeoutPromise]);
+
+            return `https://firebasestorage.googleapis.com/v0/b/${admin.storage().bucket().name}/o/${encodeURIComponent(fileName)}?alt=media`;
+        } catch (error) {
+            console.error(`Failed to upload media to storage (attempt ${uploadAttempt + 1}/2): ${error.message}`);
+            if (uploadAttempt === 0) {
+                await new Promise(r => setTimeout(r, 1500));
+            }
+        }
+    }
+    return null;
 }
 
 // ============================================================================
@@ -1895,50 +2021,153 @@ async function fetchHtmlOptimized(url) {
 // ============================================================================
 // GEMINI AI PROCESSING
 // ============================================================================
-async function processWithGemini(text, prompt, imageUrl = null, retries = 4) {
+function buildEditorialPrompt({
+    mode,
+    hasSubstantialSource,
+    sourceWords,
+    imageUrl = '',
+    authorDisplayName = '',
+    handleTag = '',
+    designation = '',
+    district = '',
+    isAggregator = false
+}) {
+    const isSocial = mode === 'social';
+    const contextHeader = isSocial
+        ? (isAggregator
+            ? `మూలం: స్వతంత్ర వార్తా నివేదిక (ఇది న్యూస్ అగ్రిగేటర్ పోస్ట్ — అగ్రిగేటర్/పోర్టల్ పేరును వార్తలో ఎక్కడా రాయకండి).
+ప్రాంతం: ${district || 'Andhra Pradesh / Telangana'}
+`
+            : `పోస్ట్ ఖాతా వివరాలు:
+- Post Author: ${authorDisplayName} (${handleTag})
+- కేటగిరీ / హోదా: ${designation || 'Political / Social Update'}
+- ప్రాంతం: ${district || 'Andhra Pradesh / Telangana'}
+`)
+        : `మూలం: వెబ్ ఆర్టికల్ (సైడ్ టిక్కర్లు, ప్రకటనలు, సంబంధం లేని లింకులు విస్మరించి ప్రధాన వార్తపైనే దృష్టి పెట్టండి; ఏ వెబ్‌సైట్/ఛానల్ పేరునూ వార్తలో రాయకండి).
+`;
+
+    const fullStoryRule = hasSubstantialSource
+        ? `- 'fullStoryTe' మరియు దానికి సరిపోయే 'fullStoryEn': ఉన్న వాస్తవాలకు తగ్గట్టు 2-4 స్పష్టమైన పేరాగ్రాఫ్‌లుగా (\\n\\n తో వేరుచేసి) రాయండి (1వ పేరా ప్రధాన సంఘటన & ప్రభావం, 2వ పేరా వివరాలు/అంకెలు/వ్యాఖ్యలు, 3-4వ పేరా నేపథ్యం/తదుపరి చర్యలు). పదాల కోసం ఒకే విషయాన్ని రిపీట్ చేయకండి; లేని వివరాలు లేదా కల్పిత ప్రతిపక్ష వ్యాఖ్యలు ఊహించకండి.`
+        : `- మూల సమాచారం స్వల్పంగా ఉంది (${sourceWords} పదాలు). లేని సమాచారాన్ని కల్పించకుండా 'fullStoryTe': "" మరియు 'fullStoryEn': "" గానే ఉంచి, 'contentTe' (50-65 పదాలు) మాత్రమే రాయండి.`;
+
+    const attributionRule = isSocial && !isAggregator
+        ? `- ఆల్ఫా న్యూస్ స్వంత శైలి & ఆపాదింపు: వార్త ఆల్ఫా న్యూస్ స్వయంగా రాసినట్లే సూటిగా ఉండాలి. రాజకీయ నాయకుడి స్వంత ప్రకటన/విమర్శ/ఆరోపణ అయితే ఆ నాయకుడికే ఆపాదించండి; వేరొకరి గురించి ట్వీట్ చేస్తే ఆ నాయకుడి స్పందనగా రాయండి; కోట్ ట్వీట్ అయితే మూల సంఘటన మరియు స్పందనను వేరు చేసి రాయండి; "— [Name]" కోట్ ఉంటే ఆ స్పీకర్‌కే ఆపాదించండి; ప్రెస్ నోట్/జీవో ఇమేజ్ ఉంటే అందులోని ముఖ్యాంశాలు, అంకెలు చదివి వార్తలో చేర్చండి.`
+        : `- ఆల్ఫా న్యూస్ స్వంత శైలి (ORIGINAL NEWSROOM VOICE): వార్త ఆల్ఫా న్యూస్ స్వయంగా రాసినట్లే ఉండాలి! సాధారణ సంఘటనలు (ప్రమాదాలు, రైలు ఆలస్యం, వర్షాలు, ప్రభుత్వ నిర్ణయాలు, పరీక్షలు) జరిగినట్లే నేరుగా రాయండి. ఏ ఇతర న్యూస్ పోర్టల్, ఛానల్ లేదా అగ్రిగేటర్ పేరును ('తెలుగు స్క్రైబ్ వెల్లడించింది', 'సమయం తెలిపింది', 'ఈనాడు పేర్కొంది', 'సోషల్ మీడియాలో వెల్లడైంది') ఎట్టిపరిస్థితుల్లోనూ రాయరాదు! కేవలం ఒక నాయకుడు లేదా అధికారి ప్రత్యక్షంగా చేసిన ఆరోపణ/విమర్శ/ప్రకటనను మాత్రమే ఆ వ్యక్తి/శాఖకు ఆపాదించండి.`;
+
+    return `మీరు ఆల్ఫా న్యూస్ (Alfa News) చీఫ్ ఎడిటర్. ఇచ్చిన సమాచారాన్ని మొబైల్ పాఠకుడు ఆసక్తిగా, సులభంగా చదువుకునే ప్రామాణిక తెలుగు వార్తగా మార్చి వ్యాలిడ్ JSON మాత్రమే ఇవ్వండి.
+
+${contextHeader}
+ప్రధాన నియమాలు:
+1. భాష, హెడ్‌లైన్ & సారాంశం (READER-FIRST):
+   - ఇన్‌పుట్ ఏ భాషలో ఉన్నా, ముందుగా స్వచ్ఛమైన తెలుగు లిపిలో (Unicode U+0C00-U+0C7F) 'headline' మరియు 'contentTe' రాయండి (ఇంగ్లీష్ వాక్యాలు, హిందీ/కన్నడ/ఉర్దూ లిపి ఉండకూడదు; అబ్రివియేషన్లు మాత్రమే అనుమతి: TDP, BRS, BJP, ₹).
+   - 'headline': పాఠకుడు 2 సెకన్లలో ఆగి చదివేలా 6 నుండి 10 పదాలలో ఒకే సరళమైన తెలుగు వాక్యం. అసలు సంఘటన, ప్రాంతం, అంకె లేదా ప్రజలపై ప్రభావాన్ని సూటిగా చెప్పండి (ఉదా: "విజయవాడ హైవేపై లారీ ఢీకొని ముగ్గురు మృతి", "రైతుల ఖాతాల్లోకి నేడే రూ. 5 వేలు జమ చేయనున్న ప్రభుత్వం"). కోలన్ (:), సెమీకోలన్ (;), కొటేషన్లు, "కీలక వ్యాఖ్యలు/సమీక్ష" లాంటి అస్పష్టత, "తీపి కబురు:/షాకింగ్:" లాంటి క్లీషేలు వద్దు.
+   - 'contentTe': 50 నుండి 65 పదాలలో ఒకే సింగిల్ పేరాగ్రాఫ్ (న్యూలైన్లు లేకుండా). మొదటి వాక్యంలోనే అసలు వార్త & ప్రజలపై ప్రభావం సూటిగా చెప్పండి ("ఫలానా చోట సమావేశం జరిగింది" వంటి పొడి ప్రారంభాలు వద్దు). వ్యక్తుల పేర్లు, ప్రాంతం, బడ్జెట్/అంకెలు స్పష్టంగా ఉండాలి.
+   - 'headlineEn' (6-10 words), 'contentEn' (50-65 words): మీరు రాసిన తెలుగు వార్తకు ఖచ్చితమైన ఇంగ్లీష్ అనువాదం.
+   ${fullStoryRule}
+
+2. నిష్పాక్షికత & సహజ తెలుగు:
+   - వాస్తవాల సమగ్రత: ఇన్‌పుట్‌లో ఉన్న అంకెలు, నిధులు, పేర్లు, ప్రదేశాలను ఖచ్చితంగా నిలుపుకోండి; లేని వాస్తవాలు లేదా కల్పిత వివాదాలను సృష్టించకండి.
+   - తీర్పులు/బిరుదులు నిషిద్ధం: మన ఛానెల్ స్వయంగా ఏ నాయకుడినీ పొగడకూడదు ("ప్రజల నాయకుడు", "పేదల పెన్నిధి") లేదా విమర్శలను మన తీర్పుగా రాయకూడదు.
+   ${attributionRule}
+   - సరళమైన వాడుక తెలుగు: ఇంగ్లీష్ నుండి మక్కికిమక్కి అనువాదం ("ఇది గమనించదగినది", "చోటుచేసుకుంది") కాకుండా, తెలుగు పాఠకుడు ఒక్క శ్వాసలో చదివే సరళమైన జర్నలిజం భాషలో రాయండి. సానుకూల వార్తల్లో "తీవ్రంగా స్పందించారు" వాడకండి. సహజ తెలుగు పదాలను ('పాత్రల్లో', 'గ్రామాల్లో', 'ఇంట్లో', 'రోడ్డుపై', 'కోర్టులో') విడదీయకండి.
+
+3. ఎడిటోరియల్ ఫిల్టర్ ('isRelevant'):
+   - isRelevant = false: వార్తా విలువ లేని స్వీయ ప్రచారం/నాయకుల భజన/పీఆర్ రీల్స్, కేవలం పోస్టర్ ఆవిష్కరణలు/పుష్పగుచ్ఛాల ఫోటో-ఆప్స్, వ్యక్తిగత పుట్టినరోజు శుభాకాంక్షలు, బూతులు/ట్రోల్ మీమ్స్, కమర్షియల్ ప్రకటనలు, రాశిఫలాలు.
+   - isRelevant = true: ప్రభుత్వ నిర్ణయాలు, సంక్షేమ పథకాలు, బడ్జెట్, అభివృద్ధి పనులు, నిర్దిష్ట రాజకీయ ప్రకటనలు/ప్రెస్ మీట్లు, ప్రజా సమస్యలు, ప్రమాదాలు, నేరాలు, క్రీడలు, సినిమా, విద్య/ఉద్యోగాలు.
+
+4. ఫోటో లోగో/వాటర్‌మార్క్ దృశ్య పరిశీలన (STRICT VISUAL CHECK ONLY):
+   - జతచేసిన చిత్రం (attached image) ఉన్నప్పుడు మాత్రమే దాని పిక్సెల్స్ పరిశీలించండి. చిత్రం జతచేయబడకపోతే ఎప్పుడూ "hasLogo": false ఇవ్వండి (URL చూసి ఊహించకండి).
+   - "hasLogo": true ఎప్పుడు ఇవ్వాలి: చిత్రంపై ఎక్కడైనా న్యూస్ ఛానల్ లోగో, వెబ్‌సైట్ URL/క్రెడిట్ టెక్స్ట్ (ఉదా: "Source: ...", ".com", TV9, NTV, Samayam, Eenadu, Sakshi, ABN, Telugu Scribe), టీవీ న్యూస్ టిక్కర్ బార్, ఎడిట్ చేసిన ఎర్ర వృత్తాలు/బాణాలు (red circle/arrow overlays) లేదా థంబ్‌నెయిల్ టెక్స్ట్ బ్యానర్ ఉంటే ఖచ్చితంగా "hasLogo": true ఇవ్వండి!
+   - "hasLogo": false ఎప్పుడు ఇవ్వాలి: క్లీన్ అసలు ఫోటో (మనుషులు, నాయకులు, రైళ్లు, రోడ్లు, భవనాలు, అధికారిక ప్రెస్ నోట్/జీవో) అయితే — బ్యాక్‌గ్రౌండ్‌లో సహజంగా ఉన్న ప్రభుత్వ ఫ్లెక్సీ/షాప్ బోర్డు వల్ల తప్పుగా తిరస్కరించకుండా "hasLogo": false ఇవ్వండి!
+
+5. మెటాడేటా & స్కోర్:
+   - location: AP/TS జిల్లా లేదా మండలం పేరు.
+   - refinedCategory: [Politics, Crime, Sports, Cinema, Business, Health, Education, Technology, Agriculture, Local, National, International] లో ఒకటి మాత్రమే.
+   - storyFingerprint: 3-4 English words joined by hyphens (e.g. ap-farmer-aid-released).
+   - qualityScore (0.0-10.0): 9-10 major policy/public impact/disaster/top leader news; 6-8 standard news; 1-4 filler/gossip.
+
+JSON అవుట్‌పుట్ (Strict JSON only):
+{"isRelevant": true, "qualityScore": 8.0, "headline": "6-10 పదాల నిర్దిష్టమైన సహజ తెలుగు శీర్షిక", "contentTe": "50-65 పదాల తెలుగు వార్త (మొదటి వాక్యంలోనే ప్రధాన వార్త, ఒకే పేరా)", "fullStoryTe": "${hasSubstantialSource ? "2-4 పేరాగ్రాఫ్‌ల పూర్తి తెలుగు వార్త (\\\\n\\\\n తో, రిపీట్ లేకుండా)" : ""}", "headlineEn": "6-10 word English headline", "contentEn": "50-65 word English summary", "fullStoryEn": "${hasSubstantialSource ? "2-4 paragraph English full story (\\\\n\\\\n)" : ""}", "location": "Location", "storyFingerprint": "short-english-slug", "refinedCategory": "Category", "tags": [], "entities": {"people": [], "organizations": [], "locations": []}, "hasLogo": false, "mediaUrl": "${imageUrl}", "mediaType": "image", "isWide": false}`;
+}
+
+function parseAIJson(text) {
+    if (!text || typeof text !== 'string') {
+        throw new Error('Empty AI JSON response');
+    }
+    let cleanText = text.trim();
+
+    // 1. Strip markdown code fences if present
+    if (cleanText.includes('```')) {
+        const match = cleanText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+        if (match && match[1]) {
+            cleanText = match[1].trim();
+        } else {
+            cleanText = cleanText.replace(/```json|```/g, '').trim();
+        }
+    }
+
+    // 2. Extract JSON object bounds if preamble/postamble text exists
+    const firstBrace = cleanText.indexOf('{');
+    const lastBrace = cleanText.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        cleanText = cleanText.substring(firstBrace, lastBrace + 1);
+    }
+
+    return JSON.parse(cleanText);
+}
+
+async function checkImageCleanWithGemini(imageUrl) {
+    if (!imageUrl || geminiKeys.length === 0) return { ok: false, hasLogo: true, fetched: null };
+    const fetched = await fetchValidatedImageBuffer(imageUrl, { maxWidth: 1024, timeout: 10000 });
+    if (!fetched) return { ok: false, hasLogo: false, fetched: null };
+
+    const checkPrompt = `Inspect this photograph strictly for overlaid media branding or edited graphics.
+Return JSON only: {"hasLogo": true|false, "isWide": true|false}
+- Set hasLogo = true ONLY if there is an overlaid TV channel logo, website URL/credit watermark (e.g. "Source: ...", ".com", TV9, NTV, Samayam, Eenadu, Sakshi, ABN, Telugu Scribe), TV news ticker bar, or edited red circle/arrow/text banner overlay.
+- Set hasLogo = false for a clean real photograph (do NOT reject natural real-world signs or stage banners in the background).`;
+
+    const result = await processWithGemini("Check image", checkPrompt, null, 2, fetched);
+    if (!result) return { ok: true, hasLogo: false, fetched };
+    try {
+        const parsed = parseAIJson(result);
+        return { ok: true, hasLogo: parsed.hasLogo === true, isWide: parsed.isWide === true, fetched };
+    } catch (e) {
+        return { ok: true, hasLogo: false, fetched };
+    }
+}
+
+async function processWithGemini(text, prompt, imageUrl = null, retries = 4, preFetchedImage = null) {
     if (geminiKeys.length === 0) {
         console.error("No Gemini API keys configured. Cannot process.");
         return null;
     }
 
-    const truncatedText = text ? text.substring(0, 2500) : "";
-    if (truncatedText.length < 25) return null;
+    const truncatedText = text ? text.substring(0, 4500) : "";
+    if (truncatedText.length < 5) return null;
 
     let imagePart = null;
-    if (imageUrl && !isGenericImage(imageUrl)) {
-        try {
-            let imgReferer = 'https://www.google.com/';
-            try {
-                const parsedImgUrl = new URL(imageUrl);
-                if (parsedImgUrl.hostname.includes('eenadu.net')) imgReferer = 'https://www.eenadu.net/';
-                else if (parsedImgUrl.hostname.includes('sakshi.com')) imgReferer = 'https://www.sakshi.com/';
-                else imgReferer = `${parsedImgUrl.protocol}//${parsedImgUrl.hostname}/`;
-            } catch (e) {}
-
-            const imgRes = await axios.get(imageUrl, { 
-                responseType: 'arraybuffer', 
-                timeout: 10000,
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                    'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-                    'Referer': imgReferer
+    if (preFetchedImage && preFetchedImage.buffer) {
+        imagePart = {
+            inlineData: {
+                mimeType: preFetchedImage.contentType || 'image/jpeg',
+                data: preFetchedImage.buffer.toString('base64')
+            }
+        };
+    } else if (imageUrl && !isGenericImage(imageUrl)) {
+        const fetched = await fetchValidatedImageBuffer(imageUrl, { maxWidth: 1024, timeout: 12000 });
+        if (fetched) {
+            imagePart = {
+                inlineData: {
+                    mimeType: fetched.contentType,
+                    data: fetched.buffer.toString('base64')
                 }
-            });
-            let mimeType = imgRes.headers['content-type'] || 'image/jpeg';
-            if (mimeType.includes('image/webp')) mimeType = 'image/webp';
-            else if (mimeType.includes('image/png')) mimeType = 'image/png';
-            else mimeType = 'image/jpeg';
-            
-            imagePart = { 
-                inlineData: { 
-                    mimeType: mimeType, 
-                    data: Buffer.from(imgRes.data, 'binary').toString('base64') 
-                } 
             };
-        } catch (e) {
-            // Image fetch error is non-fatal; proceed with text
         }
     }
+
+    const imageStatusNote = imagePart
+        ? "\n[IMAGE ATTACHED: Visually inspect the attached image for overlaid logos, website URLs/watermarks like 'Source: ...', red arrows/circles, or news banners and set hasLogo accurately.]"
+        : "\n[NO IMAGE ATTACHED: Set hasLogo to false.]";
 
     const maxAttempts = Math.max(geminiKeys.length * 2, 6);
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -1964,13 +2193,14 @@ async function processWithGemini(text, prompt, imageUrl = null, retries = 4) {
             
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent?key=${currentKey}`;
             
-            const parts = [{ text: `${prompt}\n\nText:\n${truncatedText}` }];
+            const parts = [{ text: `${prompt}${imageStatusNote}\n\nText:\n${truncatedText}` }];
             if (imagePart) parts.push(imagePart);
 
             const payload = {
                 contents: [{ parts }],
                 generationConfig: {
-                    temperature: 0.6
+                    temperature: 0.35,
+                    responseMimeType: "application/json"
                 }
             };
 
@@ -2078,7 +2308,7 @@ async function isUrlAlreadyScanned(urls) {
         const batch = urlsToQuery.slice(i, i + 10);
         const batchUrls = [...new Set(batch.map(b => b.clean).concat(batch.map(b => b.raw)))];
         try {
-            const snapshot = await db.collection('news').where('sourceUrl', 'in', batchUrls).get();
+            const snapshot = await db.collection('news').where('sourceUrl', 'in', batchUrls).limit(20).get();
             snapshot.forEach(doc => {
                 const sUrl = doc.data().sourceUrl;
                 if (sUrl) {
@@ -2099,7 +2329,7 @@ async function isUrlAlreadyScanned(urls) {
         const batch = urlsToQuery.slice(i, i + 10);
         const batchUrls = [...new Set(batch.map(b => b.clean).concat(batch.map(b => b.raw)))];
         try {
-            const snapshot = await db.collection('scanned_urls').where('url', 'in', batchUrls).get();
+            const snapshot = await db.collection('scanned_urls').where('url', 'in', batchUrls).limit(20).get();
             snapshot.forEach(doc => {
                 const sUrl = doc.data().url;
                 if (sUrl) {
@@ -2171,7 +2401,7 @@ const PURE_GLOBAL_CATEGORIES = [
 
 const DISTRICT_MAPPING = [
     // --- ANDHRA PRADESH DISTRICTS ---
-    { canonical: "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు", state: "AP", keywords: ["nellore", "నెల్లూరు", "spsr", "కావలి", "kavali", "కోవూరు", "kovur", "కందుకూరు", "kandukur", "గూడూరు", "gudur", "ఆత్మకూరు", "atmakur", "ఉదయగిరి", "udayagiri", "బుచ్చిరెడ్డిపాలెం", "వెంకటాచలం"] },
+    { canonical: "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు", state: "AP", keywords: ["nellore", "నెల్లూరు", "spsr", "సర్వేపల్లి", "sarvepalli", "కావలి", "kavali", "కోవూరు", "kovur", "కందుకూరు", "kandukur", "గూడూరు", "gudur", "ఆత్మకూరు", "atmakur", "ఉదయగిరి", "udayagiri", "బుచ్చిరెడ్డిపాలెం", "వెంకటాచలం", "పొదలకూరు", "podalakur", "ఇందుకూరుపేట"] },
     { canonical: "అల్లూరి సీతారామరాజు", state: "AP", keywords: ["alluri", "asr district", "అల్లూరి", "సీతారామరాజు", "పాడేరు", "paderu", "అరకు", "araku", "రంపచోడవరం", "rampachodavaram", "చింతపల్లి"] },
     { canonical: "అనకాపల్లి", state: "AP", keywords: ["anakapalli", "anakapalle", "అనకాపల్లి", "నర్సీపట్నం", "narsipatnam", "చోడవరం", "chodavaram", "దేవరాపల్లి", "బుచ్చయ్యపేట"] },
     { canonical: "అనంతపురం", state: "AP", keywords: ["anantapur", "ananthapur", "anantapuramu", "అనంతపురం", "అనంతపురము", "రాప్తాడు", "raptadu", "గుంతకల్లు", "guntakal", "తాడిపత్రి", "tadipatri"] },
@@ -2340,183 +2570,40 @@ async function processSingleWebSource(doc) {
                 const sourceWords = rawBodyText.split(/\s+/).filter(Boolean).length;
                 const hasSubstantialSource = sourceWords >= 45;
 
-                const prompt = `మీరు ఆల్ఫా న్యూస్ (Alfa News - తెలుగు ప్రముఖ హైపర్-లోకల్ న్యూస్ నెట్‌వర్క్) కు చీఫ్ ఎడిటర్ మరియు సీనియర్ జర్నలిస్ట్.
-వెబ్ కథనాల నుండి సేకరించిన సమాచారాన్ని ప్రజలను ఆకట్టుకునేలా, జర్నలిస్టిక్ విలువలతో, నిర్దిష్టమైన భావోద్వేగాలతో కూడిన ప్రామాణిక తెలుగు వార్తగా తీర్చిదిద్దడం మీ బాధ్యత.
+                // Pre-fetch the best downloadable article image ONCE (reused for Gemini Vision + Firebase Storage upload)
+                let activePrimaryImageUrl = extracted.image || null;
+                let preFetchedPrimaryImage = null;
+                const primaryImageCandidates = (extracted.images && extracted.images.length > 0)
+                    ? extracted.images
+                    : (extracted.image ? [extracted.image] : []);
+                for (const imgCandidate of primaryImageCandidates.slice(0, 3)) {
+                    if (!imgCandidate || isGenericImage(imgCandidate)) continue;
+                    const fetched = await fetchValidatedImageBuffer(imgCandidate, { maxWidth: 1024, timeout: 12000 });
+                    if (fetched) {
+                        activePrimaryImageUrl = imgCandidate;
+                        preFetchedPrimaryImage = fetched;
+                        break;
+                    }
+                }
 
-ముఖ్యమైన నిబంధనలు (CRITICAL EDITORIAL RULES):
+                const prompt = buildEditorialPrompt({
+                    mode: 'web',
+                    hasSubstantialSource,
+                    sourceWords,
+                    imageUrl: activePrimaryImageUrl || ''
+                });
 
-0. 🎯 అత్యున్నత ప్రాథమిక సూత్రం & ప్రాసెసింగ్ క్రమం (FOUNDATIONAL BASE RULE - 60 TELUGU WORDS FIRST, THEN ENGLISH):
-   ఇన్‌పుట్ వెబ్ కథనం/ఆర్టికల్ ఏ భాషలో ఉన్నప్పటికీ (ఇంగ్లీష్, తెలుగు, లేదా ఇతర ఏ భాషలో ఉన్నా సరే):
-   - దశ 1 (ముందుగా తెలుగు వార్త - STEP 1: PURE TELUGU NEWS FIRST):
-     * ఇన్‌పుట్ కథనం ఏ భాషలో ఉన్నా, అందులోని వాస్తవాలను, ప్రధాన సంఘటనను మాత్రమే ఆధారం చేసుకొని, ముందుగా 100% స్వచ్ఛమైన తెలుగు లిపిలో (Unicode U+0C00-U+0C7F) కచ్చితంగా 52 నుండి 60 పదాల (కనీసం 52 పదాలు, గరిష్టంగా 60 పదాలు) ప్రామాణిక జర్నలిస్టిక్ వార్తను రూపొందించాలి ('contentTe').
-     * అలాగే శీర్షికను కూడా ముందుగా స్వచ్ఛమైన తెలుగులోనే కచ్చితంగా 8 నుండి 10 పదాల (కనీసం 8 పదాలు, గరిష్టంగా 10 పదాలు) ఆకర్షణీయమైన, జర్నలిస్టిక్ పంచ్ శీర్షికగా రాయాలి ('headline').
-     * ⚠️ అత్యంత కఠిన నిబంధన: 'contentTe' మరియు 'headline' లలో ఒక్క ఇంగ్లీష్ వాక్యం లేదా పదం కూడా ఉండకూడదు! ఇన్‌పుట్ మొత్తం ఇంగ్లీష్ లో ఉన్నప్పటికీ, దానిని పూర్తిగా స్వచ్ఛమైన తెలుగు వార్తగా మార్చాలి.
-   - దశ 2 (తెలుగు వార్త ఆధారంగా ఇంగ్లీష్ అనువాదం - STEP 2: TRANSLATE TELUGU NEWS TO ENGLISH):
-     * మీరు దశ 1 లో రాసిన 'contentTe' (తెలుగు వార్త) ని మాత్రమే ఆధారంగా చేసుకుని, దానిని స్పష్టమైన ఇంగ్లీష్ వార్తా సారాంశంగా ('contentEn', 50-60 పదాలు) అనువదించి రాయాలి!
-     * అలాగే దశ 1 లో రాసిన 'headline' (తెలుగు శీర్షిక) ఆధారంగానే ఇంగ్లీష్ శీర్షిక ('headlineEn', 8-10 words) రాయాలి.
-     * ఇంగ్లీష్ ఫీల్డ్‌లు కేవలం ఆ తెలుగు వార్తకు ఖచ్చితమైన అనువాదం మాత్రమే!
-
-1. ఏకైక ప్రధాన అంశంపై దృష్టి & ఎడిటోరియల్ తిరస్కరణలు (PRIMARY CORE INCIDENT & EDITORIAL REJECTIONS):
-   - వెబ్ ఆర్టికల్ టెక్స్ట్ లో సైడ్ టిక్కర్లు, సంబంధం లేని ఇతర లింకులు, ప్రకటనలు ఉండవచ్చు. వాటిని పూర్తిగా విస్మరించి, ప్రధాన వార్తాంశంపై మాత్రమే దృష్టి పెట్టండి.
-   - తిరస్కరణలు (isRelevant: false - సున్నా వార్తా విలువ / ప్రజోపయోగం లేనివి):
-     * 🛑 స్వీయ ప్రచారం, భజన, సొంత డబ్బా, నాయకుల పొగడ్తలు, పీఆర్ ఆర్టికల్స్ (SELF-PRAISE, LEADER GLORIFICATION & SYCOPHANCY): ఏ నాయకుడి గురించైనా లేదా పార్టీ గురించైనా కేవలం పొగడ్తలు, ప్రశంసలు, భజన చేసే ఆర్టికల్స్ వార్తలు కావు. ఇందులో ప్రజలకు ఉపయోగపడే పాలసీ లేదా ప్రయోజనం ఏమీ ఉండదు. ఖచ్చితంగా తిరస్కరించాలి (isRelevant: false).
-     * 🛑 రొటీన్ ఫోటో-ఆప్స్, సాధారణ సమీక్షలు, పుస్తక/పోస్టర్ ఆవిష్కరణలు (ROUTINE PHOTO-OPS & CASUAL MEETINGS - ZERO NEWS VALUE): ప్రజా ప్రయోజనం, కొత్త పాలసీ లేదా బడ్జెట్ కేటాయింపులు ఏమీ లేకుండా కేవలం కలెక్టర్ లేదా ప్రజాప్రతినిధి ఒక పోస్టర్‌ను ఆవిష్కరించడం, సాధారణ పరిచయ సమీక్ష నిర్వహించడం, పుష్పగుచ్ఛాలు ఇవ్వడం, కేవలం జ్యోతి ప్రజ్వలనలు వంటివి వార్తలు కావు! ఖచ్చితంగా తిరస్కరించాలి (isRelevant: false).
-     * సాధారణ బ్లాగ్ పోస్టులు, నిత్య జీవిత సలహాలు, రాశిఫలాలు, వ్యక్తిగత పుట్టినరోజు పోస్టులు వార్తలు కావు (isRelevant: false).
-   - ఆమోదం (isRelevant: true): ప్రభుత్వ నిర్ణయాలు, కొత్త సంక్షేమ పథకాలు, అభివృద్ధి ప్రాజెక్టులు, బడ్జెట్, నిర్దిష్ట రాజకీయ విమర్శలు/ప్రెస్ మీట్లు, ప్రజా సమస్యలు, ప్రమాదాలు, నేరాలు మాత్రమే వార్తలు.
-
-2. సారాంశం (STRICT 52 TO 60 TELUGU WORDS, MINIMUM 52 WORDS, ఒకే ఒక్క సింగిల్ పేరాగ్రాఫ్):
-   - 'contentTe': వార్త మొత్తం కచ్చితంగా 52 నుండి 60 పదాల మధ్య మాత్రమే (కనీసం 52 పదాలు, గరిష్టంగా 60 పదాలు) ఉండాలి.
-   - కచ్చితంగా ఒకే ఒక్క నిరంతర పేరాగ్రాఫ్ గా రాయాలి (No multiple paragraphs, no newlines \n).
-   - వార్త యొక్క పూర్తి మూల భావం (భావం), మాట్లాడిన వారి ఆవేశం, ఆగ్రహం, ఆవేదన లేదా ప్రజా సమస్య తీవ్రతను యథాతథంగా ప్రతిబింబించాలి.
-   - మొదటి వాక్యంగా మాట్లాడిన వారి పేరు, పదవి లేదా పోస్ట్ రచయిత వివరాలు తప్పనిసరిగా ఉండాలి ("...అని ముఖ్యమంత్రి వెల్లడించారు", "...అని అధికారులు తెలిపారు").
-   - ముఖ్యమైన వ్యక్తుల పేర్లు, ఊరు/మండలం/జిల్లా పేర్లు తప్పక ఉండాలి. ఎట్టిపరిస్థితుల్లోనూ పేర్లు లేదా ప్రాంతాలను విడిచిపెట్టరాదు!
-
-3. పూర్తి వార్తా కథన నిబంధన (FULL STORY RULES - మూల సమాచారం ఆధారంగా):
-${hasSubstantialSource ? `   - 'fullStoryTe': మూల కథనంలో తగినంత సమాచారం (${sourceWords} పదాలు, 120+ కంటే ఎక్కువ) ఉంది కాబట్టి, సీనియర్ ఎడిటర్ శైలిలో 3 నుండి 4 విడివిడి పేరాగ్రాఫ్‌లలో (\\n\\n తో) పూర్తి కథనం రాయాలి.
-   - 3-4 విడివిడి పేరాగ్రాఫ్‌లు తప్పనిసరి (STRICTLY 3-4 PARAGRAPHS SEPARATED BY \\n\\n):
-     * ❌ ఒకే ముద్దగా (single clump) రాయడం పూర్తిగా నిషిద్ధం!
-     * ✅ కథనాన్ని స్పష్టంగా 3 నుండి 4 పేరాగ్రాఫ్‌లుగా విభజించాలి. ప్రతి పేరాగ్రాఫ్‌ మధ్య రెండు న్యూలైన్‌లు (\\n\\n) తప్పనిసరిగా ఉండాలి.
-     * 1వ పేరా (ఆసక్తికర హుక్ & మూల సంఘటన - ~60-80 పదాలు): పాఠకుడిని వెంటనే కట్టిపడేసే ఓపెనింగ్, ప్రధాన సంఘటన/కీలక ప్రకటన/ఘాటైన పంచ్ డైలాగ్, మాట్లాడిన వ్యక్తికి స్పష్టమైన ఆపాదింపు.
-     * 2వ పేరా (నేపథ్యం, సంఖ్యలు & పూర్వాపరాలు - ~80-100 పదాలు): సంఘటన లేదా నిర్ణయం నేపథ్యం, గణాంకాలు, కేటాయింపులు, చారిత్రక లేదా గత పరిణామాలు.
-     * 3వ పేరా (360° సమతుల్యత & ప్రత్యర్థి వాదన / క్షేత్రస్థాయి వాస్తవాలు - ~70-90 పదాలు): రాజకీయ విమర్శల వార్త అయితే ఎదుటి పక్షం/ప్రతిపక్షం వివరణ, వారి సమర్థన లేదా ఆరోపణలను తిప్పికొట్టిన విధానం; ప్రభుత్వ పథకమైతే క్షేత్రస్థాయి సవాళ్లు లేదా ప్రజా సమస్య తీవ్రత.
-     * 4వ పేరా (తాజా పరిస్థితి & భవిష్యత్ పరిణామాలు - ~50-70 పదాలు): ప్రస్తుత పరిస్థితి, అధికారులు చేపట్టిన లేదా చేపట్టాల్సిన చర్యలు, తదుపరి పరిణామాలు లేదా ప్రజల డిమాండ్లు.
-   - నిబంధనలు:
-     * కల్పితాలు వద్దు (NO HALLUCINATIONS): మూల సమాచారంలో లేని వివరాలను ఊహించవద్దు. ఉన్న సమాచారాన్నే లోతైన జర్నలిజం భాషలో, సమగ్రమైన పేరాగ్రాఫ్‌లుగా రాయండి.
-     * వాస్తవాల రక్షణ: వ్యక్తుల పేర్లు, సంస్థలు, ప్రాంతాలు, పదవులు, తేదీలు, అంకెలను ఎట్టిపరిస్థితుల్లోనూ మార్చవద్దు, మిస్ చేయవద్దు.
-   - 'fullStoryEn': English Full Story across 3-4 paragraphs separated by \\n\\n.` : `   - మూల కథనం చిన్నదిగా ఉంది (${sourceWords} పదాలు, 120 పదాల లోపే). దీనిపై ఊహించుకుని, అదనపు వివరాలు కల్పించి లేదా పొడిగించి రాయవలసిన అవసరం ఏమాత్రం లేదు (NO HALLUCINATIONS)!
-   - అందువల్ల 'fullStoryTe': "" (పూర్తి ఖాళీ స్ట్రింగ్) గానే ఉంచాలి.
-   - అలాగే 'fullStoryEn': "" (పూర్తి ఖాళీ స్ట్రింగ్) గానే ఉంచాలి.
-   - కార్డు కోసం 'contentTe' (52-60 పదాలు, కనీసం 52 పదాలు, ఒకే పేరా) మాత్రమే స్పష్టంగా రాస్తే సరిపోతుంది.`}
-
-4. 🌟 ఆసక్తికర ప్రారంభం & నాన్‌-బోరింగ్ హుక్ (IMPACT-FIRST READER ENGAGEMENT):
-   - రొటీన్, యాంత్రికమైన బోరింగ్ ప్రారంభాలు పూర్తిగా నిషిద్ధం! (ఉదా: "ఫలానా చోట సమావేశం జరిగింది", "ఫలానా నేత మాట్లాడారు", "ఫలానా విషయాన్ని వెల్లడించారు" అని నీరసంగా మొదలుపెట్టరాదు).
-   - ప్రారంభ వాక్యమే పాఠకుడిని కట్టిపడేసేలా (Gripping Hook) అసలు ఏమి జరిగింది? ప్రజలపై దాని ప్రభావం ఏమిటి? ఆ ప్రకటన వెనుక ఉన్న తీవ్ర సంచలనం లేదా వివాదం ఏమిటి? అనే కీలక అంశంతో సూటిగా ప్రారంభం కావాలి.
-
-5. ⚖️ 360° సమతుల్యత & అందరి వాయిస్ (CONTEXTUAL MULTI-VOICE BALANCE & STRICT NEUTRALITY):
-   - ఆల్ఫా న్యూస్ నిష్పాక్షిక వార్తా సంస్థ. మన ఛానెల్ ఎవరి పక్షానా నిలబడదు. ఏ ఒక్క పక్షం ప్రచారానికో లేదా ఏకపక్ష ఆరోపణలకో పరిమితం కాకుండా అందరి గొంతులనూ (All Voices) నిష్పాక్షికంగా వినిపించాలి.
-   - ⚠️ సందర్భోచిత సమతుల్యత నిబంధన (CRITICAL APPLICABILITY):
-     * ✅ రాజకీయ విమర్శలు, సవాళ్లు, ఆరోపణలు, వివాదాస్పద అంశాల వార్తలకు మాత్రమే: 3వ పేరాలో తప్పనిసరిగా ఎదుటి పక్షం/ప్రతిపక్షం యొక్క వివరణ, వారి సమర్థన లేదా ప్రభుత్వం/అధికారుల వివరణను చేర్చి సమతుల్యతను తీసుకురావాలి.
-     * 🛑 వివాద రహిత అధికారిక వార్తలు (NO ARTIFICIAL DISPUTES): ప్రభుత్వ అధికారిక సంక్షేమ నిధుల విడుదల (రైతు భరోసా, పింఛన్లు), ఉద్యోగ నోటిఫికేషన్లు (డీఎస్సీ, గ్రూప్స్), అభివృద్ధి పనుల శంకుస్థాపనలు, క్రీడా విజయాలు, సహజ విపత్తులు/ప్రమాదాలు, లేదా సంతాప సందేశాలకు బలవంతంగా కృత్రిమ రాజకీయ వివాదాన్ని లేదా సంబంధం లేని విమర్శలను సృష్టించడం పూర్తిగా నిషిద్ధం! అటువంటి వాటికి ఆ పథకం లబ్ధి లేదా క్షేత్రస్థాయి వాస్తవాలనే 3వ పేరాలో నిష్పాక్షికంగా రాయాలి.
-
-5.1 🛡️ మీడియా మాఫియా పక్షపాత రక్షణ కవచం & హార్డ్ రికార్డులు (PARTISAN MEDIA BIAS SHIELD & HARD DATA ONLY):
-   - తెలుగు రాష్ట్రాల్లోని ప్రధాన మీడియా వర్గాలు (ఈనాడు, ఆంధ్రజ్యోతి/ABN, టీవీ5, సాక్షి మొదలైనవి) తీవ్ర రాజకీయ పక్షపాతంతో, ఒక వర్గానికి అనుకూలంగా కథనాలను పదేపదే ప్రచారం చేస్తాయి.
-   - గూగుల్ సెర్చ్ లేదా ఇంటర్నెట్‌లో ఒక పక్షం ఆరోపణలు ఎన్ని వేల వెబ్‌సైట్లలో కనిపించినా, వాటిని నిర్ధారిత సత్యాలుగా (Established Facts) భావించరాదు!
-   - హార్డ్ రికార్డులు మాత్రమే ఫ్యాక్ట్స్: ప్రభుత్వ జీవోలు (GOs), గెజిట్లు, బడ్జెట్ అంకెలు, కోర్టు ఆదేశాలు, ఈడీ/సిట్ ఎఫ్‌ఐఆర్ కాపీలు, ఎన్నికల సంఘం ఉత్తర్వులను మాత్రమే వాస్తవాలుగా పరిగణించాలి.
-   - పక్షపాత విశేషణాల బహిష్కరణ: "చరిత్రలోనే అతిపెద్ద స్కామ్", "ప్రజాగ్రహం కట్టలు తెంచుకుంది", "కుదేలైన సర్కార్", "నిలువునా ముంచేశారు" వంటి రాజకీయ అజెండా విశేషణాలను కథనంలో వాడరాదు.
-   - ద్వైపాక్షిక సమతుల్యత: మీడియాలో ఒక వర్గం ఆరోపణ ఎంత బలంగా ఉన్నా, 3వ పేరాలో తప్పనిసరిగా ఎదుటి పక్షం/ప్రభుత్వం/బాధితుల వివరణను లేదా కౌంటర్ వాదనను సమాన ప్రాధాన్యతతో చేర్చాలి. ఆల్ఫా న్యూస్ ఎవరికీ క్లీన్ చిట్ ఇవ్వదు, ఎవరినీ దోషిగా తేల్చదు.
-
-6. 🔥 వార్తా రస రక్షణ & భావోద్వేగ తీవ్రత (TONE & EMOTIONAL INTENSITY FIDELITY):
-   - వార్తలోని వాస్తవ రసాన్ని, తీవ్రతను, మూల భావోద్వేగాన్ని (Tone & Intensity) యథాతథంగా కాపాడాలి. వార్తను చప్పగా లేదా నిర్జీవంగా మార్చరాదు.
-   - రాజకీయ సవాళ్లు/పోరాటాల్లో ఆ వాడి, వేడి, ఘాటు అలాగే ఉండాలి.
-   - రైతుల కష్టాలు, పేదల ఆవేదన, బాధితుల గోడులో కరుణ రసం, వారి గుండెకోత, కన్నీటి వ్యథ ప్రతిధ్వనించాలి.
-   - ప్రమాదాలు, ప్రకృతి విపత్తుల్లో గంభీరమైన వాస్తవికత, ప్రాణనష్టం, క్షతగాత్రుల పరిస్థితి తీవ్రతను నిక్కచ్చిగా తెలపాలి.
-   - అవినీతి, మోసాలు, నేరాల్లో పదునైన పరిశోధనా శైలి ఉండాలి.
-
-7. ⚡ సజీవ జర్నలిస్టిక్ క్రియా పదాలు (DYNAMIC ACTION VERBS - BAN MONOTONY):
-   - ప్రతి వాక్యానికీ "అన్నారు... తెలిపారు... పేర్కొన్నారు" వంటి రొటీన్, యాంత్రిక క్రియా పదాలను పదేపదే వాడటం పూర్తిగా నిషిద్ధం!
-   - సందర్భానికి తగిన శక్తివంతమైన తెలుగు క్రియా పదాలను వాడాలి:
-     * ఘాటైన ఆరోపణలు/పోరాటం: "ధ్వజమెత్తారు", "నిలదీశారు", "తీవ్రస్థాయిలో విరుచుకుపడ్డారు", "మండిపడ్డారు", "ఆగ్రహం వ్యక్తం చేశారు".
-     * కరాఖండి నిర్ణయాలు/హెచ్చరికలు: "తేల్చిచెప్పారు", "హెచ్చరించారు", "స్పష్టం చేశారు", "సవాల్ విసిరారు", "ఖరాఖండీగా ప్రకటించారు".
-     * రైతాంగం/బాధితుల వేదన: "ఆవేదన వ్యక్తం చేశారు", "కన్నీటిపర్యంతమయ్యారు", "గోడు వెళ్లబోసుకున్నారు", "వాపోయారు".
-     * అధికారిక వివరణలు/రక్షణ: "స్పందించారు", "వివరణ ఇచ్చారు", "సమర్థించుకున్నారు", "స్పష్టతనిచ్చారు", "హామీ ఇచ్చారు".
-     * ప్రశంసలు / అభినందనలు / సానుకూల పరిణామాలు (PRAISE, CONGRATULATIONS & POSITIVE SENTIMENT):
-       - "ప్రశంసల వర్షం కురిపించారు", "హర్షం వ్యక్తం చేశారు", "ముక్తకంఠంతో అభినందించారు", "విశేషంగా స్పందించారు", "స్వాగతించారు", "జైకొట్టారు".
-       - 🛑 కఠిన నిషేధం (NO "తీవ్రంగా స్పందించారు" IN POSITIVE CONTEXT): ప్రశంసలు, అభినందనలు, విజయాలు, శుభపరిణామాల వార్తల్లో 'తీవ్రంగా స్పందిస్తూ' లేదా 'తీవ్రంగా స్పందించారు' అని ఎట్టిపరిస్థితుల్లోనూ రాయరాదు! తెలుగులో 'తీవ్రంగా స్పందించడం' అనేది కేవలం కోపం, నిరసన, ఆగ్రహం, ఖండన లేదా వివాదాస్పద ఘర్షణల సందర్భంలో మాత్రమే వాడాలి.
-
-8. ⚠️ ఆపాదింపు నిబంధన - కథనం బాడీలోనే తప్పనిసరి (MANDATORY ATTRIBUTION IN BODY - ZERO EDITORIAL VERDICTS):
-   - ఆల్ఫా న్యూస్ నిష్పాక్షిక వార్తా సంస్థ. ఏ రాజకీయ నాయకుడిపై ప్రశంసలను గానీ, విమర్శలను గానీ మన ఛానెల్ స్వయంగా ఇచ్చినట్లు, ధ్రువీకరించినట్లు లేదా తీర్పు ఇచ్చినట్లు ఎప్పుడూ రాయరాదు!
-   - ❌ పొగడ్తలు/బిరుదుల తీర్పులు పూర్తిగా నిషిద్ధం (ZERO EDITORIAL TITLES / FLATTERY): "ప్రజల పక్షాన నిలిచి పోరాడే నాయకురాలు ఫలానా", "పేదల పెన్నిధి ఫలానా నేత", "అభివృద్ధి ప్రదాత ఫలానా నాయకుడు" అని రాయడం అత్యంత ఘోరమైన తప్పు! మన ఛానెల్ ఎవరికీ 'ప్రజల నాయకుడు/నాయకురాలు' అనే బిరుదులు ఇవ్వదు, సర్టిఫై చేయదు.
-   - ❌ విమర్శల తీర్పులు కూడా నిషిద్ధం: "కూటమి సర్కార్ ప్రజలను నిలువునా ముంచేసింది", "బీజేపీ విఫలమైంది" అని ఛానెల్ నిర్ధారించరాదు.
-   - ✅ తప్పనిసరి ఆపాదింపు బాడీ (Content) మొదటి వాక్యంలో: మాట్లాడిన వారి పేరు లేదా అధికారి వివరాలు కథనం (contentTe) లోని మొదటి వాక్యంగా తప్పనిసరిగా ఉండాలి (ఉదా: "...అని ముఖ్యమంత్రి వెల్లడించారు", "...అని అధికారులు పేర్కొన్నారు").
-   - ⚠️ హెడ్‌లైన్‌లో ఆపాదింపు తొలగింపు (NO FORCED ATTRIBUTION IN HEADLINES):
-     * సాధారణ వార్తలు, ప్రభుత్వ సంక్షేమం, బడ్జెట్, రోడ్లు/ప్రాజెక్టులు, ఉద్యోగాలు/ఫలితాలు, నేరాలు, ప్రమాదాలు, విపత్తులకు శీర్షిక (Headline) లో వ్యక్తుల పేర్లు, ఆపాదింపులు ("...అన్న సీఎం", "...తెలిపిన కలెక్టర్") పూర్తిగా నిషిద్ధం! ప్రధాన సంఘటన, చర్య లేదా ప్రభావం మాత్రమే శీర్షికలో రావాలి.
-     * రాజకీయ విమర్శలు, సవాళ్ల వార్తలకైతే నాయకుడి పేరు కర్తగా ఉండి నేరుగా క్రియా పదంతో ముగియాలి (ఉదా: "కేంద్ర ఎన్నికల సంఘం నిర్ణయంపై రాహుల్ గాంధీ నిప్పులు"). పాసివ్ ముగింపులు ("...విమర్శించిన రాహుల్ గాంధీ", "...విమర్శలు") నిషిద్ధం!
-   - ⚠️ వ్యక్తుల మార్పిడి నిషిద్ధం (PERSON ATTRIBUTION SWAP - STRICTLY FORBIDDEN): వార్తలో ఒకరి గురించి రాస్తూ మరొకరు చెప్పిన మాటలు, వ్యాఖ్యలను మొదటి వ్యక్తికి ఆపాదించరాదు. ఎవరు అన్నారో వారి పేరే కథనంలో ఉండాలి.
-
-9. 🏆 అత్యున్నత ప్రాధాన్యత: సందర్భానుసార శీర్షిక & పవర్ వర్డ్స్ నిబంధన (CONTEXT-AWARE HEADLINES, JOURNALISTIC POWER WORDS & PUNCH - ABSOLUTE FIRST PRIORITY):
-   హెడ్‌లైన్ పాఠకుడిని వెంటనే ఆకట్టుకునేలా, జర్నలిస్టిక్ విలువలతో, పదునైన పంచ్ శైలిలో ఉండాలి. వార్తలోని మూల స్వభావానికి (Context) తగినట్లుగా శీర్షిక ఉండాలి:
-
-   ఎ. జర్నలిస్టిక్ పవర్ వర్డ్స్ లైబ్రరీ (JOURNALISTIC POWER WORDS - USE SITUATIONALLY):
-      * లీడ్ యాంకర్లు (హెడ్‌లైన్ ప్రారంభంలో లేదా కోలన్ ముందు వాడేవి): "తీపి కబురు:", "భారీ ఊరట:", "షాకింగ్ ఘటన:", "హైవేపై బీభత్సం:", "రాష్ట్రంలో కలకలం:", "ఉలిక్కిపడ్డ ఫలానా ప్రాంతం:", "ఘోరం:", "బట్టబయలు:", "బరితెగింపు:", "భారీ ఝలక్:", "ఈడీ ఉచ్చు:", "సర్కార్ కొరడా:", "అన్నదాతల ఆక్రోశం:", "రైతన్నల ఆవేదన:", "నిరుద్యోగులకు గుడ్ న్యూస్:", "రాజకీయ సంచలనం:", "నిప్పుల కొలిమిగా ఫలానా:", "దారుణం:", "తీవ్ర అలర్ట్:".
-      * డైనమిక్ యాక్షన్ వెర్బ్స్ (సజీవ ముగింపులు): నిప్పులు, సవాల్, నిలదీత, కౌంటర్, చురకలు, హెచ్చరిక, విరుచుకుపడ్డారు, స్పష్టం చేశారు, తేల్చిచెప్పారు, గుట్టురట్టు, కటకటాల్లోకి, గ్రీన్ సిగ్నల్, పంజా, భారీ షాక్, ఊరట.
-
-   బి. సందర్భానుసార శీర్షిక నమూనాలు (DIVERSE CONTEXT-AWARE PATTERNS - BAN MONOTONOUS FORMULAS):
-      * 1. రాజకీయ విమర్శలు, సవాళ్లు, ఆరోపణలు (POLITICAL CHARGES & CLASHES):
-         - మాట్లాడిన వారి ప్రసంగం లేదా ప్రకటనలోని అత్యంత పదునైన, ఘాటైన అంశాన్నే హెడ్‌లైన్‌లో ప్రధాన భాగంగా తీసుకోవాలి.
-         - ప్రతి శీర్షికనూ ఒకే ఫార్ములాతో ("అంటూ... తీవ్ర ఆగ్రహం") రాయడం నిషిద్ధం! విభిన్న వాక్య నిర్మాణాలు వాడండి:
-           * ఉదాహరణ: "ప్రజలను దగా చేశారంటూ కూటమి సర్కార్‌పై జగన్ తీవ్ర నిప్పులు" (9 పదాలు)
-           * ఉదాహరణ: "అక్రమ కేసులతో బెదిరించలేరంటూ రేవంత్ రెడ్డి సర్కార్‌కు కేటీఆర్ సవాల్" (8 పదాలు)
-           * ఉదాహరణ: "ఈసీ నిర్ణయంపై రాహుల్ గాంధీ ధ్వజం: బీజేపీకి తొత్తుగా మారారని ఫైర్" (10 పదాలు)
-           * ఉదాహరణ: "ఎన్నికల హామీలను గాలికొదిలేశారంటూ కాంగ్రెస్ పాలనపై హరీష్ రావు సూటి ప్రశ్నలు" (9 పదాలు)
-      * 2. ప్రమాదాలు, విషాదాలు, విపత్తులు (ACCIDENTS, TRAGEDIES & DISASTERS):
-         - గంభీరమైన, వాస్తవికతతో కూడిన శైలి. జర్నలిస్టిక్ లీడ్ హుక్ వాడవచ్చు:
-           * ఉదాహరణ: "హైవేపై లారీ బీభత్సం: ఆటోను ఢీకొన్న ఘటనలో నలుగురు దుర్మరణం" (9 పదాలు)
-           * ఉదాహరణ: "కొండచరియలు విరిగిపడి సీలేరు ఘాట్ రోడ్డులో పూర్తిగా స్తంభించిన రాకపోకలు" (9 పదాలు)
-           * ఉదాహరణ: "భారీ వర్షాల బీభత్సం: వాగులో కొట్టుకుపోయిన కారుతో ఇద్దరు గల్లంతు" (9 పదాలు)
-      * 3. ప్రభుత్వ పథకాలు, అభివృద్ధి పనులు, ప్రజా ప్రయోజనాలు (GOVT SCHEMES & DEVELOPMENT):
-         - ప్రజలకు కలిగే ప్రత్యక్ష లబ్ధి, నిధుల వివరాలు సూటిగా కనిపించాలి:
-           * ఉదాహరణ: "రైతన్నలకు తీపి కబురు: నేడే ఖాతాల్లోకి రైతు భరోసా నిధులు జమ" (9 పదాలు)
-           * ఉదాహరణ: "నిరుద్యోగులకు భారీ ఊరట: పదివేల ఉపాధ్యాయ పోస్టుల భర్తీకి గ్రీన్ సిగ్నల్" (9 పదాలు)
-           * ఉదాహరణ: "రాయలసీమ అభివృద్ధికి సరికొత్త బాట: లక్ష కోట్లతో మెగా హార్టికల్చర్ హబ్" (9 పదాలు)
-      * 4. నేరాలు, అవినీతి, మోసాలు, పోలీస్ దాడులు (CRIMES & CORRUPTION):
-         - పదునైన, పరిశోధనాత్మక శైలి:
-           * ఉదాహరణ: "హైదరాబాద్‌లో భారీ సైబర్ మోసం గుట్టురట్టు: అంతర్రాష్ట్ర ముఠా అరెస్ట్" (8 పదాలు)
-           * ఉదాహరణ: "నకిలీ విత్తనాల దందాపై సర్కార్ కొరడా: ఐదుగురు వ్యాపారులు కటకటాల్లోకి" (8 పదాలు)
-      * 5. వాతావరణం, హెచ్చరికలు & పరీక్షలు:
-         - సూటిగా, స్పష్టమైన సమాచారం:
-           * ఉదాహరణ: "తీరానికి తీవ్ర తుఫాను ముప్పు: ఐదు జిల్లాలకు రెడ్ అలర్ట్ జారీ" (9 పదాలు)
-           * ఉదాహరణ: "విద్యార్థులకు అలర్ట్: నేడు విడుదల కానున్న ఇంటర్ ఫలితాల వివరాలు" (8 పదాలు)
-
-   సి. కఠిన సార్వత్రిక నిబంధనలు (UNIVERSAL RULES FOR ALL HEADLINES):
-      1. ఖచ్చితంగా 8 నుండి 10 పదాలు మాత్రమే (కనీసం 8 పదాలు, గరిష్టంగా 10 పదాలు) ఉండాలి (STRICTLY 8 TO 10 WORDS).
-      2. జర్నలిస్టిక్ లీడ్ హుక్ లేదా రెండు భాగాల శీర్షికల కోసం ఏకైక కోలన్ (: ) ను ఉపయోగించవచ్చు. ఉదా: "హైవేపై లారీ బీభత్సం: నలుగురు దుర్మరణం". అయితే కొటేషన్లు ('...', "..."), డబుల్ కోలన్లు, సెమీకోలన్లు (;) పూర్తిగా నిషిద్ధం!
-      3. 🛑 చప్పని నామవాచక ముగింపులు మరియు పాసివ్ శైలి పూర్తిగా నిషిద్ధం:
-         - వాక్యం చివర '...సమీక్ష', '...స్పందన', '...సమావేశం', '...ప్రకటన', '...పర్యటన', '...విమర్శలు', '...విమర్శించిన ఫలానా', '...మాట్లాడిన ఫలానా', '...తెలిపిన ఫలానా' వంటి చప్పని, బోరింగ్ పదాలతో ఎట్టిపరిస్థితుల్లోనూ ముగించరాదు!
-         - పాఠకుడిలో ఆసక్తిని కలిగించే ప్రభావం, సంఘటన సారాంశం లేదా పదునైన యాక్షన్ వెర్బ్‌తోనే ముగియాలి.
-
-10. స్వచ్ఛమైన తెలుగు లిపి & కఠిన భాషా విభజన (100% PURE TELUGU SCRIPT - STRICT NO ENGLISH IN TELUGU FIELDS):
-   - 'headline', 'contentTe', 'fullStoryTe' ఫీల్డ్‌లు తప్పనిసరిగా 100% స్వచ్ఛమైన తెలుగు లిపిలోనే (Unicode U+0C00-U+0C7F) ఉండాలి. ఒక్క ఇంగ్లీష్ వాక్యం కూడా వీటిలో రాకూడదు!
-   - అబ్రివియేషన్లకు మాత్రమే ఇంగ్లీష్/నంబర్లు (ఉదా: TDP, BRS, BJP, ₹).
-   - 'headlineEn', 'contentEn', 'fullStoryEn' మాత్రమే ఇంగ్లీష్‌లో ఉండాలి.
-   - కన్నడ, హిందీ/దేవనాగరి, ఉర్దూ, తమిళం లేదా మలయాళం అక్షరాలు ఎట్టిపరిస్థితుల్లోనూ రానివ్వకూడదు.
-   - హిందీ/ఇతర భాషల పేర్లను స్వచ్ఛమైన తెలుగులోకి లిప్యంతరీకరించాలి (ఉదా: 'నరేంద్ర మోదీ', 'రాహుల్ గాంధీ', 'ఒవైసీ', 'వక్ఫ్').
-
-10.1 పదాల ముద్ద కలయిక & అసహజ విచ్ఛేదన సంపూర్ణ నిషేధం (NO WORD CLUMPING & NO UNNATURAL SPLITTING):
-   - పదాల ముద్ద కలయిక నిషేధం (STRICT NO CLUMPING):
-     * ఆంగ్ల/ఇతర భాషా పదాలకు విభక్తులు కలిపి రాయరాదు: "క్లాస్ రూమ్ లో", "స్క్రీన్ పై", "బంజారా హిల్స్ లో", "రోడ్ పై", "ఫోన్ లో", "ఫ్లైట్ తో", "ప్రాజెక్ట్ కు" అని స్పేస్ ఇవ్వాలి.
-     * హోదాలు-పేర్లు (ముఖ్యమంత్రి చంద్రబాబు), సంఖ్యలు-కొలతలు (రూ. 100 కోట్లు, 10 వేల మంది) కలిపి రాయరాదు.
-     * విరామ చిహ్నాలు (.,) తర్వాత తప్పక స్పేస్ ఉండాలి.
-   - తెలుగు పదాల అసహజ విచ్ఛేదన సంపూర్ణ నిషేధం (STRICT NO UNNATURAL SPLITTING):
-     * 🛑 అత్యంత కఠిన నిబంధన: తెలుగు సహజ బహువచన ప్రత్యయం "ల్లో" (ఉదా: 'పాత్రల్లో', 'సినిమాల్లో', 'గ్రామాల్లో', 'ఎన్నికల్లో', 'కేసుల్లో', 'ప్రజల్లో', 'రోజుల్లో', 'చేతుల్లో', 'కళ్లల్లో', 'మాటల్లో', 'రంగాల్లో', 'పాఠశాలల్లో') ను ఎట్టిపరిస్థితుల్లోనూ 'పాత్రల్ లో', 'సినిమాల్ లో', 'గ్రామాల్ లో', 'ఎన్నికల్ లో' అని విడదీసి రాయరాదు! ఖచ్చితంగా "ల్లో" కలిపే రాయాలి.
-     * సహజ తెలుగు పదాలైన 'ఇంట్లో', 'నోట్లో', 'కంట్లో' లను 'ఇంట్ లో', 'నోట్ లో' అని విడదీయరాదు.
-
-11. చిత్రాలు & లోగోల కఠిన పరిశీలన (AI STRICT ZERO-LOGO & ZERO-WATERMARK DETECTION):
-   - చిత్రం: ${extracted.image || 'None'}.
-   - 🛑 అత్యంత కఠిన నిబంధన: ఫోటోపై ఎక్కడైనా సరే (మూలలోనైనా, మధ్యలోనైనా, పైనైనా, కిందైనా) టీవీ ఛానల్ లోగో, వెబ్‌సైట్ వాటర్‌మార్క్, న్యూస్ ఛానల్ మైక్ లోగో లేదా బ్రాండ్ టెక్స్ట్/గ్రాఫిక్స్ ఉంటే ఖచ్చితంగా "hasLogo": true, "mediaUrl": "" అని తిరస్కరించాలి! ఫోటో ఎంత బాగున్నా లోగో ఉంటే అస్సలు వాడరాదు!
-   - ✅ ఏ విధమైన లోగోలు, వాటర్‌మార్కులు, బ్రాండింగ్ రాతలు లేని 100% క్లీన్ ఫోటో (Clean unbranded real photograph) అయితే మాత్రమే "hasLogo": false, "mediaUrl": "${extracted.image || ''}" ఇవ్వాలి.
-
-12. లొకేషన్ & వర్గీకరణ:
-   - location: తెలంగాణ/ఆంధ్రప్రదేశ్‌లోని జిల్లా పేరు (లేదా మండలం).
-   - refinedCategory: Exactly one of [Politics, Crime, Sports, Cinema, Business, Health, Education, Technology, Agriculture, Local, National, International].
-   - storyFingerprint: EXACTLY 3-4 words joined by hyphens in English (e.g. jagan-fires-alliance-govt).
-
-12.1 కఠిన జర్నలిస్టిక్ నాణ్యత & ప్రజా ప్రాముఖ్యత స్కోర్ (STRICT AI EDITORIAL QUALITY SCORE: 0 to 10):
-   - "qualityScore": 0.0 నుండి 10.0 వరకు కఠినమైన జర్నలిస్టిక్ విలువను కేటాయించండి:
-     * 9.0 - 10.0 (హై ఇంపాక్ట్ / మోస్ట్ ఇంపార్టెంట్): భారీ ప్రజా ప్రభావం ఉన్న ప్రభుత్వ పాలసీలు, చారిత్రక తీర్పులు, కీలక పరీక్షలు/ఉద్యోగాలు, పెద్ద విపత్తులు/ప్రమాదాలు, ప్రముఖ జాతీయ/అంతర్జాతీయ పరిణామాలు, సంచలన పరిశోధనాత్మక కథనాలు, మెగా సినిమా మైలురాళ్లు.
-     * 6.0 - 8.0 (ప్రామాణిక వార్త): సాధారణ మంత్రుల/అధికారుల ప్రకటనలు, నియోజకవర్గ అభివృద్ధి పనులు, సాధారణ స్పోర్ట్స్ మ్యాచ్ రిజల్ట్స్, మంచి వ్యక్తిగత సాధనలు/ఇంటర్వ్యూలు.
-     * 1.0 - 4.0 (ఫిల్లర్ / గాసిప్ / తక్కువ విలువైన సమాచారం): రొటీన్ ఫోటో షూట్లు, సోషల్ మీడియా చిల్లర గొడవలు, సినిమా పుకార్లు/గాసిప్పులు, తక్కువ ప్రాముఖ్యత ఉన్న ఫిల్లర్ కంటెంట్.
-
-13. అవుట్‌పుట్ ఫార్మాట్ (Strict JSON only):
-{"isRelevant": true|false, "qualityScore": 8.5, "headline": "దశ 1: స్వచ్ఛమైన తెలుగు శీర్షిక (కచ్చితంగా తెలుగులో, 8-10 పదాలు, పదునైన జర్నలిస్టిక్ పంచ్ శైలి, అవసరమైతే ఏకైక కోలన్ హుక్ separator అనుమతి)", "contentTe": "దశ 1: స్వచ్ఛమైన తెలుగు సారాంశం (ఇన్‌పుట్ ఏ భాషలో ఉన్నా సరే ఇక్కడ 100% తెలుగు లిపిలోనే, 52-60 పదాలు, కనీసం 52 పదాలు, ఒకే పేరాగ్రాఫ్, మొదటి వాక్యంలో ఆపాదింపుతో)", "fullStoryTe": "${hasSubstantialSource ? "పూర్తి వార్త - సీనియర్ ఎడిటర్ కథనం (3-4 విడివిడి పేరాగ్రాఫ్‌లు \\\\n\\\\n తో)" : ""}", "headlineEn": "దశ 2: English Headline translated from Telugu headline (8-10 words)", "contentEn": "దశ 2: English Summary translated from contentTe (50-60 words)", "fullStoryEn": "${hasSubstantialSource ? "English Full Story in 3-4 paragraphs separated by \\\\n\\\\n" : ""}", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "hasLogo": false, "mediaUrl": "${extracted.image || ''}", "mediaType": "image|video", "isWide": true|false}`;
-
-                const aiResult = await processWithGemini(extracted.body, prompt, extracted.image);
+                const webInputText = extracted.headline
+                    ? `Title: ${extracted.headline}\n\nArticle:\n${extracted.body}`
+                    : extracted.body;
+                const aiResult = await processWithGemini(webInputText, prompt, activePrimaryImageUrl, 4, preFetchedPrimaryImage);
                 if (!aiResult) {
                     failedCount++;
                     return;
                 }
 
                 try {
-                    const parsed = JSON.parse(aiResult.replace(/```json|```/g, '').trim());
+                    const parsed = parseAIJson(aiResult);
                     const validContent = parsed.contentTe || parsed.content || '';
                     if (!parsed.isRelevant || !parsed.headline || !validContent) {
                         await markUrlAsProcessed(link);
@@ -2524,12 +2611,12 @@ ${hasSubstantialSource ? `   - 'fullStoryTe': మూల కథనంలో త�
                     }
                     parsed.content = validContent;
 
-                    // Clean headline immediately (strictly remove all quotes, colons, double-dots)
-                    parsed.headline = cleanTeluguHeadline(parsed.headline);
+                    // Clean headline immediately (strictly remove all quotes, colons, double-dots, and external portal credits)
+                    parsed.headline = cleanTeluguHeadline(stripAggregatorAttribution(parsed.headline));
                     if (parsed.headlineEn) {
                         parsed.headlineEn = cleanEnglishHeadline(parsed.headlineEn);
                     }
-                    if (!parsed.headline) {
+                    if (!parsed.headline || !isTeluguScript(parsed.headline)) {
                         await markUrlAsProcessed(link);
                         return;
                     }
@@ -2614,16 +2701,33 @@ ${hasSubstantialSource ? `   - 'fullStoryTe': మూల కథనంలో త�
                         categoriesList.push(finalDistrict);
                     }
 
-                    // Media URL handling: Strict Logo Rejection & Smart Fallback
+                    // Media URL handling: Strict Logo Rejection & Multi-Candidate Clean Fallback
                     let chosenMediaUrl = null;
+                    let preFetchedImageForUpload = null;
+                    let detectedIsWide = parsed.isWide === true;
+
                     if (parsed.hasLogo !== true) {
-                        if (parsed.mediaUrl && parsed.mediaUrl.startsWith('http') && !parsed.mediaUrl.includes('"') && parsed.mediaUrl !== 'url' && !isGenericImage(parsed.mediaUrl)) {
+                        if (activePrimaryImageUrl && activePrimaryImageUrl.startsWith('http') && !isGenericImage(activePrimaryImageUrl)) {
+                            chosenMediaUrl = activePrimaryImageUrl;
+                            preFetchedImageForUpload = preFetchedPrimaryImage;
+                        } else if (parsed.mediaUrl && parsed.mediaUrl.startsWith('http') && !parsed.mediaUrl.includes('"') && parsed.mediaUrl !== 'url' && !isGenericImage(parsed.mediaUrl)) {
                             chosenMediaUrl = parsed.mediaUrl;
                         } else if (extracted.image && extracted.image.startsWith('http') && !isGenericImage(extracted.image)) {
                             chosenMediaUrl = extracted.image;
                         }
                     } else {
-                        console.log(`[IMAGE] 🛑 AI detected a logo/watermark on image for "${parsed.headline}". Rejecting image.`);
+                        console.log(`[IMAGE] 🛑 AI detected a logo/watermark on primary image for "${parsed.headline}". Checking fallback candidates...`);
+                        const fallbackCandidates = (extracted.images || []).filter(u => u && u !== activePrimaryImageUrl && !isGenericImage(u)).slice(0, 2);
+                        for (const candidateUrl of fallbackCandidates) {
+                            const checkRes = await checkImageCleanWithGemini(candidateUrl);
+                            if (checkRes.ok && !checkRes.hasLogo) {
+                                chosenMediaUrl = candidateUrl;
+                                preFetchedImageForUpload = checkRes.fetched || null;
+                                detectedIsWide = checkRes.isWide === true;
+                                console.log(`[IMAGE] ✅ Found clean fallback candidate image for "${parsed.headline}".`);
+                                break;
+                            }
+                        }
                     }
 
                     let finalMediaUrl = ALFA_NEWS_LOGO;
@@ -2634,15 +2738,19 @@ ${hasSubstantialSource ? `   - 'fullStoryTe': మూల కథనంలో త�
                         if (parsed.mediaType === 'video') {
                             finalMediaUrl = chosenMediaUrl;
                             mediaType = 'video';
-                            postFormat = parsed.isWide ? '16:9' : '9:16';
+                            postFormat = detectedIsWide ? '16:9' : '9:16';
                         } else {
-                            const uploadedUrl = await uploadMediaToStorage(chosenMediaUrl);
+                            const uploadedUrl = await uploadMediaToStorage(chosenMediaUrl, 'news-media', preFetchedImageForUpload);
                             if (uploadedUrl) {
                                 finalMediaUrl = uploadedUrl;
-                                postFormat = parsed.isWide ? '16:9' : '9:16';
+                                postFormat = detectedIsWide ? '16:9' : '9:16';
+                            } else if (chosenMediaUrl.toLowerCase().includes('eenadu.net')) {
+                                // Eenadu CDN returns HTTP 404 to wsrv.nl proxy, so keep direct external Eenadu CDN URL on storage fallback
+                                finalMediaUrl = chosenMediaUrl;
+                                postFormat = detectedIsWide ? '16:9' : '9:16';
                             } else {
                                 finalMediaUrl = `https://wsrv.nl/?url=${encodeURIComponent(chosenMediaUrl)}&output=webp`;
-                                postFormat = parsed.isWide ? '16:9' : '9:16';
+                                postFormat = detectedIsWide ? '16:9' : '9:16';
                             }
                         }
                     }
@@ -2666,21 +2774,27 @@ ${hasSubstantialSource ? `   - 'fullStoryTe': మూల కథనంలో త�
                         }
                     }
 
-                    const cleanedContent = sanitizeTeluguText(rawContentTe).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
+                    const cleanedContent = sanitizeTeluguText(stripAggregatorAttribution(rawContentTe)).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
+                    if (!isTeluguScript(cleanedContent)) {
+                        console.warn(`[WEB] 🛑 Skipping article with non-Telugu summary for ${source.siteName}: "${cleanedHeadline}"`);
+                        await markUrlAsProcessed(link);
+                        return;
+                    }
+
                     let cleanedFullStoryTe = "";
                     let cleanedFullStoryEn = "";
 
                     if (hasSubstantialSource && parsed.fullStoryTe && isTeluguScript(parsed.fullStoryTe)) {
-                        const rawStory = sanitizeTeluguText(parsed.fullStoryTe).trim();
+                        const rawStory = sanitizeTeluguText(stripAggregatorAttribution(parsed.fullStoryTe)).trim();
                         const storyWords = rawStory.split(/\s+/).filter(Boolean).length;
-                        if (storyWords >= 80 && rawStory !== cleanedContent) {
+                        if (storyWords >= 60 && rawStory !== cleanedContent && rawStory.length > cleanedContent.length + 30) {
                             cleanedFullStoryTe = formatIntoParagraphs(rawStory);
                         }
                     }
 
                     if (hasSubstantialSource && parsed.fullStoryEn) {
                         const rawStoryEn = String(parsed.fullStoryEn).trim();
-                        if (rawStoryEn.split(/\s+/).filter(Boolean).length >= 80) {
+                        if (rawStoryEn.split(/\s+/).filter(Boolean).length >= 60 && rawStoryEn.length > (rawContentEn || '').length + 30) {
                             cleanedFullStoryEn = formatIntoParagraphs(rawStoryEn);
                         }
                     }
@@ -2809,7 +2923,8 @@ async function fetchTweetsSyndication(handle) {
     const timelineUrl = `https://syndication.twitter.com/srv/timeline-profile/screen-name/${handle}`;
     const userAgent = getRandomUserAgent();
     const proxyCount = proxyManager.getProxyCount();
-    const maxAttempts = proxyCount > 0 ? Math.min(proxyCount, 5) : 1;
+    const maxAttempts = proxyCount > 0 ? Math.min(Math.max(proxyCount, 2), 8) : 2;
+    let lastError = 'Unknown syndication error';
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const proxyUrl = proxyManager.getNextProxy();
@@ -2836,23 +2951,39 @@ async function fetchTweetsSyndication(handle) {
 
             const res = await axios.get(timelineUrl, config);
             if (res.status === 407) {
+                lastError = 'HTTP 407 (Proxy auth required)';
                 console.warn(`[PROXY] ❌ Proxy Authentication Required (407). Quarantining proxy...`);
                 if (proxyUrl) proxyManager.markBadProxy(proxyUrl);
                 continue;
             }
+            if (res.status === 404) {
+                lastError = 'HTTP 404 (Handle not found or suspended)';
+                console.warn(`[X-SYNDICATION] Handle @${handle} returned HTTP 404 (not found/suspended).`);
+                return { ok: false, tweets: [], error: lastError };
+            }
             if (res.status === 429) {
-                console.warn(`[X-SYNDICATION] Rate limit (429) on @${handle} ${proxyUrl ? 'via proxy' : 'direct'} (attempt ${attempt + 1}/${maxAttempts}). Rotating proxy...`);
-                await new Promise(r => setTimeout(r, 350));
+                lastError = 'HTTP 429 (Syndication rate limit exceeded)';
+                if (proxyUrl) {
+                    proxyManager.markCooldownProxy(proxyUrl, 5 * 60 * 1000, '429');
+                }
+                console.warn(`[X-SYNDICATION] Rate limit (429) on @${handle} ${proxyUrl ? 'via proxy' : 'direct'} (attempt ${attempt + 1}/${maxAttempts}). Rotating...`);
+                await new Promise(r => setTimeout(r, 800 + (attempt * 450)));
                 continue;
             }
             if (res.status !== 200 || !res.data) {
-                if (attempt === maxAttempts - 1) return [];
+                lastError = `HTTP ${res.status || 'empty'} response`;
+                if (attempt === maxAttempts - 1) return { ok: false, tweets: [], error: lastError };
+                await new Promise(r => setTimeout(r, 500));
                 continue;
             }
 
             const html = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
             const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
-            if (!match) return [];
+            if (!match) {
+                lastError = 'Missing __NEXT_DATA__ payload';
+                if (attempt === maxAttempts - 1) return { ok: false, tweets: [], error: lastError };
+                continue;
+            }
 
             const data = JSON.parse(match[1]);
             const entries = data?.props?.pageProps?.timeline?.entries || [];
@@ -2952,16 +3083,22 @@ async function fetchTweetsSyndication(handle) {
             }
 
             console.log(`[X-SYNDICATION] Successfully extracted ${parsedTweets.length} live tweets for @${handle} ${proxyUrl ? `(via proxy)` : ''}`);
-            return parsedTweets;
+            return { ok: true, tweets: parsedTweets, error: null };
         } catch (e) {
-            if (proxyUrl && (e.message.includes('407') || e.message.includes('ECONNREFUSED') || e.message.includes('ETIMEDOUT'))) {
-                proxyManager.markBadProxy(proxyUrl);
+            lastError = e.message || 'Syndication request error';
+            if (proxyUrl) {
+                if (lastError.includes('407')) {
+                    proxyManager.markBadProxy(proxyUrl);
+                } else if (lastError.includes('ECONNREFUSED') || lastError.includes('ETIMEDOUT') || lastError.includes('ECONNRESET') || lastError.includes('timeout')) {
+                    // Temporary 10-min cooldown instead of permanent deletion so transient glitches never drain the proxy pool to 0
+                    proxyManager.markCooldownProxy(proxyUrl, 10 * 60 * 1000, 'timeout/conn');
+                }
             }
-            console.error(`[X-SYNDICATION] Attempt ${attempt + 1} failed for @${handle}:`, e.message);
-            if (attempt === maxAttempts - 1) return [];
+            console.error(`[X-SYNDICATION] Attempt ${attempt + 1} failed for @${handle}:`, lastError);
+            if (attempt === maxAttempts - 1) return { ok: false, tweets: [], error: lastError };
         }
     }
-    return [];
+    return { ok: false, tweets: [], error: lastError };
 }
 
 /**
@@ -3003,7 +3140,7 @@ async function fetchTweetsDirectStealth(handle) {
     let page = null;
     try {
         const browser = await getSharedBrowser();
-        if (!browser) return [];
+        if (!browser) return { ok: false, tweets: [], error: 'Browser unavailable' };
 
         page = await browser.newPage();
         browserPageCount++;
@@ -3204,14 +3341,17 @@ async function fetchTweetsDirectStealth(handle) {
         }
 
         console.log(`[X-DIRECT] Successfully extracted ${parsedTweets.length} primary direct tweets for @${handle}`);
-        return parsedTweets;
+        if (parsedTweets.length === 0) {
+            return { ok: false, tweets: [], error: 'X.com login wall / 0 tweets rendered' };
+        }
+        return { ok: true, tweets: parsedTweets, error: null };
     } catch (e) {
         console.error(`[X-DIRECT] Direct stealth crawl failed for @${handle}:`, e.message);
         // If target closed or connection severed, recycle shared browser immediately so subsequent pages don't cascade fail
         if (e.message.includes('Target closed') || e.message.includes('Protocol error') || e.message.includes('timeout')) {
             await closeSharedBrowser();
         }
-        return [];
+        return { ok: false, tweets: [], error: e.message };
     } finally {
         if (page) {
             try { await page.close(); } catch (e) {}
@@ -3224,7 +3364,7 @@ async function fetchTweetsDirectStealth(handle) {
 // ============================================================================
 async function fetchTweetsFromRapidAPI(handle) {
     const apiKey = process.env.TWITTER_RAPIDAPI_KEY || process.env.RAPIDAPI_KEY;
-    if (!apiKey) return [];
+    if (!apiKey) return { ok: false, tweets: [], error: null, skipped: true };
 
     const host = process.env.TWITTER_RAPIDAPI_HOST || 'twitter-api45.p.rapidapi.com';
 
@@ -3249,7 +3389,7 @@ async function fetchTweetsFromRapidAPI(handle) {
         });
 
         const data = response.data;
-        if (!data) return [];
+        if (!data) return { ok: false, tweets: [], error: 'RapidAPI empty response' };
 
         let rawTweets = [];
         if (Array.isArray(data)) rawTweets = data;
@@ -3297,10 +3437,10 @@ async function fetchTweetsFromRapidAPI(handle) {
                 date
             });
         }
-        return parsedTweets;
+        return { ok: true, tweets: parsedTweets, error: null };
     } catch (error) {
         console.error(`[TWITTER] RapidAPI request failed for @${handle}:`, error.message);
-        return [];
+        return { ok: false, tweets: [], error: `RapidAPI: ${error.message}` };
     }
 }
 
@@ -3324,34 +3464,55 @@ async function processSingleTwitterFeed(doc) {
 
     try {
         let batchCount = 0;
-        // 1. Primary Method: Twitter Syndication (Zero browser, Zero RAM, ultra fast & reliable)
-        let fetchedItems = await fetchTweetsSyndication(handle);
+        let anyFetchSucceeded = false;
+        let lastFetchError = null;
 
-        // 2. Secondary Fallback: Direct Stealth Puppeteer (if syndication had 0 items)
+        // 1. Primary Method: Twitter Syndication (Zero browser, Zero RAM, ultra fast & reliable with rotating proxies)
+        const synRes = await fetchTweetsSyndication(handle);
+        let fetchedItems = synRes.tweets || [];
+        if (synRes.ok) {
+            anyFetchSucceeded = true;
+        } else if (synRes.error) {
+            lastFetchError = synRes.error;
+        }
+
+        // 2. Secondary Fallback: Direct Stealth Puppeteer (if syndication failed or returned 0 items)
         if (fetchedItems.length === 0 && directStealthFailuresInCurrentCycle < 3) {
-            fetchedItems = await fetchTweetsDirectStealth(handle);
-            if (fetchedItems.length === 0) {
+            const stealthRes = await fetchTweetsDirectStealth(handle);
+            if (stealthRes.ok && stealthRes.tweets.length > 0) {
+                fetchedItems = stealthRes.tweets;
+                anyFetchSucceeded = true;
+                directStealthFailuresInCurrentCycle = 0;
+            } else {
                 directStealthFailuresInCurrentCycle++;
+                if (!lastFetchError && stealthRes.error) lastFetchError = stealthRes.error;
                 if (directStealthFailuresInCurrentCycle >= 3) {
                     console.warn(`[X-STEALTH] ⚠️ Direct stealth browser crawl hit 3 consecutive blocks/failures. Skipping direct stealth for rest of this cycle to protect RAM.`);
                 }
-            } else {
-                directStealthFailuresInCurrentCycle = 0;
             }
         }
 
-        // 3. Tertiary Fallback: RapidAPI if configured and direct crawl had 0 items
+        // 3. Tertiary Fallback: RapidAPI if configured and previous methods returned 0 items
         if (fetchedItems.length === 0) {
-            fetchedItems = await fetchTweetsFromRapidAPI(handle);
+            const rapidRes = await fetchTweetsFromRapidAPI(handle);
+            if (!rapidRes.skipped) {
+                if (rapidRes.ok) {
+                    fetchedItems = rapidRes.tweets || [];
+                    anyFetchSucceeded = true;
+                } else if (rapidRes.error) {
+                    lastFetchError = lastFetchError ? `${lastFetchError} | ${rapidRes.error}` : rapidRes.error;
+                }
+            }
         }
 
         const now = Date.now();
-        const past16Hours = 16 * 60 * 60 * 1000; // Strictly 16 hours cutoff (replaces 48 hours)
+        // 36-hour freshness window prevents tweets from being dropped across overnight pause (10 PM - 4 AM IST) or multi-hour queue rotation
+        const past36Hours = 36 * 60 * 60 * 1000;
 
         let validFetchedItems = fetchedItems.filter(item => {
             if (!item.date) return false;
             const diff = now - item.date.getTime();
-            return diff <= past16Hours && diff >= -3600000;
+            return diff <= past36Hours && diff >= -3600000;
         });
 
         // Combine multi-part threads (e.g. 1/4, 2/4, 3/4, 4/4 or 1/1, 1/2, 1/3, 1/4) into single unified news stories
@@ -3385,200 +3546,20 @@ async function processSingleTwitterFeed(doc) {
 
                 const tweetText = (item.text || '').trim();
                 const tweetWords = tweetText.split(/\s+/).filter(Boolean).length;
-                const hasSubstantialTweet = tweetWords >= 80;
+                const hasSubstantialTweet = tweetWords >= 50;
+                const isAggregator = isNewsAggregatorOrPortal(authorDisplayName, handle);
 
-                const prompt = `మీరు ఆల్ఫా న్యూస్ (Alfa News - తెలుగు ప్రముఖ హైపర్-లోకల్ న్యూస్ నెట్‌వర్క్) కు చీఫ్ ఎడిటర్ మరియు సీనియర్ జర్నలిస్ట్.
-సోషల్ మీడియా / ట్విట్టర్ (X) పోస్టులను ప్రజలను ఆకట్టుకునేలా, జర్నలిస్టిక్ విలువలతో, నిర్దిష్టమైన భావోద్వేగాలతో కూడిన ప్రామాణిక తెలుగు వార్తగా తీర్చిదిద్దడం మీ బాధ్యత.
-
-పోస్ట్ ఖాతా & సందర్భ వివరాలు (POST ACCOUNT & CONTEXT METADATA):
-- పోస్ట్ రచయిత / ఖాతా (Post Author): ${authorDisplayName} (${handleTag})
-- కేటగిరీ / హోదా / పార్టీ: ${designation || 'Political / Social Update'}
-- ప్రాంతం / సందర్భం: ${district || "Andhra Pradesh / Telangana"}
-
-ముఖ్యమైన నిబంధనలు (CRITICAL EDITORIAL RULES):
-
-0. 🎯 అత్యున్నత ప్రాథమిక సూత్రం & ప్రాసెసింగ్ క్రమం (FOUNDATIONAL BASE RULE - 60 TELUGU WORDS FIRST, THEN ENGLISH):
-   ఇన్‌పుట్ ట్వీట్/పోస్ట్ ఏ భాషలో ఉన్నప్పటికీ (ఇంగ్లీష్, తెలుగు, లేదా ఇతర ఏ భాషలో ఉన్నా సరే):
-   - దశ 1 (ముందుగా తెలుగు వార్త - STEP 1: PURE TELUGU NEWS FIRST):
-     * ఇన్‌పుట్ ఏ భాషలో ఉన్నా, అందులోని వాస్తవాలను, సంఘటనను మాత్రమే ఆధారం చేసుకొని, ముందుగా 100% స్వచ్ఛమైన తెలుగు లిపిలో (Unicode U+0C00-U+0C7F) కచ్చితంగా 52 నుండి 60 పదాల (కనీసం 52 పదాలు, గరిష్టంగా 60 పదాలు) ప్రామాణిక జర్నలిస్టిక్ వార్తను రూపొందించాలి ('contentTe').
-     * అలాగే శీర్షికను కూడా ముందుగా స్వచ్ఛమైన తెలుగులోనే కచ్చితంగా 8 నుండి 10 పదాల (కనీసం 8 పదాలు, గరిష్టంగా 10 పదాలు) ఆకర్షణీయమైన, జర్నలిస్టిక్ పంచ్ శీర్షికగా రాయాలి ('headline').
-     * ⚠️ అత్యంత కఠిన నిబంధన: 'contentTe' మరియు 'headline' లలో ఒక్క ఇంగ్లీష్ వాక్యం లేదా పదం కూడా ఉండకూడదు! ఇన్‌పుట్ మొత్తం ఇంగ్లీష్ లో ఉన్నప్పటికీ, దానిని పూర్తిగా స్వచ్ఛమైన తెలుగు వార్తగా మార్చాలి.
-   - దశ 2 (తెలుగు వార్త ఆధారంగా ఇంగ్లీష్ అనువాదం - STEP 2: TRANSLATE TELUGU NEWS TO ENGLISH):
-     * మీరు దశ 1 లో రాసిన 'contentTe' (తెలుగు వార్త) ని మాత్రమే ఆధారంగా చేసుకుని, దానిని స్పష్టమైన ఇంగ్లీష్ వార్తా సారాంశంగా ('contentEn', 50-60 పదాలు) అనువదించి రాయాలి!
-     * అలాగే దశ 1 లో రాసిన 'headline' (తెలుగు శీర్షిక) ఆధారంగానే ఇంగ్లీష్ శీర్షిక ('headlineEn', 8-10 words) రాయాలి.
-     * ఇంగ్లీష్ ఫీల్డ్‌లు కేవలం ఆ తెలుగు వార్తకు ఖచ్చితమైన అనువాదం మాత్రమే!
-
-1. ⚠️ ఆపాదింపు నిబంధన - కథనం బాడీలోనే తప్పనిసరి (MANDATORY ATTRIBUTION IN BODY - ZERO EDITORIAL VERDICTS):
-   - ఆల్ఫా న్యూస్ నిష్పాక్షిక వార్తా సంస్థ. ఏ రాజకీయ నాయకుడిపై ప్రశంసలను గానీ, విమర్శలను గానీ మన ఛానెల్ స్వయంగా ఇచ్చినట్లు, ధ్రువీకరించినట్లు లేదా తీర్పు ఇచ్చినట్లు ఎప్పుడూ రాయరాదు!
-   - ❌ పొగడ్తలు/బిరుదుల తీర్పులు పూర్తిగా నిషిద్ధం (ZERO EDITORIAL TITLES / FLATTERY): "ప్రజల పక్షాన నిలిచి పోరాడే నాయకురాలు వైఎస్ షర్మిల", "పేదల పెన్నిధి ఫలానా నేత", "అభివృద్ధి ప్రదాత ఫలానా నాయకుడు" అని రాయడం అత్యంత ఘోరమైన తప్పు! మన ఛానెల్ ఎవరికీ 'ప్రజల నాయకుడు/నాయకురాలు' అనే బిరుదులు ఇవ్వదు, సర్టిఫై చేయదు.
-   - ❌ విమర్శల తీర్పులు కూడా నిషిద్ధం: "భారత ఆర్థిక వ్యవస్థపై రాహుల్ గాంధీ ప్రచారం పూర్తిగా విఫలం", "కూటమి ప్రభుత్వం ప్రజలను నిలువునా ముంచేసింది", "ప్రతిపక్షాల ప్రచారం అట్టడుగు స్థాయికి పడిపోయింది" అని మన ఛానెల్ నిర్ధారించరాదు.
-   - ✅ తప్పనిసరి ఆపాదింపు బాడీ (contentTe) మొదటి వాక్యంలో: పోస్ట్ రచయిత (Post Author: ${authorDisplayName}) లేదా మాట్లాడిన వారి పేరు, పూర్తి వివరాలు కథనం (contentTe) లోని మొదటి వాక్యంగా తప్పనిసరిగా ఉండాలి (ఉదా: "...అని ${authorDisplayName} వెల్లడించారు", "...అని పేర్కొంటూ ${authorDisplayName} ట్వీట్ చేశారు").
-   - ⚠️ హెడ్‌లైన్‌లో ఆపాదింపు తొలగింపు (NO FORCED ATTRIBUTION IN HEADLINES):
-     * సాధారణ వార్తలు, ప్రభుత్వ సంక్షేమం, బడ్జెట్, రోడ్లు/ప్రాజెక్టులు, ఉద్యోగాలు/ఫలితాలు, నేరాలు, ప్రమాదాలు, విపత్తులు, అధికారుల ఏర్పాట్ల వార్తలకు శీర్షిక (Headline) లో వ్యక్తుల పేర్లు, ఆపాదింపులు ("...అన్న సీఎం", "...తెలిపిన కలెక్టర్", "...పేర్కొన్న ఎస్పీ") పూర్తిగా నిషిద్ధం! ప్రధాన సంఘటన, చర్య లేదా ప్రభావం మాత్రమే శీర్షికలో రావాలి.
-     * రాజకీయ విమర్శలు, సవాళ్ల వార్తలకైతే నాయకుడి పేరు కర్తగా ఉండి నేరుగా క్రియా పదంతో ముగియాలి (ఉదా: "కేంద్ర ఎన్నికల సంఘం నిర్ణయంపై రాహుల్ గాంధీ నిప్పులు"). పాసివ్ ముగింపులు ("...విమర్శించిన రాహుల్ గాంధీ", "...రాహుల్ గాంధీ విమర్శలు") నిషిద్ధం!
-   - "విశ్లేషకులు అంటున్నారు", "నివేదికలు స్పష్టం చేస్తున్నాయి", "సర్వత్రా వ్యక్తమవుతోంది", "నిరూపితమైంది" వంటి కల్పిత ధ్రువీకరణలు పూర్తిగా నిషిద్ధం!
-
-1.1 ⚠️ కోట్ ట్వీట్లు & రియాక్షన్ పోస్టుల నిబంధన (QUOTE TWEETS & REACTIONS ATTRIBUTION):
-   - ఒక నాయకుడు లేదా అధికారిక ఖాతా వేరొకరి ట్వీట్‌ను లేదా వీడియోను కోట్ చేస్తూ ("Quoted Tweet") స్పందించినప్పుడు:
-     * కోట్ చేసిన మూల సంఘటన ఏమిటి? మరియు దానిపై ఈ నాయకుడి స్పందన/విమర్శ ఏమిటి? అనే రెండింటినీ స్పష్టంగా వేరు చేసి చూపించాలి.
-     * మూల పోస్ట్‌లోని వ్యక్తులు వేరు, ఈ స్పందన రాసిన నేత వేరు. ఒకరి వ్యాఖ్యలను మరొకరికి ఆపాదించరాదు.
-     * శీర్షికలో స్పందించిన నాయకుడి పేరు మరియు వారి అసలు రియాక్షన్ నేరుగా క్రియా పదంతో ఉండాలి ("కేంద్రంపై నిప్పులు చెరిగిన నేత").
-
-2. ⚠️ వ్యక్తుల మార్పిడి నిషిద్ధం (PERSON ATTRIBUTION SWAP - STRICTLY FORBIDDEN):
-   - పోస్ట్/ట్వీట్‌లో ఒకరి గురించి రాస్తూ మరొకరు చెప్పిన మాటలు, వ్యాఖ్యలను మొదటి వ్యక్తికి ఆపాదించరాదు. ఎవరు అన్నారో వారి పేరే కథనంలో ఉండాలి.
-
-3. ⚠️ ఖాతాదారుల రకం & ఆపాదింపు విధానం (ACCOUNT TAXONOMY: A1, A2, B, C, D):
-   - A1) రాజకీయ నేత తన స్వంత ప్రకటన/విమర్శ/నిర్ణయం ట్వీట్ చేసినప్పుడు: నేరుగా ఆ నేతకే ఆపాదించాలి ("కేటీఆర్ నిలదీశారు", "లోకేష్ స్పష్టం చేశారు", "జగన్ ఆరోపించారు").
-   - A2) రాజకీయ నేత వేరొకరి కార్యక్రమాలు/విషయాల గురించి ట్వీట్ చేసినప్పుడు: ఆ విషయాన్ని ప్రస్తావిస్తూనే, ఆ ట్వీట్ చేసిన నాయకుడిని కథనం మొదటి వాక్యంలో తప్పక క్రెడిట్ చేయాలి.
-   - B) న్యూస్ అగ్రిగేటర్లు (Telugu Scribe, Great Andhra, AP7AM, ANI, Gulte మొదలైనవి): అగ్రిగేటర్ హ్యాండిల్ పేరుతో ఆపాదించరాదు! ట్వీట్ లోపల అసలు మాట్లాడిన నాయకుడు లేదా అధికారికి ఆపాదించాలి.
-   - C) అధికారిక విభాగాలు (I&PR AP, పోలీస్, ఆర్టీసీ, విపత్తు నిర్వహణ, ప్రభుత్వం): ప్రభుత్వ నిర్ణయాలను, మంత్రివర్గ తీర్మానాలను స్పష్టంగా రాయాలి.
-   - D) జర్నలిస్టులు, కార్యకర్తలు, సాధారణ పౌరులు: పోస్ట్ రాసిన వారు సాక్షి/మూలం మాత్రమే. అసలు సంఘటనలోని వ్యక్తులను, పోస్ట్ రాసిన వారిని తారుమారు చేయరాదు.
-
-3.1 ⚠️ స్పీకర్ కొటేషన్ ఆపాదింపు నిబంధన (QUOTED SPEAKER ATTRIBUTION):
-   - ట్వీట్ లేదా పోస్ట్‌లో ఒక నిర్దిష్ట ప్రకటన కింద "— Dr. @sambitswaraj" లేదా "— Shri @..." లేదా "- [నాయకుడి పేరు]" అని కోట్ రూపంలో ఇచ్చినప్పుడు: ఆ వ్యాఖ్యలు, ప్రకటన ఆ నిర్దిష్ట స్పీకర్‌కే చెందుతాయి! కథనం బాడీలో వారి పేరే ఆపాదించాలి.
-
-3.2 ⚠️ మొదటి పురుష (FIRST-PERSON) కార్యక్రమాల ఆపాదింపు:
-   - వెరిఫైడ్ నాయకుడి ఖాతాలో మొదటి పురుషలో (ఉదా: "శంకుస్థాపన చేశాను", "పాల్గొన్నాను") ఉంటే: ఆ పనిని స్వయంగా చేసింది నేరుగా Post Author (${authorDisplayName}) మాత్రమే!
-
-3.3 ⚠️ సంఖ్యలు, నిధులు & హార్డ్ ఫ్యాక్ట్స్ రక్షణ (HARD NUMBERS & FACTS PRESERVATION - STRICT ZERO OMISSION):
-   - పోస్ట్‌లోని ప్రతి నిర్దిష్ట సంఖ్య, బడ్జెట్ అంకె (ఉదా: రూ.380 కోట్లు, రూ.240 కోట్లు, రూ.140 కోట్లు, రూ.22,177 కోట్లు), పనుల సంఖ్య (ఉదా: 62 పనులు), ఉద్యోగాల సంఖ్య (ఉదా: 19,739 ఉద్యోగాలు), స్కీమ్/మోడల్ పేరు (ఉదా: HAM మోడల్), మున్సిపాలిటీలు/పట్టణాల పేర్లు తప్పనిసరిగా తెలుగు శీర్షిక మరియు వార్తలో ఉండాలి!
-   - ❌ "పలు అభివృద్ధి పనులు", "వివిధ కార్యక్రమాలు", "కొత్త నిర్ణయాలు" వంటి గాల్లో తేలే బోరింగ్ సాధారణ పదాలతో అసలు సంఖ్యలను ఎగరగొట్టడం పూర్తిగా నిషిద్ధం! పక్కా అంకెలు, నిధుల వివరాలే వార్తకు ప్రాణం.
-
-4. 🌟 ఆసక్తికర ప్రారంభం & నాన్‌-బోరింగ్ హుక్ (IMPACT-FIRST READER ENGAGEMENT):
-   - రొటీన్, యాంత్రికమైన బోరింగ్ ప్రారంభాలు పూర్తిగా నిషిద్ధం! (ఉదా: "ఫలానా చోట సమావేశం జరిగింది", "ఫలానా నేత మాట్లాడారు", "ఫలానా విషయాన్ని వెల్లడించారు" అని నీరసంగా మొదలుపెట్టరాదు).
-   - ప్రారంభ వాక్యమే పాఠకుడిని కట్టిపడేసేలా (Gripping Hook) అసలు ఏమి జరిగింది? ప్రజలపై దాని ప్రభావం ఏమిటి? ఆ ప్రకటన వెనుక ఉన్న తీవ్ర సంచలనం లేదా వివాదం ఏమిటి? అనే కీలక అంశంతో సూటిగా ప్రారంభం కావాలి.
-
-5. ⚖️ 360° సమతుల్యత & అందరి వాయిస్ (CONTEXTUAL MULTI-VOICE BALANCE & STRICT NEUTRALITY):
-   - ఆల్ఫా న్యూస్ నిష్పాక్షిక వార్తా సంస్థ. మన ఛానెల్ ఎవరి పక్షానా నిలబడదు. ఏ ఒక్క పక్షం ప్రచారానికో లేదా ఏకపక్ష ఆరోపణలకో పరిమితం కాకుండా అందరి గొంతులనూ (All Voices) నిష్పాక్షికంగా వినిపించాలి.
-   - ⚠️ సందర్భోచిత సమతుల్యత నిబంధన (CRITICAL APPLICABILITY):
-     * ✅ రాజకీయ విమర్శలు, సవాళ్లు, ఆరోపణలు, వివాదాస్పద అంశాల వార్తలకు మాత్రమే: 3వ పేరాలో తప్పనిసరిగా ఎదుటి పక్షం/ప్రతిపక్షం యొక్క వివరణ, వారి సమర్థన లేదా ప్రభుత్వం/అధికారుల వివరణను చేర్చి సమతుల్యతను తీసుకురావాలి.
-     * 🛑 వివాద రహిత అధికారిక వార్తలు (NO ARTIFICIAL DISPUTES): ప్రభుత్వ అధికారిక సంక్షేమ నిధుల విడుదల (రైతు భరోసా, పింఛన్లు), ఉద్యోగ నోటిఫికేషన్లు (డీఎస్సీ, గ్రూప్స్), అభివృద్ధి పనుల శంకుస్థాపనలు, క్రీడా విజయాలు, సహజ విపత్తులు/ప్రమాదాలు, లేదా సంతాప సందేశాలకు బలవంతంగా కృత్రిమ రాజకీయ వివాదాన్ని లేదా సంబంధం లేని విమర్శలను సృష్టించడం పూర్తిగా నిషిద్ధం! అటువంటి వాటికి ఆ పథకం లబ్ధి లేదా క్షేత్రస్థాయి వాస్తవాలనే 3వ పేరాలో నిష్పాక్షికంగా రాయాలి.
-
-5.1 🛡️ మీడియా మాఫియా పక్షపాత రక్షణ కవచం & హార్డ్ రికార్డులు (PARTISAN MEDIA BIAS SHIELD & HARD DATA ONLY):
-   - తెలుగు రాష్ట్రాల్లోని ప్రధాన మీడియా వర్గాలు (ఈనాడు, ఆంధ్రజ్యోతి/ABN, టీవీ5, సాక్షి మొదలైనవి) తీవ్ర రాజకీయ పక్షపాతంతో, ఒక వర్గానికి అనుకూలంగా కథనాలను పదేపదే ప్రచారం చేస్తాయి.
-   - గూగుల్ సెర్చ్ లేదా ఇంటర్నెట్‌లో ఒక పక్షం ఆరోపణలు ఎన్ని వేల వెబ్‌సైట్లలో కనిపించినా, వాటిని నిర్ధారిత సత్యాలుగా (Established Facts) భావించరాదు!
-   - హార్డ్ రికార్డులు మాత్రమే ఫ్యాక్ట్స్: ప్రభుత్వ జీవోలు (GOs), గెజిట్లు, బడ్జెట్ అంకెలు, కోర్టు ఆదేశాలు, ఈడీ/సిట్ ఎఫ్‌ఐఆర్ కాపీలు, ఎన్నికల సంఘం ఉత్తర్వులను మాత్రమే వాస్తవాలుగా పరిగణించాలి.
-   - పక్షపాత విశేషణాల బహిష్కరణ: "చరిత్రలోనే అతిపెద్ద స్కామ్", "ప్రజాగ్రహం కట్టలు తెంచుకుంది", "కుదేలైన సర్కార్", "నిలువునా ముంచేశారు" వంటి రాజకీయ అజెండా విశేషణాలను కథనంలో వాడరాదు.
-   - ద్వైపాక్షిక సమతుల్యత: మీడియాలో ఒక వర్గం ఆరోపణ ఎంత బలంగా ఉన్నా, 3వ పేరాలో తప్పనిసరిగా ఎదుటి పక్షం/ప్రభుత్వం/బాధితుల వివరణను లేదా కౌంటర్ వాదనను సమాన ప్రాధాన్యతతో చేర్చాలి. ఆల్ఫా న్యూస్ ఎవరికీ క్లీన్ చిట్ ఇవ్వదు, ఎవరినీ దోషిగా తేల్చదు.
-
-6. 🔥 వార్తా రస రక్షణ & భావోద్వేగ తీవ్రత (TONE & EMOTIONAL INTENSITY FIDELITY):
-   - వార్తలోని వాస్తవ రసాన్ని, తీవ్రతను, మూల భావోద్వేగాన్ని (Tone & Intensity) యథాతథంగా కాపాడాలి. వార్తను చప్పగా లేదా నిర్జీవంగా మార్చరాదు.
-   - రాజకీయ సవాళ్లు/పోరాటాల్లో ఆ వాడి, వేడి, ఘాటు అలాగే ఉండాలి.
-   - రైతుల కష్టాలు, పేదల ఆవేదన, బాధితుల గోడులో కరుణ రసం, వారి గుండెకోత, కన్నీటి వ్యథ ప్రతిధ్వనించాలి.
-   - ప్రమాదాలు, ప్రకృతి విపత్తుల్లో గంభీరమైన వాస్తవికత, ప్రాణనష్టం, క్షతగాత్రుల పరిస్థితి తీవ్రతను నిక్కచ్చిగా తెలపాలి.
-   - అవినీతి, మోసాలు, నేరాల్లో పదునైన పరిశోధనా శైలి ఉండాలి.
-
-7. ⚡ సజీవ జర్నలిస్టిక్ క్రియా పదాలు (DYNAMIC ACTION VERBS - BAN MONOTONY):
-   - ప్రతి వాక్యానికీ "అన్నారు... తెలిపారు... పేర్కొన్నారు" వంటి రొటీన్, యాంత్రిక క్రియా పదాలను పదేపదే వాడటం పూర్తిగా నిషిద్ధం!
-   - సందర్భానికి తగిన శక్తివంతమైన తెలుగు క్రియా పదాలను వాడాలి:
-     * ఘాటైన ఆరోపణలు/పోరాటం: "ధ్వజమెత్తారు", "నిలదీశారు", "తీవ్రస్థాయిలో విరుచుకుపడ్డారు", "మండిపడ్డారు", "ఆగ్రహం వ్యక్తం చేశారు".
-     * కరాఖండి నిర్ణయాలు/హెచ్చరికలు: "తేల్చిచెప్పారు", "హెచ్చరించారు", "స్పష్టం చేశారు", "సవాల్ విసిరారు", "ఖరాఖండీగా ప్రకటించారు".
-     * రైతాంగం/బాధితుల వేదన: "ఆవేదన వ్యక్తం చేశారు", "కన్నీటిపర్యంతమయ్యారు", "గోడు వెళ్లబోసుకున్నారు", "వాపోయారు".
-     * అధికారిక వివరణలు/రక్షణ: "స్పందించారు", "వివరణ ఇచ్చారు", "సమర్థించుకున్నారు", "స్పష్టతనిచ్చారు", "హామీ ఇచ్చారు".
-     * ప్రశంసలు / అభినందనలు / సానుకూల పరిణామాలు (PRAISE, CONGRATULATIONS & POSITIVE SENTIMENT):
-       - "ప్రశంసల వర్షం కురిపించారు", "హర్షం వ్యక్తం చేశారు", "ముక్తకంఠంతో అభినందించారు", "విశేషంగా స్పందించారు", "స్వాగతించారు", "జైకొట్టారు".
-       - 🛑 కఠిన నిషేధం (NO "తీవ్రంగా స్పందించారు" IN POSITIVE CONTEXT): ప్రశంసలు, అభినందనలు, విజయాలు, శుభపరిణామాల వార్తల్లో 'తీవ్రంగా స్పందిస్తూ' లేదా 'తీవ్రంగా స్పందించారు' అని ఎట్టిపరిస్థితుల్లోనూ రాయరాదు! తెలుగులో 'తీవ్రంగా స్పందించడం' అనేది కేవలం కోపం, నిరసన, ఆగ్రహం, ఖండన లేదా వివాదాస్పద ఘర్షణల సందర్భంలో మాత్రమే వాడాలి.
-
-8. 🏆 అత్యున్నత ప్రాధాన్యత: సందర్భానుసార శీర్షిక & పవర్ వర్డ్స్ నిబంధన (CONTEXT-AWARE HEADLINES, JOURNALISTIC POWER WORDS & PUNCH - ABSOLUTE FIRST PRIORITY):
-   హెడ్‌లైన్ పాఠకుడిని వెంటనే ఆకట్టుకునేలా, జర్నలిస్టిక్ విలువలతో, పదునైన పంచ్ శైలిలో ఉండాలి. వార్తలోని మూల స్వభావానికి (Context) తగినట్లుగా శీర్షిక ఉండాలి:
-
-   ఎ. జర్నలిస్టిక్ పవర్ వర్డ్స్ లైబ్రరీ (JOURNALISTIC POWER WORDS - USE SITUATIONALLY):
-      * లీడ్ యాంకర్లు (హెడ్‌లైన్ ప్రారంభంలో లేదా కోలన్ ముందు వాడేవి): "తీపి కబురు:", "భారీ ఊరట:", "షాకింగ్ ఘటన:", "హైవేపై బీభత్సం:", "రాష్ట్రంలో కలకలం:", "ఉలిక్కిపడ్డ ఫలానా ప్రాంతం:", "ఘోరం:", "బట్టబయలు:", "బరితెగింపు:", "భారీ ఝలక్:", "ఈడీ ఉచ్చు:", "సర్కార్ కొరడా:", "అన్నదాతల ఆక్రోశం:", "రైతన్నల ఆవేదన:", "నిరుద్యోగులకు గుడ్ న్యూస్:", "రాజకీయ సంచలనం:", "నిప్పుల కొలిమిగా ఫలానా:", "దారుణం:", "తీవ్ర అలర్ట్:".
-      * డైనమిక్ యాక్షన్ వెర్బ్స్ (సజీవ ముగింపులు): నిప్పులు, సవాల్, నిలదీత, కౌంటర్, చురకలు, హెచ్చరిక, విరుచుకుపడ్డారు, స్పష్టం చేశారు, తేల్చిచెప్పారు, గుట్టురట్టు, కటకటాల్లోకి, గ్రీన్ సిగ్నల్, పంజా, భారీ షాక్, ఊరట.
-
-   బి. సందర్భానుసార శీర్షిక నమూనాలు (DIVERSE CONTEXT-AWARE PATTERNS - BAN MONOTONOUS FORMULAS):
-      * 1. రాజకీయ విమర్శలు, సవాళ్లు, ఆరోపణలు (POLITICAL CHARGES & CLASHES):
-         - మాట్లాడిన వారి ప్రసంగం లేదా ప్రకటనలోని అత్యంత పదునైన, ఘాటైన అంశాన్నే హెడ్‌లైన్‌లో ప్రధాన భాగంగా తీసుకోవాలి.
-         - ప్రతి శీర్షికనూ ఒకే ఫార్ములాతో ("అంటూ... తీవ్ర ఆగ్రహం") రాయడం నిషిద్ధం! విభిన్న వాక్య నిర్మాణాలు వాడండి:
-           * ఉదాహరణ: "ప్రజలను దగా చేశారంటూ కూటమి సర్కార్‌పై జగన్ తీవ్ర నిప్పులు" (9 పదాలు)
-           * ఉదాహరణ: "అక్రమ కేసులతో బెదిరించలేరంటూ రేవంత్ రెడ్డి సర్కార్‌కు కేటీఆర్ సవాల్" (8 పదాలు)
-           * ఉదాహరణ: "ఈసీ నిర్ణయంపై రాహుల్ గాంధీ ధ్వజం: బీజేపీకి తొత్తుగా మారారని ఫైర్" (10 పదాలు)
-           * ఉదాహరణ: "ఎన్నికల హామీలను గాలికొదిలేశారంటూ కాంగ్రెస్ పాలనపై హరీష్ రావు సూటి ప్రశ్నలు" (9 పదాలు)
-      * 2. ప్రమాదాలు, విషాదాలు, విపత్తులు (ACCIDENTS, TRAGEDIES & DISASTERS):
-         - గంభీరమైన, వాస్తవికతతో కూడిన శైలి. జర్నలిస్టిక్ లీడ్ హుక్ వాడవచ్చు:
-           * ఉదాహరణ: "హైవేపై లారీ బీభత్సం: ఆటోను ఢీకొన్న ఘటనలో నలుగురు దుర్మరణం" (9 పదాలు)
-           * ఉదాహరణ: "కొండచరియలు విరిగిపడి సీలేరు ఘాట్ రోడ్డులో పూర్తిగా స్తంభించిన రాకపోకలు" (9 పదాలు)
-           * ఉదాహరణ: "భారీ వర్షాల బీభత్సం: వాగులో కొట్టుకుపోయిన కారుతో ఇద్దరు గల్లంతు" (9 పదాలు)
-      * 3. ప్రభుత్వ పథకాలు, అభివృద్ధి పనులు, ప్రజా ప్రయోజనాలు (GOVT SCHEMES & DEVELOPMENT):
-         - ప్రజలకు కలిగే ప్రత్యక్ష లబ్ధి, నిధుల వివరాలు సూటిగా కనిపించాలి:
-           * ఉదాహరణ: "రైతన్నలకు తీపి కబురు: నేడే ఖాతాల్లోకి రైతు భరోసా నిధులు జమ" (9 పదాలు)
-           * ఉదాహరణ: "నిరుద్యోగులకు భారీ ఊరట: పదివేల ఉపాధ్యాయ పోస్టుల భర్తీకి గ్రీన్ సిగ్నల్" (9 పదాలు)
-           * ఉదాహరణ: "రాయలసీమ అభివృద్ధికి సరికొత్త బాట: లక్ష కోట్లతో మెగా హార్టికల్చర్ హబ్" (9 పదాలు)
-      * 4. నేరాలు, అవినీతి, మోసాలు, పోలీస్ దాడులు (CRIMES & CORRUPTION):
-         - పదునైన, పరిశోధనాత్మక శైలి:
-           * ఉదాహరణ: "హైదరాబాద్‌లో భారీ సైబర్ మోసం గుట్టురట్టు: అంతర్రాష్ట్ర ముఠా అరెస్ట్" (8 పదాలు)
-           * ఉదాహరణ: "నకిలీ విత్తనాల దందాపై సర్కార్ కొరడా: ఐదుగురు వ్యాపారులు కటకటాల్లోకి" (8 పదాలు)
-      * 5. వాతావరణం, హెచ్చరికలు & పరీక్షలు:
-         - సూటిగా, స్పష్టమైన సమాచారం:
-           * ఉదాహరణ: "తీరానికి తీవ్ర తుఫాను ముప్పు: ఐదు జిల్లాలకు రెడ్ అలర్ట్ జారీ" (9 పదాలు)
-           * ఉదాహరణ: "విద్యార్థులకు అలర్ట్: నేడు విడుదల కానున్న ఇంటర్ ఫలితాల వివరాలు" (8 పదాలు)
-
-   సి. కఠిన సార్వత్రిక నిబంధనలు (UNIVERSAL RULES FOR ALL HEADLINES):
-      1. ఖచ్చితంగా 8 నుండి 10 పదాలు మాత్రమే (కనీసం 8 పదాలు, గరిష్టంగా 10 పదాలు) ఉండాలి (STRICTLY 8 TO 10 WORDS).
-      2. జర్నలిస్టిక్ లీడ్ హుక్ లేదా రెండు భాగాల శీర్షికల కోసం ఏకైక కోలన్ (: ) ను ఉపయోగించవచ్చు. ఉదా: "హైవేపై లారీ బీభత్సం: నలుగురు దుర్మరణం". అయితే కొటేషన్లు ('...', "..."), డబుల్ కోలన్లు, సెమీకోలన్లు (;) పూర్తిగా నిషిద్ధం!
-      3. 🛑 చప్పని నామవాచక ముగింపులు మరియు పాసివ్ శైలి పూర్తిగా నిషిద్ధం:
-         - వాక్యం చివర '...సమీక్ష', '...స్పందన', '...సమావేశం', '...ప్రకటన', '...పర్యటన', '...విమర్శలు', '...విమర్శించిన ఫలానా', '...మాట్లాడిన ఫలానా', '...తెలిపిన ఫలానా' వంటి చప్పని, బోరింగ్ పదాలతో ఎట్టిపరిస్థితుల్లోనూ ముగించరాదు!
-         - పాఠకుడిలో ఆసక్తిని కలిగించే ప్రభావం, సంఘటన సారాంశం లేదా పదునైన యాక్షన్ వెర్బ్‌తోనే ముగియాలి.
-
-9. సారాంశం (SUMMARY / CONTENT - STRICTLY 52 TO 60 WORDS, MINIMUM 52 WORDS, ఒకే సింగిల్ పేరాగ్రాఫ్):
-   - కచ్చితంగా 52 నుండి 60 పదాల మధ్య మాత్రమే (కనీసం 52 పదాలు, గరిష్టంగా 60 పదాలు) ఉండాలి.
-   - ఒకే ఒక్క నిరంతర సింగిల్ పేరాగ్రాఫ్ (No multiple paragraphs, no newlines \n).
-   - మాట్లాడిన వారి పేరు (Post Author), అసలు వాదనలు, కీలక నిర్ణయాలు, సంఖ్యలతో కూడిన స్పష్టమైన వార్త. కథనం మొదటి వాక్యంగా Post Author పేరు మరియు వివరాలు తప్పనిసరి.
-
-10. పూర్తి వార్తా కథన నిబంధన (FULL STORY RULES - ట్వీట్ సమాచారం ఆధారంగా):
-${hasSubstantialTweet ? `   - 'fullStoryTe': మూల ట్వీట్/పోస్ట్‌లో తగినంత విస్తృత సమాచారం (${tweetWords} పదాలు, 80+ కంటే ఎక్కువ) ఉంది కాబట్టి, ఉన్న వాస్తవాల ఆధారంగా మాత్రమే 3-4 విడివిడి పేరాగ్రాఫ్‌లలో (\\n\\n తో) పూర్తి కథనం రాయండి. కల్పితాలు వద్దు (NO HALLUCINATIONS).
-   - 3-4 విడివిడి పేరాగ్రాఫ్‌ల విభజన (\\n\\n తప్పనిసరి, ❌ ఒకే ముద్దగా రాయడం నిషిద్ధం):
-     * 1వ పేరా (ఆసక్తికర హుక్ & మూల సంఘటన - ~60-80 పదాలు): ప్రధాన సంఘటన, కీలక ప్రకటన, మాట్లాడిన వ్యక్తికి స్పష్టమైన ఆపాదింపు.
-     * 2వ పేరా (నేపథ్యం, సంఖ్యలు & పూర్వాపరాలు - ~80-100 పదాలు): నిర్ణయం నేపథ్యం, గణాంకాలు, కేటాయింపులు, వాస్తవ వివరాలు.
-     * 3వ పేరా (సందర్భోచిత సమతుల్యత - ~70-90 పదాలు): రాజకీయ వివాదమైతే ప్రత్యర్థి వాదన/స్పందన; ప్రభుత్వ పథకమైతే క్షేత్రస్థాయి పరిశీలన.
-     * 4వ పేరా (తాజా పరిస్థితి & భవిష్యత్ పరిణామాలు - ~50-70 పదాలు): ప్రస్తుత పరిస్థితి, అధికారులు చేపట్టిన చర్యలు.
-   - 'fullStoryEn': English Full Story across 3-4 paragraphs separated by \\n\\n.` : `   - మూల ట్వీట్ చిన్నదిగా ఉంది (${tweetWords} పదాలు, 80 పదాల లోపే). ట్వీట్‌లో లేని కొత్త విషయాలను, కల్పితాలను ఏమాత్రం ఊహించవద్దు (STRICT ZERO HALLUCINATIONS)!
-   - అందువల్ల 'fullStoryTe': "" (పూర్తి ఖాళీ స్ట్రింగ్) మరియు 'fullStoryEn': "" (పూర్తి ఖాళీ స్ట్రింగ్) గా ఉంచాలి.
-   - కార్డు కోసం 'contentTe' (కచ్చితంగా 100% తెలుగులో మాత్రమే, 52-60 పదాలు, కనీసం 52 పదాలు, ఒకే పేరా) మాత్రమే స్పష్టంగా రాస్తే సరిపోతుంది.`}
-
-11. ఎడిటోరియల్ ఫిల్టర్ నిబంధనలు (EDITORIAL FILTER RULES):
-   - ఆమోదం (isRelevant: true): ప్రభుత్వ అధికారిక నిర్ణయాలు, కొత్త సంక్షేమ పథకాలు, బడ్జెట్ కేటాయింపులు, అభివృద్ధి ప్రాజెక్టులు, నిర్దిష్ట ఆధారాలతో కూడిన రాజకీయ విమర్శలు, సవాళ్లు, ప్రెస్ మీట్ వివరాలు, ప్రజా సమస్యలు, ప్రమాదాలు, నేరాలు.
-   - తిరస్కరణ (isRelevant: false - సున్నా వార్తా విలువ / ప్రజోపయోగం లేనివి):
-     * 🛑 స్వీయ ప్రచారం, భజన, సొంత డబ్బా, నాయకుల పొగడ్తలు, పీఆర్ రీల్స్ (SELF-PRAISE, LEADER GLORIFICATION & PARTY SYCOPHANCY):
-       - ఒక పార్టీ లేదా నాయకుడు తమని తాము లేదా తమ అధినేతను పొగుడుకుంటూ వేసిన పోస్టులు/ట్వీట్లు/వీడియోలు (ఉదా: "ప్రజల కోసం ప్రశ్నించే గొంతు... ప్రజా సమస్యల కోసం పోరాడే నిబద్ధత... వైఎస్ షర్మిల రెడ్డి గారు — ప్రజల పక్షాన నిలిచే నాయకత్వం", "మా నాయకుడే మా భవిష్యత్తు", "పేదల ఆశాజ్యోతి ఫలానా నేత", ర్యాలీ విజువల్స్ పీఆర్ రీల్స్, పార్టీ గీతాలు, ప్రచార నినాదాలు).
-       - ఇటువంటి పోస్టులలో కొత్త ప్రభుత్వ నిర్ణయం, కొత్త పథకం, బడ్జెట్ లేదా పాలసీ సమాచారం ఏమీ ఉండదు. కేవలం సొంత భజన మాత్రమే. దీనిలో ప్రజలకు ఎలాంటి ఉపయోగం (Public Utility) గానీ, వార్తా ఆసక్తి (Public Interest) గానీ లేవు. అసలు దీనిని వార్తాంశంగా స్వీకరించాల్సిన పనేలేదు! ఖచ్చితంగా తిరస్కరించాలి (isRelevant: false).
-     * 🛑 రొటీన్ ఫోటో-ఆప్స్, సాధారణ సమీక్షలు, పుస్తక/పోస్టర్ ఆవిష్కరణలు (ROUTINE PHOTO-OPS & CASUAL MEETINGS - ZERO NEWS VALUE):
-       - ప్రజా ప్రయోజనం, కొత్త పాలసీ నిర్ణయం లేదా బడ్జెట్ కేటాయింపులు ఏమీ లేకుండా కేవలం కలెక్టర్ లేదా ప్రజాప్రతినిధి ఒక పోస్టర్‌ను ఆవిష్కరించడం (ఉదా: "వయోవృద్ధుల దినోత్సవ పోస్టర్ ఆవిష్కరణ"), సాధారణ పరిచయ సమీక్ష నిర్వహించడం, పుష్పగుచ్ఛాలు ఇవ్వడం, కేవలం జ్యోతి ప్రజ్వలనలు వంటివి వార్తలు కావు! ఖచ్చితంగా తిరస్కరించాలి (isRelevant: false).
-     * అసభ్యకరమైన తిట్లు, బూతులు, వ్యక్తిగత దూషణలు, ఇంటర్నెట్ ట్రోల్ మీమ్స్ (isRelevant: false).
-     * కేవలం క్యాజువల్ వ్యక్తిగత పుట్టినరోజు శుభాకాంక్షలు, రొటీన్ పండుగ విషెస్ (ఎటువంటి సేవా కార్యక్రమాలు లేదా అభివృద్ధి పనులు లేనివి) (isRelevant: false).
-     * కమర్షియల్ వ్యాపార ప్రకటనలు, ప్రమోషనల్ స్పాన్సర్డ్ లింకులు (isRelevant: false).
-
-11.1 📰 అధికారిక ప్రెస్ నోట్ / లెటర్ హెడ్ పరిశీలన (OFFICIAL PRESS NOTE OCR):
-   - ఒకవేళ జతచేసిన చిత్రంలో అధికారిక ప్రెస్ నోట్, ప్రభుత్వ జీవో లేదా లెటర్ హెడ్ ఉన్నట్లయితే: ఆ పత్రంలోని ముఖ్యాంశాలు, అంకెలు, ప్రకటనలను శ్రద్ధగా చదివి వార్తలో చేర్చండి.
-
-12. స్వచ్ఛమైన తెలుగు లిపి & కఠిన భాషా విభజన (100% PURE TELUGU SCRIPT - STRICT NO ENGLISH IN TELUGU FIELDS):
-   - 'headline', 'contentTe', 'fullStoryTe' ఫీల్డ్‌లు తప్పనిసరిగా 100% స్వచ్ఛమైన తెలుగు లిపిలోనే (Unicode U+0C00-U+0C7F) ఉండాలి. ఒక్క ఇంగ్లీష్ వాక్యం కూడా వీటిలో రాకూడదు!
-   - అబ్రివియేషన్లకు మాత్రమే ఇంగ్లీష్/నంబర్లు (ఉదా: TDP, BRS, BJP, ₹).
-   - 'headlineEn', 'contentEn', 'fullStoryEn' మాత్రమే ఇంగ్లీష్‌లో ఉండాలి.
-   - కన్నడ, హిందీ/దేవనాగరి, ఉర్దూ, తమిళం లేదా మలయాళం అక్షరాలు రాకూడదు.
-   - ఇతర భాషల పేర్లను స్వచ్ఛమైన తెలుగులోకి లిప్యంతరీకరించాలి (ఉదా: 'నరేంద్ర మోదీ', 'రాహుల్ గాంధీ', 'నారా లోకేష్', 'ఒవైసీ', 'వక్ఫ్').
-
-12.1 పదాల ముద్ద కలయిక & అసహజ విచ్ఛేదన సంపూర్ణ నిషేధం (NO WORD CLUMPING & NO UNNATURAL SPLITTING):
-   - పదాల ముద్ద కలయిక నిషేధం (STRICT NO CLUMPING):
-     * ఆంగ్ల/ఇతర భాషా పదాలకు విభక్తులు కలిపి రాయరాదు: "క్లాస్ రూమ్ లో", "స్క్రీన్ పై", "బంజారా హిల్స్ లో", "రోడ్ పై", "ఫోన్ లో", "ఫ్లైట్ తో", "ప్రాజెక్ట్ కు" అని స్పేస్ ఇవ్వాలి.
-     * హోదాలు-పేర్లు (ముఖ్యమంత్రి చంద్రబాబు), సంఖ్యలు-కొలతలు (రూ. 100 కోట్లు, 10 వేల మంది) కలిపి రాయరాదు.
-     * విరామ చిహ్నాలు (.,) తర్వాత తప్పక స్పేస్ ఉండాలి.
-   - తెలుగు పదాల అసహజ విచ్ఛేదన సంపూర్ణ నిషేధం (STRICT NO UNNATURAL SPLITTING):
-     * 🛑 అత్యంత కఠిన నిబంధన: తెలుగు సహజ బహువచన ప్రత్యయం "ల్లో" (ఉదా: 'పాత్రల్లో', 'సినిమాల్లో', 'గ్రామాల్లో', 'ఎన్నికల్లో', 'కేసుల్లో', 'ప్రజల్లో', 'రోజుల్లో', 'చేతుల్లో', 'కళ్లల్లో', 'మాటల్లో', 'రంగాల్లో', 'పాఠశాలల్లో') ను ఎట్టిపరిస్థితుల్లోనూ 'పాత్రల్ లో', 'సినిమాల్ లో', 'గ్రామాల్ లో', 'ఎన్నికల్ లో' అని విడదీసి రాయరాదు! ఖచ్చితంగా "ల్లో" కలిపే రాయాలి.
-     * సహజ తెలుగు పదాలైన 'ఇంట్లో', 'నోట్లో', 'కంట్లో' లను 'ఇంట్ లో', 'నోట్ లో' అని విడదీయరాదు.
-
-13. మీడియా & లోగోల కఠిన పరిశీలన (AI STRICT ZERO-LOGO & ZERO-WATERMARK DETECTION):
-   - 🛑 అత్యంత కఠిన నిబంధన: ఫోటోపై ఎక్కడైనా సరే (మూలలోనైనా, మధ్యలోనైనా, పైనైనా, కిందైనా) టీవీ ఛానల్ లోగో, వెబ్‌సైట్ వాటర్‌మార్క్, న్యూస్ మైక్ లోగో లేదా బ్రాండ్ టెక్స్ట్/గ్రాఫిక్స్ ఉంటే ఖచ్చితంగా "hasLogo": true, "mediaUrl": "" అని తిరస్కరించాలి! ఫోటో ఎంత బాగున్నా లోగో ఉంటే అస్సలు వాడరాదు!
-   - ✅ ఏ విధమైన లోగోలు, వాటర్‌మార్కులు, బ్రాండింగ్ రాతలు లేని 100% క్లీన్ ఫోటో (Clean unbranded real photograph) అయితే మాత్రమే mediaUrl ఇవ్వాలి.
-
-13.1 కఠిన జర్నలిస్టిక్ నాణ్యత & ప్రజా ప్రాముఖ్యత స్కోర్ (STRICT AI EDITORIAL QUALITY SCORE: 0 to 10):
-   - "qualityScore": 0.0 నుండి 10.0 వరకు కఠినమైన జర్నలిస్టిక్ విలువను కేటాయించండి:
-     * 9.0 - 10.0 (హై ఇంపాక్ట్ / మోస్ట్ ఇంపార్టెంట్): కీలక ప్రభుత్వ పాలసీలు, చారిత్రక తీర్పులు, కీలక పరీక్షలు/ఉద్యోగాలు, పెద్ద విపత్తులు/ప్రమాదాలు, ప్రముఖ జాతీయ/అంతర్జాతీయ పరిణామాలు, సంచలన రాజకీయ లేదా పరిశోధనాత్మక ప్రకటనలు.
-     * 6.0 - 8.0 (ప్రామాణిక వార్త): సాధారణ మంత్రుల/నేతల ప్రకటనలు, నియోజకవర్గ సమస్యలపై స్పందనలు, సాధారణ మ్యాచ్ అప్‌డేట్స్, మంచి వివరణలు.
-     * 1.0 - 4.0 (ఫిల్లర్ / గాసిప్ / తక్కువ విలువైన సమాచారం): రొటీన్ పొలిటికల్ ట్రోలింగ్, సోషల్ మీడియా చిల్లర గొడవలు, సినిమా పుకార్లు/గాసిప్పులు, తక్కువ ప్రాముఖ్యత ఉన్న ఫిల్లర్ కంటెంట్.
-
-14. అవుట్‌పుట్ ఫార్మాట్ (Strict JSON only):
-{"isRelevant": true|false, "qualityScore": 8.5, "headline": "దశ 1: స్వచ్ఛమైన తెలుగు శీర్షిక (కచ్చితంగా తెలుగులో, 8-10 పదాలు, పదునైన జర్నలిస్టిక్ పంచ్ శైలి, అవసరమైతే ఏకైక కోలన్ హుక్ separator అనుమతి)", "contentTe": "దశ 1: స్వచ్ఛమైన తెలుగు సారాంశం (ఇన్‌పుట్ ఏ భాషలో ఉన్నా సరే ఇక్కడ 100% తెలుగు లిపిలోనే, 52-60 పదాలు, కనీసం 52 పదాలు, ఒకే పేరాగ్రాఫ్, ఆపాదింపుతో)", "fullStoryTe": "${hasSubstantialTweet ? "పూర్తి వార్త - సీనియర్ ఎడిటర్ కథనం (3-4 విడివిడి పేరాగ్రాఫ్‌లు \\\\n\\\\n తో, ఆపాదింపుతో)" : ""}", "headlineEn": "దశ 2: English Headline translated from Telugu headline (8-10 words)", "contentEn": "దశ 2: English Summary translated from contentTe (50-60 words)", "fullStoryEn": "${hasSubstantialTweet ? "English Full Story in 2-4 paragraphs separated by \\\\n\\\\n" : ""}", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "mediaUrl": "url", "mediaType": "image", "isWide": false}`;
+                const prompt = buildEditorialPrompt({
+                    mode: 'social',
+                    hasSubstantialSource: hasSubstantialTweet,
+                    sourceWords: tweetWords,
+                    imageUrl: '',
+                    authorDisplayName,
+                    handleTag,
+                    designation,
+                    district,
+                    isAggregator
+                });
 
                 const markItemUrls = async (tItem) => {
                     const urls = tItem.allUrls && tItem.allUrls.length > 0 ? tItem.allUrls : [tItem.url];
@@ -3588,22 +3569,32 @@ ${hasSubstantialTweet ? `   - 'fullStoryTe': మూల ట్వీట్/పో
                 };
 
                 const speakerFromText = extractSpeakerFromTweet(item.text);
-                let postInputText = `POST SOURCE / AUTHOR: ${authorDisplayName} (${handleTag})\n`;
+                let postInputText = isAggregator
+                    ? `NEWS REPORT TEXT:\n`
+                    : `POST SOURCE / AUTHOR: ${authorDisplayName} (${handleTag})\n`;
                 if (speakerFromText) {
                     postInputText += `MANDATORY SPEAKER / STATEMENT GIVER: ${speakerFromText}\n`;
                 }
-                postInputText += `POST TEXT:\n${item.text}`;
+                if (!isAggregator) {
+                    postInputText += `POST TEXT:\n`;
+                }
+                postInputText += item.text;
 
-                // Selective Vision OCR: If tweet text is very short (< 60 chars) but has an attached genuine image,
-                // it is likely an official press statement / letterhead / GO. Pass image to Gemini Vision!
-                // If tweet text is already long (> 60 chars) or media is just an avatar, pass null to prevent hallucinations.
-                const isShortTextWithImage = item.text.length < 60 && item.mediaUrl && !isGenericImage(item.mediaUrl) && !item.mediaUrl.includes('profile_images');
-                const imageToProcess = isShortTextWithImage ? item.mediaUrl : null;
+                // Vision inspection: Pass genuine attached tweet photos (never profile avatars) so Gemini can
+                // detect channel logos/watermarks accurately and read press notes/GOs when present.
+                const hasGenuineTweetPhoto = Boolean(
+                    item.mediaUrl &&
+                    item.mediaUrl.startsWith('http') &&
+                    item.mediaType !== 'video' &&
+                    !isGenericImage(item.mediaUrl) &&
+                    !item.mediaUrl.includes('profile_images')
+                );
+                const imageToProcess = hasGenuineTweetPhoto ? item.mediaUrl : null;
                 const aiResult = await processWithGemini(postInputText, prompt, imageToProcess);
                 if (!aiResult) continue;
 
                 try {
-                    const parsed = JSON.parse(aiResult.replace(/```json|```/g, '').trim());
+                    const parsed = parseAIJson(aiResult);
                     const validContent = parsed.contentTe || parsed.content || '';
                     if (!parsed.isRelevant || !parsed.headline || !validContent) {
                         console.log(`[TWITTER] ⏭️ Filtered out non-news/satirical post for @${handle}: "${(item.text || '').substring(0, 45).replace(/\n/g, ' ')}..."`);
@@ -3612,12 +3603,12 @@ ${hasSubstantialTweet ? `   - 'fullStoryTe': మూల ట్వీట్/పో
                     }
                     parsed.content = validContent;
 
-                    // Clean headline immediately (strictly remove all quotes, colons, double-dots)
-                    parsed.headline = cleanTeluguHeadline(parsed.headline);
+                    // Clean headline immediately (strictly remove quotes, colons, double-dots, and aggregator credits)
+                    parsed.headline = cleanTeluguHeadline(stripAggregatorAttribution(parsed.headline));
                     if (parsed.headlineEn) {
                         parsed.headlineEn = cleanEnglishHeadline(parsed.headlineEn);
                     }
-                    if (!parsed.headline) {
+                    if (!parsed.headline || !isTeluguScript(parsed.headline)) {
                         await markItemUrls(item);
                         continue;
                     }
@@ -3677,22 +3668,54 @@ ${hasSubstantialTweet ? `   - 'fullStoryTe': మూల ట్వీట్/పో
                     const category = parsed.refinedCategory || feed.category || 'Politics';
                     const detected = detectDistrict(parsed.location, (parsed.headline || '') + ' ' + (item.text || ''));
 
+                    // Canonicalize explicit district assigned to this feed (e.g. "Nellore" / "నెల్లూరు" -> "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు")
+                    const rawFeedDistrict = (feed.district || '').trim();
+                    const feedDistrictMatch = rawFeedDistrict ? detectDistrict(rawFeedDistrict, '') : null;
+                    const hasSpecificFeedDistrict = Boolean(
+                        rawFeedDistrict &&
+                        !['general', 'all', 'andhrapradesh', 'andhra pradesh', 'telangana', 'ap', 'ts', 'national', 'international'].includes(rawFeedDistrict.toLowerCase()) &&
+                        (!feedDistrictMatch || (feedDistrictMatch.canonical !== 'AndhraPradesh' && feedDistrictMatch.canonical !== 'Telangana'))
+                    );
+                    const canonicalFeedDistrict = hasSpecificFeedDistrict
+                        ? (feedDistrictMatch ? feedDistrictMatch.canonical : rawFeedDistrict)
+                        : null;
+                    const canonicalFeedState = (feedDistrictMatch && feedDistrictMatch.state) ? feedDistrictMatch.state : (feed.state || null);
+
                     let finalDistrict = "General";
-                    let finalState = feed.state || null;
+                    let finalState = canonicalFeedState || feed.state || null;
 
                     if (PURE_GLOBAL_CATEGORIES.includes(category)) {
                         finalDistrict = "General";
+                    } else if (!isAggregator && canonicalFeedDistrict) {
+                        // Preserve district for district-specific leaders & officials (e.g. SP Nellore, Anam Ramanarayana Reddy, Somireddy)
+                        // so mentions of Amaravati/AP/Tirumala/Hyderabad never steal their updates out of their district's Local News feed.
+                        finalDistrict = canonicalFeedDistrict;
+                        if (canonicalFeedState) finalState = canonicalFeedState;
                     } else if (detected) {
                         finalDistrict = detected.canonical;
                         if (detected.state) finalState = detected.state;
-                    } else if (feed.district) {
-                        finalDistrict = feed.district;
+                    } else if (canonicalFeedDistrict) {
+                        finalDistrict = canonicalFeedDistrict;
+                        if (canonicalFeedState) finalState = canonicalFeedState;
+                    } else if (rawFeedDistrict) {
+                        finalDistrict = rawFeedDistrict;
                     }
 
                     let finalMediaUrl = ALFA_NEWS_LOGO;
-                    const rawMedia = (item.mediaUrl && item.mediaUrl.startsWith('http')) ? item.mediaUrl : 
-                                     ((item.avatarUrl && item.avatarUrl.startsWith('http')) ? item.avatarUrl : 
-                                     ((parsed.mediaUrl && parsed.mediaUrl.startsWith('http')) ? parsed.mediaUrl : null));
+                    let usedAvatarFallback = false;
+                    let rawMedia = null;
+                    if (parsed.hasLogo === true && hasGenuineTweetPhoto) {
+                        console.log(`[TWITTER-IMAGE] 🛑 AI detected logo/watermark on tweet photo for @${handle}: "${parsed.headline}". Rejecting photo.`);
+                    } else if (item.mediaUrl && item.mediaUrl.startsWith('http') && !isGenericImage(item.mediaUrl)) {
+                        rawMedia = item.mediaUrl;
+                    }
+
+                    // Allow profile avatar fallback ONLY for real individual/official handles (NEVER news portals/aggregators!)
+                    if (!rawMedia && !isAggregator && item.avatarUrl && item.avatarUrl.startsWith('http') && !isGenericImage(item.avatarUrl)) {
+                        rawMedia = item.avatarUrl;
+                        usedAvatarFallback = true;
+                    }
+
                     if (rawMedia && !isGenericImage(rawMedia)) {
                         const uploadedUrl = await uploadMediaToStorage(rawMedia);
                         if (uploadedUrl) {
@@ -3722,21 +3745,27 @@ ${hasSubstantialTweet ? `   - 'fullStoryTe': మూల ట్వీట్/పో
                         }
                     }
 
-                    const cleanedContent = sanitizeTeluguText(rawContentTe).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
+                    const cleanedContent = sanitizeTeluguText(stripAggregatorAttribution(rawContentTe)).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
+                    if (!isTeluguScript(cleanedContent)) {
+                        console.warn(`[TWITTER] 🛑 Skipping tweet with non-Telugu summary for @${handle}: "${cleanedHeadline}"`);
+                        await markItemUrls(item);
+                        continue;
+                    }
+
                     let cleanedFullStoryTe = "";
                     let cleanedFullStoryEn = "";
 
                     if (hasSubstantialTweet && parsed.fullStoryTe && isTeluguScript(parsed.fullStoryTe)) {
-                        const rawStory = sanitizeTeluguText(parsed.fullStoryTe).trim();
+                        const rawStory = sanitizeTeluguText(stripAggregatorAttribution(parsed.fullStoryTe)).trim();
                         const storyWords = rawStory.split(/\s+/).filter(Boolean).length;
-                        if (storyWords >= 80 && rawStory !== cleanedContent) {
+                        if (storyWords >= 60 && rawStory !== cleanedContent && rawStory.length > cleanedContent.length + 30) {
                             cleanedFullStoryTe = formatIntoParagraphs(rawStory);
                         }
                     }
 
                     if (hasSubstantialTweet && parsed.fullStoryEn) {
                         const rawStoryEn = String(parsed.fullStoryEn).trim();
-                        if (rawStoryEn.split(/\s+/).filter(Boolean).length >= 80) {
+                        if (rawStoryEn.split(/\s+/).filter(Boolean).length >= 60 && rawStoryEn.length > (rawContentEn || '').length + 30) {
                             cleanedFullStoryEn = formatIntoParagraphs(rawStoryEn);
                         }
                     }
@@ -3758,7 +3787,7 @@ ${hasSubstantialTweet ? `   - 'fullStoryTe': మూల ట్వీట్/పో
 
                     // Fix postFormat: 1:1 for profile avatars, 16:9 for landscape photos
                     let postFormat = '16:9';
-                    if (!item.mediaUrl && item.avatarUrl) {
+                    if (usedAvatarFallback) {
                         postFormat = '1:1';
                     }
 
@@ -3767,6 +3796,8 @@ ${hasSubstantialTweet ? `   - 'fullStoryTe': మూల ట్వీట్/పో
                     if (isTopLeaderNews) {
                         console.log(`[SCRAPER_TOP_LEADER] Detected statement/quote for ${leaderDetect.leaderName} in tweet @${handle}: "${cleanedHeadline}". Flagging BREAKING!`);
                     }
+
+                    const isPoliticalCategory = category === 'Politics' || category === 'రాజకీయం' || feed.category === 'Politics' || feed.category === 'రాజకీయం';
 
                     const docRef = db.collection('news').doc();
                     const newsPayload = sanitizeFirestoreData({
@@ -3781,7 +3812,7 @@ ${hasSubstantialTweet ? `   - 'fullStoryTe': మూల ట్వీట్/పో
                             feed.sourceName || `X (@${handle})`, 
                             category, 
                             "Social", 
-                            "రాజకీయం", 
+                            ...(isPoliticalCategory ? ["రాజకీయం"] : []), 
                             "ముఖ్యాంశాలు",
                             ...(finalDistrict !== "General" && !GLOBAL_CATEGORIES.includes(finalDistrict) ? ["Local", finalDistrict] : [])
                         ])].filter(Boolean),
@@ -3838,7 +3869,9 @@ ${hasSubstantialTweet ? `   - 'fullStoryTe': మూల ట్వీట్/పో
                         storyFingerprintMemoryCache.add(parsed.storyFingerprint);
                     }
                     batchCount++;
-                } catch (e) {}
+                } catch (e) {
+                    console.error(`[TWITTER] JSON/processing error for @${handle}:`, e.message);
+                }
             }
 
             if (batchCount > 0) {
@@ -3849,16 +3882,30 @@ ${hasSubstantialTweet ? `   - 'fullStoryTe': మూల ట్వీట్/పో
                 console.log(`[TWITTER] Committed ${batchCount} tweets for @${handle}`);
             }
         }
-        await Promise.race([
-            doc.ref.update({
-                lastFetchTime: admin.firestore.FieldValue.serverTimestamp(),
-                lastStatus: 'active',
-                lastError: null,
-                totalProcessedCount: admin.firestore.FieldValue.increment(batchCount),
-                todayProcessedCount: admin.firestore.FieldValue.increment(batchCount)
-            }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Update stats timeout (10s)')), 10000))
-        ]).catch(err => console.warn(`Could not update stats for @${handle}:`, err.message));
+        if (!anyFetchSucceeded) {
+            const errText = String(lastFetchError || 'All Twitter fetch methods failed').substring(0, 200);
+            console.warn(`[TWITTER] ❌ All fetch methods failed for @${handle}: ${errText}`);
+            await Promise.race([
+                doc.ref.update({
+                    lastFetchTime: admin.firestore.FieldValue.serverTimestamp(),
+                    lastStatus: 'error',
+                    lastError: errText,
+                    totalFailedCount: admin.firestore.FieldValue.increment(1)
+                }),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Update error stats timeout (10s)')), 10000))
+            ]).catch(err => console.warn(`Could not update error stats for @${handle}:`, err.message));
+        } else {
+            await Promise.race([
+                doc.ref.update({
+                    lastFetchTime: admin.firestore.FieldValue.serverTimestamp(),
+                    lastStatus: 'active',
+                    lastError: null,
+                    totalProcessedCount: admin.firestore.FieldValue.increment(batchCount),
+                    todayProcessedCount: admin.firestore.FieldValue.increment(batchCount)
+                }),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Update stats timeout (10s)')), 10000))
+            ]).catch(err => console.warn(`Could not update stats for @${handle}:`, err.message));
+        }
     } catch (error) {
         console.error(`Error processing Twitter @${handle}:`, error.message);
         await Promise.race([
@@ -3967,10 +4014,10 @@ async function runScraperQueue() {
             return timeA - timeB;
         });
 
-        // Bounded cycle: Process all active web sources + top 35 oldest/unfetched Twitter feeds.
-        // Across 18 hourly runs per day, all 387 feeds are refreshed smoothly ~1.5 times daily,
-        // while each hourly cycle completes in ~15-25 minutes without blocking or exhausting RAM.
-        const MAX_TWITTER_FEEDS_PER_CYCLE = 35;
+        // Bounded cycle: Process all active web sources + top 75 oldest/unfetched Twitter feeds.
+        // Across 18 hourly runs per day, all ~387 feeds rotate every ~5 hours (~3.5 times daily)
+        // so district leaders/officials (like Nellore) never miss tweets within the 36-hour window.
+        const MAX_TWITTER_FEEDS_PER_CYCLE = 75;
         const cycleTwitterDocs = twitterDocs.slice(0, MAX_TWITTER_FEEDS_PER_CYCLE);
 
         console.log(`[QUEUE] Starting Cycle: ${webDocs.length} Web sources + ${cycleTwitterDocs.length}/${twitterDocs.length} Twitter feeds (Oldest first).`);

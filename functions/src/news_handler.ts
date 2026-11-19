@@ -166,11 +166,7 @@ Output JSON only.`,
                 temperature: 0.3,
                 maxOutputTokens: 4096,
                 responseMimeType: "application/json",
-                responseSchema: schema,
-                system_instruction: `You are an expert bilingual editor translating content between Telugu and English. ...`,
-                response_mime_type: "application/json",
-                response_schema: schema,
-                max_output_tokens: 4096
+                responseSchema: schema
             }
         } as any);
 
@@ -419,7 +415,7 @@ function normalizeSingleStory(aiRes: any, actualPostData: any): any {
     if (finalFullStoryTe && typeof finalFullStoryTe === 'string' && finalFullStoryTe.trim().length > 0) {
         const rawStory = sanitizeTeluguText(finalFullStoryTe).trim();
         const storyWords = rawStory.split(/\s+/).filter(Boolean).length;
-        if (storyWords >= 80 && rawStory !== finalContent) {
+        if (storyWords >= 60 && rawStory !== finalContent && rawStory.length > finalContent.length + 30) {
             finalFullStoryTe = formatIntoParagraphs(rawStory);
         } else {
             finalFullStoryTe = "";
@@ -433,7 +429,7 @@ function normalizeSingleStory(aiRes: any, actualPostData: any): any {
     if (finalFullStoryEn && typeof finalFullStoryEn === 'string' && finalFullStoryEn.trim().length > 0) {
         const rawStoryEn = finalFullStoryEn.trim();
         const storyWordsEn = rawStoryEn.split(/\s+/).filter(Boolean).length;
-        if (storyWordsEn >= 80 && rawStoryEn !== finalContentEn) {
+        if (storyWordsEn >= 60 && rawStoryEn !== finalContentEn && rawStoryEn.length > finalContentEn.length + 30) {
             finalFullStoryEn = formatIntoParagraphs(rawStoryEn);
         } else {
             finalFullStoryEn = "";
@@ -742,12 +738,12 @@ export async function performAIProcessing(
     const singleStorySchema = {
         type: Type.OBJECT,
         properties: {
-            headline: { type: Type.STRING, description: "Pure Telugu punchy journalistic headline strictly in 6-9 words as ONE continuous flowing sentence without colons (:) or dashes (-), ending with an active finite action verb (NO noun endings or bare names), NO clichés like 'ఘనంగా', with proper spaces (e.g. 'స్క్రీన్ పై', 'క్లాస్ రూమ్ లో')." },
-            content: { type: Type.STRING, description: "Pure Telugu short news story strictly 52-60 words (minimum 52 words, maximum 60 words), single paragraph" },
-            fullStoryTe: { type: Type.STRING, description: "Senior Editor full story in Telugu across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if source is brief (< 120 words)" },
-            headlineEn: { type: Type.STRING, description: "English headline translated from Telugu headline (6-9 words)" },
-            contentEn: { type: Type.STRING },
-            fullStoryEn: { type: Type.STRING, description: "Senior Editor full story in English across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if source is brief (< 120 words)" },
+            headline: { type: Type.STRING, description: "Natural, dignified Telugu headline (6-10 words), one clear sentence without colons or quotes." },
+            content: { type: Type.STRING, description: "Pure Telugu news summary (50-65 words), single paragraph." },
+            fullStoryTe: { type: Type.STRING, description: "3-4 paragraph Telugu full story separated by \\n\\n when substantial info is available, otherwise empty string \"\"." },
+            headlineEn: { type: Type.STRING, description: "English headline translated from Telugu headline (6-10 words)." },
+            contentEn: { type: Type.STRING, description: "English summary translated from Telugu content (50-65 words)." },
+            fullStoryEn: { type: Type.STRING, description: "3-4 paragraph English full story separated by \\n\\n matching fullStoryTe, or empty string \"\"." },
             location: { type: Type.STRING },
             storyFingerprint: { type: Type.STRING },
             refinedCategory: { type: Type.STRING },
@@ -807,128 +803,57 @@ export async function performAIProcessing(
     console.log(`[AI_START] Processing: ${headline.substring(0, 30)}... (Type: ${actualPostData?.isReporter ? 'Reporter' : 'Citizen'}, Source words: ${sourceWords})`);
 
     const recentStoriesPrompt = recentStories.length > 0
-        ? `\nRECENT APPROVED NEWS IN THIS SAME MANDAL IN THE PAST 6 HOURS:\n` +
-          recentStories.map((s, idx) => `[Prior Story ${idx + 1}] ID: ${s.id} | Location: ${s.location} | Headline: ${s.headline} | Content: ${s.content.substring(0, 150)}`).join('\n') +
-          `\n\nDUPLICATE DETECTION RULES (CRITICAL):\n` +
-          `- Compare incoming news with the [Prior Story] list in this same mandal above.\n` +
-          `- DIFFERENT TOPICS/EVENTS IN THE SAME MANDAL ARE 100% PERMITTED AND ARE NEVER DUPLICATES (CRITICAL):\n` +
-          `  * A mandal has many diverse everyday events. Multiple different news stories from the same mandal MUST ALL BE PUBLISHED.\n` +
-          `  * Examples of distinct, non-duplicate stories in the same mandal:\n` +
-          `    - Story A is about voter list verification / inquiry (ఓటర్ల సర్వే / ధ్రువపత్రాల పరిశీలన) vs Story B is about garbage/waste collection vehicle shortage (చెత్త సేకరణ వాహనాల కొరత) -> COMPLETELY DIFFERENT TOPICS -> NOT DUPLICATE (isDuplicate = false).\n` +
-          `    - School infrastructure issues vs Police inspections vs Local elections vs Sports meet vs Road accident -> COMPLETELY DIFFERENT TOPICS -> NOT DUPLICATE (isDuplicate = false).\n` +
-          `- ROUTINE WELFARE & WARD/VILLAGE-LEVEL SCHEMES EXEMPTION:\n` +
-          `  * Routine welfare events (e.g. NTR Bharosa Pensions / ఎన్టీఆర్ భరోసా పింఛన్ల పంపిణీ, Ration distribution, Kalyanamastu, Medical camps, House site pattas) happening in DIFFERENT WARDS (e.g. 24th Ward vs 10th Ward or Ward 1 vs Ward 2), DIFFERENT VILLAGES, OR DIFFERENT HABITATIONS in the same mandal are NOT duplicates! They are distinct ward/village events.\n` +
-          `- VIDEO COVERAGE EXEMPTION (CRITICAL):\n` +
-          `  * If the incoming post is a VIDEO report (mediaType = VIDEO or includes video), it is NEVER a duplicate of an earlier text/photo story! Video coverage is distinct multimedia content. Set isDuplicate = false, duplicateOfPostId = null.\n` +
-          `- ONLY MARK isDuplicate = true IF AND ONLY IF:\n` +
-          `  * The incoming news is reporting the EXACT SAME real-world incident/event (same exact accident at the same spot, same exact press meet/statement, same individual death/theft, same meeting) that has ALREADY been covered in one of the [Prior Story] items above, AND is the same media format.\n` +
-          `  * In that case only:\n` +
-          `    1. Set isDuplicate = true\n` +
-          `    2. Set duplicateOfPostId = matching Prior Story ID\n` +
-          `    3. Set rejectionReason = "ఈ మండలంలో గత కొన్ని గంటల్లో ఈ వార్తాంశం ఇప్పటికే ప్రచురించబడింది."\n` +
-          `- IF IT IS A DIFFERENT TOPIC, DIFFERENT EVENT, DIFFERENT WARD/VILLAGE, VIDEO COVERAGE, OR FOLLOW-UP:\n` +
-          `  1. Set isDuplicate = false\n` +
-          `  2. Set duplicateOfPostId = null\n` +
-          `  3. Leave rejectionReason empty "" (DO NOT put duplicate rejection message if topics differ!).\n`
-        : `\nDUPLICATE DETECTION: No recent stories found in this mandal in the past 6 hours. Set isDuplicate = false, duplicateOfPostId = null.\n`;
+        ? `\nRECENT APPROVED NEWS IN THIS SAME MANDAL (PAST 6 HOURS):\n` +
+          recentStories.map((s, idx) => `[Prior ${idx + 1}] ID: ${s.id} | Location: ${s.location} | Headline: ${s.headline} | Content: ${s.content.substring(0, 150)}`).join('\n') +
+          `\n\nDUPLICATE DETECTION RULES:\n` +
+          `- Different topics or different events in the same mandal are NEVER duplicates (isDuplicate = false).\n` +
+          `- Routine welfare/ward events (pensions, ration, medical camps, pattas) in DIFFERENT wards or villages are NOT duplicates.\n` +
+          `- VIDEO COVERAGE EXEMPTION: If the incoming post is a VIDEO report, it is NEVER a duplicate of an earlier text/photo story (isDuplicate = false, duplicateOfPostId = null).\n` +
+          `- Mark isDuplicate = true ONLY if it reports the EXACT SAME real-world incident already covered in [Prior] above with the same media format. In that case set duplicateOfPostId to the matching Prior ID and rejectionReason = "ఈ మండలంలో గత కొన్ని గంటల్లో ఈ వార్తాంశం ఇప్పటికే ప్రచురించబడింది.".\n` +
+          `- Otherwise set isDuplicate = false, duplicateOfPostId = null, and leave rejectionReason = "".\n`
+        : `\nDUPLICATE DETECTION: No recent stories in this mandal (past 6h). Set isDuplicate = false, duplicateOfPostId = null.\n`;
 
     const metadataPrompt = `
 SUBMISSION METADATA:
 - type: ${actualPostData?.isReporter ? 'REPORTER_SUBMISSION' : 'CITIZEN_SUBMISSION'}
-- isReporter: ${actualPostData?.isReporter === true}
-- isCitizen: ${actualPostData?.isCitizen === true}
 - district: ${actualPostData?.district || 'Unknown'}
 - location: ${actualPostData?.location || 'Unknown'}${actualPostData?.socialPlatform ? `
 - socialPlatform: ${actualPostData.socialPlatform}` : ''}${actualPostData?.socialAuthorName ? `
-- Post Author (CRITICAL - MANDATORY ATTRIBUTION): ${actualPostData.socialAuthorName}
-  ⚠️ This content was posted by "${actualPostData.socialAuthorName}" on social media. ALL allegations, criticisms, and opinions expressed must be attributed to them using phrases like "అన్న ${actualPostData.socialAuthorName}", "అని ${actualPostData.socialAuthorName} అన్నారు", "అంటూ ${actualPostData.socialAuthorName} ట్వీట్ చేశారు". NEVER present their statements as Alfa News facts or our own verified conclusions. The headline MUST also clearly attribute to ${actualPostData.socialAuthorName}.` : ''}${videoSpeechContext ? `
+- Post Author (mandatory attribution): ${actualPostData.socialAuthorName} — attribute all claims/opinions to this author; never state them as Alfa News verdicts.` : ''}${videoSpeechContext ? `
 
-[వీడియోలో మాట్లాడిన అసలు మాటలు & కీలక ప్రకటనలు / Spoken Speech & Statements in Video]:
+[వీడియోలో మాట్లాడిన అసలు మాటలు / Spoken Speech in Video]:
 ${videoSpeechContext}
 
-⚠️ వీడియో జర్నలిజం సమగ్ర కథన నిబంధనలు (CRITICAL VIDEO JOURNALISM MANDATE):
-- ఈ వార్త క్షేత్రస్థాయి వీడియో ఆధారంగా సమర్పించబడింది. పైన సేకరించిన [వీడియోలో మాట్లాడిన అసలు మాటలు] నుండి మాట్లాడిన వ్యక్తి వివరాలు, వారి అసలు ప్రకటనలు, ఆరోపణలు, సంఖ్యలు మరియు ప్రజా సమస్యలను తప్పనిసరిగా కథనంలో సమగ్రంగా చేర్చండి.
-- మాట్లాడిన మాటలను సదరు నేత/బాధితుడికే ఆపాదించాలి (ఉదా: "...అని వీడియోలో వెల్లడించిన ఫలానా నేత", "...అంటూ వాపోయిన బాధితులు").
-- సందర్భానుసార శీర్షిక (6-9 పదాలు): వీడియోలోని అత్యంత కీలకమైన ప్రకటన లేదా సవాలు ఆధారంగా కోలన్ (:) లేకుండా ఒకే సంపూర్ణ వాక్యంగా పదునైన శీర్షిక ఉండాలి.
-- 360° సమతుల్యత: వీడియోలో ఒక పక్షం ఘాటైన ఆరోపణలు చేస్తే, 3వ పేరాలో ఎదుటి పక్షం వివరణ లేదా ప్రభుత్వ/అధికారుల స్పందనను సమతుల్యంగా చేర్చండి.
-- స్వీయ ప్రచారం / భజన / పీఆర్ రీల్ అయితే: వీడియోలో ఎటువంటి వార్తా విలువ లేకుండా కేవలం నాయకుడి భజన, పొగడ్తలు ఉంటే తిరస్కరించండి (rejectionReason రాయండి).` : ''}
+వీడియో వార్త సూచన:
+- వీడియోలో మాట్లాడిన వ్యక్తి పేరు, అసలు వ్యాఖ్యలు, అంకెలు, ప్రజా సమస్యలను కథనంలో చేర్చి వారికే ఆపాదించండి.
+- కేవలం వార్తా విలువ లేని భజన/పీఆర్ రీల్ అయితే మాత్రమే తిరస్కరించండి.` : ''}
 
 ${recentStoriesPrompt}
 
-EDITORIAL & REJECTION INSTRUCTIONS (CRITICAL):
-- IF THE STORY IS VALID & APPROVED FOR PUBLICATION (CRITICAL):
-  * You MUST set rejectionReason = "" (empty string).
-  * NEVER write approval statements like "ప్రచురణకు ఆమోదించబడింది", "ఆమోదం", or "approved" in rejectionReason! When approved, rejectionReason MUST BE AN EMPTY STRING "".
-- ONLY IF THE STORY VIOLATES EDITORIAL/SAFETY POLICIES OR IS A CONFIRMED DUPLICATE:
-  * rejectionReason MUST be phrased politely in professional Telugu as if written by a Human Chief Editor / News Desk. NEVER mention AI, algorithms, bots, or automated systems. Explain naturally like an editor (e.g. 'ఈ మండలంలో ఈ వార్తాంశం ఇప్పటికే ప్రచురితమైంది', 'వార్తలో ప్రజా ప్రయోజనం కొరవడింది లేదా వ్యక్తిగత ప్రచారం', 'చిత్రం ప్రచురణ ప్రమాణాలకు అనుగుణంగా లేదు').
+REJECTION REASON RULE:
+- If approved for publication: rejectionReason MUST be "" (empty string — never write approval remarks here).
+- Only if rejected (policy/safety violation or confirmed duplicate): write a polite Telugu editorial reason as a human News Desk editor. Never mention AI, bots, or automation.
 ${hasSubstantialSource ? `
-FULL STORY INSTRUCTIONS (సేఫ్ ఎడిటోరియల్ ఎక్స్‌పాన్షన్ & సమగ్ర కథనం):
-- Write a comprehensive full story in Telugu (fullStoryTe) structured into 3 to 4 distinct paragraphs separated by \n\n (180-240 words).
-- STRICT FACT SAFETY: Preserve all provided facts, locations, names, titles, and budget numbers. Never invent false facts or fake names (ZERO HALLUCINATIONS).
-- SAFE CONTEXTUAL EXPANSION:
-  * Even if the input is concise (40-70 words), enrich it with relevant background, public awareness, social importance, and community impact.
-  * For health camps: explain the role of PHCs, preventive screening for hypertension/diabetes, and the relief of free medicine.
-  * For welfare/CMRF: highlight how CMRF provides relief to poor families during medical emergencies and the impact on beneficiaries.
-  * For rural/civic issues: highlight public need, administrative follow-up, and seasonal relevance.
-- 3 to 4 distinct paragraphs separated by \n\n:
-  * Paragraph 1: Gripping hook, core incident, place, and attribution (~60-70 words).
-  * Paragraph 2: Key statements, attendees, quotes, and specific numbers (~60-80 words).
-  * Paragraph 3: Public awareness, context, and social significance (~60-70 words).
-  * Paragraph 4: Follow-up action by authorities and expected outcome (~40-50 words).
-- fullStoryEn: Matching English full story across 3-4 paragraphs separated by \n\n.
-- If the submission is an ultra-brief casual announcement (under 25 words) with no contextual value: set fullStoryTe = "" and fullStoryEn = "".
+FULL STORY RULE:
+- Write 'fullStoryTe' and matching 'fullStoryEn' across 2-4 crisp paragraphs separated by \\n\\n, proportionate to the real facts available (1. core news & citizen impact, 2. key details/numbers/quotes, 3-4. civic context/next steps).
+- Never pad or repeat the same fact just to stretch length. Preserve every provided name, place, and number; never invent unverified facts, quotes, or fake opposition statements.
 ` : `
-FULL STORY INSTRUCTIONS (అత్యంత స్వల్ప సమాచారం - NO CONTEXT POSSIBLE):
-- The submitted material is an ultra-brief snippet (${sourceWords} words) with no contextual expansion possible.
-- Set fullStoryTe = "" (empty string) and fullStoryEn = "" (empty string).
-- Only provide the concise 52-60 word Telugu content (minimum 52 words, one single paragraph) and headline.
+FULL STORY RULE:
+- Source is very brief (${sourceWords} words). Do NOT invent details: set fullStoryTe = "" and fullStoryEn = "". Write only the 50-65 word Telugu 'content' and 'headline'.
 `}
 
-PROACTIVE MULTI-STORY BUNDLE DETECTION (CRITICAL):
-- Proactively detect if the input text contains multiple distinct sub-stories or angles:
-  1. Political Attack + Development Works/Achievements -> MUST SPLIT into 2 distinct stories.
-  2. Multiple distinct scandals/scams or allegations in the same press meet -> MUST SPLIT into 2 distinct stories.
-  3. Bundled press releases / tour notes -> MUST SPLIT into 2 to 3 standalone stories.
-- If multiple distinct events/topics exist, output 2 to 3 separate story objects in the 'stories' array.
-- If strictly one single topic, return 1 story in the 'stories' array.
-- Assign 'matchedImageIndex' (0, 1, 2) matching which attached photo corresponds to each story.
+MULTI-STORY RULE:
+- Split into 2-3 separate objects in 'stories' ONLY if the input genuinely covers multiple distinct events/topics (assigning each its matching 'matchedImageIndex'). Otherwise return 1 story.
 
-NOTIFICATION INSTRUCTIONS (CRITICAL - STRICT RELEVANCE & URGENCY):
-- isBreaking: MUST be true for:
-  * 🏛️ TOP LEADER STATEMENTS & ANNOUNCEMENTS (MANDATORY BREAKING): Any statement, press meet, speech, tweet, reaction, allegation, or decision made DIRECTLY by or QUOTING the Chief Ministers and key opposition leaders of Andhra Pradesh & Telangana:
-    1. Chandrababu Naidu (చంద్రబాబు నాయుడు / CBN)
-    2. Revanth Reddy (రేవంత్ రెడ్డి / అనుముల రేవంత్ రెడ్డి)
-    3. Y.S. Jagan Mohan Reddy (వైఎస్ జగన్ మోహన్ రెడ్డి / జగన్)
-    4. KCR / K. Chandrashekar Rao (కేసీఆర్ / చంద్రశేఖర్ రావు)
-    5. Pawan Kalyan (పవన్ కళ్యాణ్ / పవన్)
-    6. Nara Lokesh (నారా లోకేష్ / లోకేష్)
-    7. KTR / K.T. Rama Rao (కేటీఆర్ / తారక రామారావు)
-    Whenever any of these 7 leaders make a direct statement or are quoted in the news, isBreaking MUST BE TRUE, tone MUST BE "BREAKING", and notificationWorthy MUST BE TRUE!
-  * Major disasters or fatal accidents with multiple casualties (బస్సు/రైలు ప్రమాదాలు, 2+ మరణాలు లేదా తీవ్ర విషాదాలు).
-  * Extreme weather / disaster red alerts (తీవ్ర తుఫాను, ఆకస్మిక వరదలు, పిడుగుపాటు హెచ్చరికలు, భారీ అగ్నిప్రమాదాలు, గ్యాస్ లీక్).
-  * Major government/state policy shifts or emergency announcements (ముఖ్యమంత్రి/ప్రభుత్వ కీలక నిర్ణయాలు, ఎన్నికల ఫలితాలు, బడ్జెట్, అత్యవసర సెలవులు).
-  * High-profile crimes/manhunts affecting general public safety.
-  * STRICTLY FALSE for: Single minor vehicle skids/minor injuries (ఒకరిద్దరికి స్వల్ప గాయాలు), petty local thefts, routine ward disputes, local party fights, ordinary local meetings.
-- notificationWorthy: Set true for:
-  * Statements by or quoting the 7 top state leaders (Chandrababu, Revanth, Jagan, KCR, Pawan, Lokesh, KTR).
-  * Major welfare schemes / financial benefits impacting many citizens (రైతు భరోసా, పింఛన్లు, ఫీజు రీయింబర్స్‌మెంట్, కొత్త పథకాలు).
-  * Important public utility/safety alerts (విద్యుత్/నీటి సరఫరా నిలిపివేత, ప్రధాన రహదారుల మూసివేత, పరీక్షల షెడ్యూల్, ఉద్యోగ నోటిఫికేషన్లు).
-  * Inspiring human achievements, significant regional or state developments.
-  * STRICTLY FALSE ONLY for: Routine low-level ward/mandal level party cadre fights, routine photo-ops, birthday celebrations, shawl felicitations, personal praise/flattery (భజన వార్తలు), small ward drainage/street light complaints. (Top 7 state leaders are EXEMPT from this restriction and MUST always be breaking/worthy).
-- notificationTitle:
-  * If isBreaking is true: Generate a crisp, urgent, 100% FACTUAL Telugu title stating WHAT happened and WHERE (strictly 6-9 words as ONE continuous flowing sentence without colons or double dots). NEVER use clickbait questions or mystery teasers for tragic/breaking news!
-  * If notificationWorthy is true (and NOT breaking): Generate an engaging, intriguing Telugu curiosity hook title (strictly 6-9 words as ONE continuous flowing sentence without colons or double dots).
-  * If neither, leave as empty string "".
-- qualityScore: Assign a strict journalistic quality score between 0.0 and 10.0:
-  * 9.0 - 10.0: Top 7 leader statements/quotes, major public impact, key policy/budget decision, major emergency/disaster, exclusive investigative report.
-  * 6.0 - 8.0: Standard civic/regional updates, administrative works, legitimate local community matters.
-  * 1.0 - 4.0: Routine photo-ops, personal flattery/praise, low-substance filler, minor trivial disputes.
-- tone options: BREAKING | URGENT | IMPORTANT | NORMAL | SOFT
-  * BREAKING: For top 7 leader statements/quotes, and genuine high-magnitude breaking news matching isBreaking above.
-  * URGENT: Only for time-sensitive public alerts (e.g. disaster warning, exam deadline).
-  * IMPORTANT: For significant district/state developments without immediate emergency.
-  * NORMAL: For standard everyday news stories.
-  * SOFT: For human interest, lifestyle, devotional, or minor routine events.
+NOTIFICATION & PRIORITY RULES:
+- isBreaking = true (with tone: "BREAKING", notificationWorthy: true) for:
+  1. Direct statements, speeches, press meets, tweets, or quotes from the 7 top AP/TS leaders: Chandrababu Naidu, Revanth Reddy, Y.S. Jagan Mohan Reddy, KCR, Pawan Kalyan, Nara Lokesh, KTR.
+  2. Major disasters, multi-casualty accidents, severe weather red alerts, major state policy/budget/exam/holiday decisions, or major public-safety emergencies.
+  (Keep false for minor single-vehicle accidents, petty local disputes, or routine meetings.)
+- notificationWorthy = true for the 7 top leaders above, major welfare/policy updates, utility/exam/job alerts, or notable regional developments; false for routine photo-ops, felicitations, or trivial ward complaints.
+- notificationTitle: Crisp 6-9 word Telugu title (no colons, no clickbait) if isBreaking or notificationWorthy; else "".
+- qualityScore (0.0-10.0): 9-10 for top-7 leader statements/major policy/emergencies; 6-8 for standard civic/regional news; 1-4 for low-substance routine filler.
+- tone: BREAKING | URGENT | IMPORTANT | NORMAL | SOFT.
 `;
 
     // 🆓 Metadata, categorization, safety scan & full news story (YouTube description): FREE TIER KEYS (gemini-3.5-flash-lite)
@@ -943,15 +868,10 @@ NOTIFICATION INSTRUCTIONS (CRITICAL - STRICT RELEVANCE & URGENCY):
             contents: [{ role: "user", parts: [{ text: `${metadataPrompt}\n\nHeadline: ${headline}\nContent: ${content}` }] }],
             config: {
                 systemInstruction: getCategorySystemInstruction(),
-                temperature: 0.6,
+                temperature: 0.35,
                 maxOutputTokens: 4096,
                 responseMimeType: "application/json",
-                responseSchema: schema,
-                // Full compatibility aliases
-                system_instruction: getCategorySystemInstruction(),
-                response_mime_type: "application/json",
-                response_schema: schema,
-                max_output_tokens: 4096
+                responseSchema: schema
             }
         } as any);
 

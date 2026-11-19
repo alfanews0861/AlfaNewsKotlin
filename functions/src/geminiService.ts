@@ -5,31 +5,19 @@ const PRIMARY_MODEL = PRO_MODEL;
 
 /**
  * Canonical Single Source of Truth for Telugu Headline Generation.
- * Simple, intelligent, rules-driven prompt without restrictive or contradictory examples.
+ * Concise, principle-driven editorial brief — lets Gemini write natural, sharp Telugu journalism.
  */
-export const CANONICAL_HEADLINE_RULE = `మీరు ప్రముఖ తెలుగు దినపత్రిక (ఈనాడు/సాక్షి/ఆంధ్రజ్యోతి) చీఫ్ హెడ్‌లైన్ ఎడిటర్. ప్రభుత్వ ప్రెస్ నోట్ లాంటి నిస్తేజమైన, చప్పని భాషలో కాకుండా, పాఠకుడికి రోమాంచితం కలిగించే అత్యంత పదునైన, దూకుడుగా ఉండే జర్నలిస్టిక్ పంచ్ శీర్షిక (High-Energy Journalistic Punch Headline) రాయాలి.
-
-🔥 పంచ్ శీర్షికా సూత్రాలు (HIGH-ENERGY PUNCH RULES):
-1. పరిమాణం: ఖచ్చితంగా 6 నుండి 9 పదాలు మాత్రమే (Strictly 6 to 9 words).
-2. విరామ చిహ్నాలు: ఎక్కడా కోలన్ (:), డాష్ (-), చుక్కలు (..) లేకుండా ప్రారంభం నుండి చివరి వరకు ఒకే ఒక్క సంపూర్ణ వాక్యంగా (Single continuous sentence) మాత్రమే సాగాలి. కొటేషన్లు ('...', "...") నిషిద్ధం.
-3. 🛑 నిస్తేజ ప్రభుత్వ ప్రకటనల భాష సంపూర్ణ నిషేధం (NO BORING PRESS-RELEASE VERBS / NO NOUN ENDINGS):
-   'ఆదేశించారు', 'అందించారు', 'తెలిపారు', 'పేర్కొన్నారు', 'చేశారు', 'వివరించారు', 'విచ్చేయనున్నారు' వంటి రొటీన్ ఆఫీస్ భాషతో గానీ... లేదా 'ఆదేశం', 'పంపిణీ', 'అభిమానం', 'సన్మానం', 'వేడుకలు', 'సమరం', 'ప్రచారం', 'గుట్టురట్టు' వంటి నామవాచకాలతో గానీ శీర్షికను ఎట్టి పరిస్థితుల్లోనూ ముగించరాదు!
-4. ⚡ హై-ఎనర్జీ పవర్ పంచ్ & సజీవ ఫలితం (HIGH-VOLTAGE DRAMA & ACTION):
-   - అధికారుల హెచ్చరికలు: 'కలెక్టర్ గర్జన', 'కలెక్టర్ వార్నింగ్', 'ఉక్కుపాదం మోపనున్న పోలీసులు', 'ముఠా భరతం పట్టాలని కలెక్టర్ హుకుం'
-   - సంక్షేమం / లబ్ధి: 'సొంతింటి కల సాకారం', 'తాళాలు అందుకుని మురిసిపోయిన పేదలు', 'మురిసిన నిరుపేదలు'
-   - రాజకీయాలు / రాక: 'కదంతొక్కిన శ్రేణులు', 'పోటెత్తిన గులాబీ దళం', 'రాకతో దద్దరిల్లిన పెద్దపల్లి'
-   - ఎన్నికల ప్రచారం: 'ప్రచారంలో దూసుకెళ్లిన నాగమణి', 'ఓట్ల వేటలో దూకుడు పెంచిన అభ్యర్థి'
-   - విషాదాలు: 'కరెంట్ షాక్‌తో నేలకొరిగిన గరుడ పక్షి', 'అక్కడికక్కడే నలుగురు బలి'
-5. ప్రెస్-నోట్ మూస పదాలు (ఘనంగా, ఉత్సాహంగా మొదలైనవి) నిషిద్ధం.
-6. పదాల విభజన & కలయిక: ఆంగ్ల పదాలు/పేర్లకు విభక్తులు కలిపి ముద్దగా రాయరాదు (ఉదా: 'క్లాస్ రూమ్ లో', 'స్క్రీన్ పై', 'బంజారా హిల్స్ లో' అని స్పేస్ ఇచ్చి రాయాలి). అయితే తెలుగు బహువచన ప్రత్యయమైన 'ల్లో' (పాత్రల్లో, సినిమాల్లో, గ్రామాల్లో, ఎన్నికల్లో) ను ఎట్టిపరిస్థితుల్లోనూ 'పాత్రల్ లో' అని విడదీయరాదు!
-7. 100% స్వచ్ఛమైన తెలుగు లిపి (Unicode U+0C00-U+0C7F).`;
+export const CANONICAL_HEADLINE_RULE = `మీరు ఆల్ఫా న్యూస్ (Alfa News) చీఫ్ హెడ్‌లైన్ ఎడిటర్. మొబైల్ పాఠకుడు 2 సెకన్లలో ఆగి చదివేలా, ప్రముఖ తెలుగు దినపత్రికల స్థాయిలో స్పష్టమైన, ఆకర్షణీయమైన శీర్షిక రాయాలి.
+- సూటిదనం & నిర్దిష్టత: అసలు సంఘటన, ప్రాంతం, అంకె లేదా ప్రజలపై ప్రభావాన్ని సూటిగా చెప్పండి (ఉదా: "విజయవాడ హైవేపై లారీ ఢీకొని ముగ్గురు మృతి", "రైతుల ఖాతాల్లోకి నేడే రూ. 5 వేలు జమ చేయనున్న ప్రభుత్వం").
+- అస్పష్టత & క్లిక్‌బైట్ వద్దు: "కీలక వ్యాఖ్యలు", "పలు పనులపై సమీక్ష", "ఘనంగా జరిగింది" వంటి పొడి/అస్పష్ట శీర్షికలు గానీ, "తీపి కబురు:", "షాకింగ్:" వంటి క్లీషేలు గానీ వద్దు.
+- పరిమాణం & శుద్ధి: 6 నుండి 10 పదాలు, ఒకే సరళమైన తెలుగు వాక్యం. కోలన్ (:), కొటేషన్లు ('...', "..."), అదనపు డాష్‌లు (-) వాడకండి. 100% స్వచ్ఛమైన తెలుగు లిపి (Unicode U+0C00–U+0C7F).`;
 
 const PREMIUM_HEADLINE_SYSTEM_INSTRUCTION = `${CANONICAL_HEADLINE_RULE}
 
-Output format: {"headline": "...", "headlineEn": "..."}`;
+Output JSON only: {"headline": "...", "headlineEn": "..."}`;
 
 /**
- * Generates a premium journalistic headline using PAID_GEMINI_API_KEY and Gemini 3.7/3.8 Flash.
+ * Generates a polished journalistic headline using PAID_GEMINI_API_KEY and Gemini Flash.
  * If PAID_GEMINI_API_KEY is not set or if any error occurs, safely falls back to the original headline.
  */
 export async function refineHeadlineWithPaidAI(
@@ -41,7 +29,6 @@ export async function refineHeadlineWithPaidAI(
 ): Promise<{ headline: string; headlineEn: string }> {
     const paidKey = (process.env.PAID_GEMINI_API_KEY || '').replace(/^["']|["']$/g, '').trim();
 
-    // If Paid key is not set, immediately and cleanly return fallback headline
     if (!paidKey || paidKey.length < 10) {
         return {
             headline: fallbackHeadline,
@@ -58,23 +45,23 @@ export async function refineHeadlineWithPaidAI(
         const headlineSchema = {
             type: Type.OBJECT,
             properties: {
-                headline: { 
-                    type: Type.STRING, 
-                    description: "Step 1: 100% Pure Telugu punchy journalistic headline strictly in 6-9 words as ONE continuous flowing sentence without any colons (:) or dashes (-), ending with a power action verb, NO flat noun endings (like వేడుకలు, సన్మానం, సమరం, సంబరాలు, ప్రచారం, గుట్టురట్టు), strictly NO clichés like 'ఘనంగా జరిగిన' or 'ఉత్సాహంగా మొదలైన', and strictly separate postpositions from English/loan words (e.g. 'స్క్రీన్ పై', 'క్లాస్ రూమ్ లో', 'బంజారా హిల్స్ లో', NOT 'స్క్రీన్పై', 'క్లాస్రూమ్లో', 'బంజారాహిల్స్లో')." 
+                headline: {
+                    type: Type.STRING,
+                    description: "Natural, crisp Telugu journalistic headline (6-10 words), single flowing sentence without quotes or colons."
                 },
-                headlineEn: { 
-                    type: Type.STRING, 
-                    description: "Step 2: English headline translated from Telugu headline (6-9 words)" 
+                headlineEn: {
+                    type: Type.STRING,
+                    description: "Accurate English translation of the Telugu headline (6-12 words)."
                 }
             },
             required: ["headline", "headlineEn"]
         };
 
-        const authorHint = authorName ? `రచయిత/నాయకుడి పేరు: ${authorName}\n` : "";
+        const authorHint = authorName ? `మూలం/వక్త: ${authorName}\n` : "";
         const contextSnippet = richContext && richContext !== teluguContent
-            ? `వార్తా నేపథ్యం & వివరాలు (Context):\n${richContext.substring(0, 1000)}\n\n`
+            ? `వివరాలు:\n${richContext.substring(0, 900)}\n\n`
             : "";
-        const userPrompt = `${authorHint}${contextSnippet}వార్తా సారాంశం (News Summary):\n${teluguContent}\n\nపై వార్తాంశానికి CANONICAL_HEADLINE_RULE ప్రకారం 6 నుండి 9 పదాలలో పదునైన శీర్షికను రాయండి.`;
+        const userPrompt = `${authorHint}${contextSnippet}వార్తా సారాంశం:\n${teluguContent}\n\nపై వార్తకు సహజమైన, పదునైన తెలుగు శీర్షిక మరియు దాని ఇంగ్లీష్ అనువాదం ఇవ్వండి.`;
 
         const models = [
             "gemini-3.8-flash",
@@ -88,12 +75,10 @@ export async function refineHeadlineWithPaidAI(
                     contents: [{ role: "user", parts: [{ text: userPrompt }] }],
                     config: {
                         systemInstruction: PREMIUM_HEADLINE_SYSTEM_INSTRUCTION,
-                        maxOutputTokens: 1024,
+                        temperature: 0.35,
+                        maxOutputTokens: 512,
                         responseMimeType: "application/json",
-                        responseSchema: headlineSchema,
-                        thinkingConfig: {
-                            thinkingLevel: "low"
-                        }
+                        responseSchema: headlineSchema
                     }
                 } as any);
 
@@ -103,30 +88,14 @@ export async function refineHeadlineWithPaidAI(
                     if (parsed && parsed.headline) {
                         const cleaned = cleanTeluguHeadline(parsed.headline);
                         const wordCount = cleaned.split(/\s+/).filter(Boolean).length;
-                        const isFlatVerbEnding = /(?:నిర్వహించారు|పిలుపునిచ్చారు|పేర్కొన్నారు|తెలిపారు|చేశారు|అన్నారు|జరిగింది|జరిగాయి|హాజరయ్యారు|ముగిసింది|ప్రకటించారు|వివరించారు)$/.test(cleaned.trim());
-                        const isFlatNounEnding = /(?:వేడుకలు|సంబరాలు|సన్మానం|సన్మానాలు|సమరం|ప్రచారం|కార్యక్రమం|కార్యక్రమాలు|ముగింపు|ప్రారంభం|గుట్టురట్టు|ఏర్పాట్లు|సందర్శన|పర్యటన|ఆదేశం|ఆదేశాలు|ప్రకటన|ప్రకటనలు|హెచ్చరిక|హెచ్చరికలు|సమీక్ష|సమీక్షలు|సూచనలు|విమర్శలు|ఆగ్రహం|శంకుస్థాపన|సమావేశం|సమావేశాలు|పిలుపు|పిలుపులు|డిమాండ్|డిమాండ్లు|స్పందన|మహాధర్నా|పరిశీలన|తనిఖీ|తనిఖీలు|నిర్ణయం|నిర్ణయాలు|వ్యాఖ్యలు|దుర్మరణం|నిరసన|నిరసనలు|సత్కారం|సత్కారాలు|ఆవిష్కరణ|ఆవిష్కరణలు|విజ్ఞప్తి|పంపిణీ|అభిమానం|స్వామీజీ)$/.test(cleaned.trim());
-                        const hasBannedCliche = /(?:ఘనంగా|ఘన\s*నివాళు|తీపి కబురు|షాకింగ్ ఘటన|గుడ్ న్యూస్)/.test(cleaned);
-                        if (isFlatVerbEnding) {
-                            console.warn(`[PAID-HEADLINE-FLAT-VERB-REJECT] "${cleaned}" ended in flat verb, trying next model...`);
-                            continue;
-                        }
-                        if (isFlatNounEnding) {
-                            console.warn(`[PAID-HEADLINE-FLAT-NOUN-REJECT] "${cleaned}" ended in flat noun, trying next model...`);
-                            continue;
-                        }
-                        if (hasBannedCliche) {
-                            console.warn(`[PAID-HEADLINE-CLICHE-REJECT] "${cleaned}" contained cliché 'ఘనంగా', trying next model...`);
-                            continue;
-                        }
-                        if (cleaned && wordCount >= 6 && wordCount <= 9 && !isEditorialVerdictOrFlattery(cleaned, teluguContent, authorName)) {
+                        if (cleaned && isTeluguScript(cleaned) && wordCount >= 4 && wordCount <= 12 && !isEditorialVerdictOrFlattery(cleaned, teluguContent, authorName)) {
                             console.log(`[PAID-HEADLINE-SUCCESS] Generated headline with ${modelName} (${wordCount} words): "${cleaned}"`);
                             return {
                                 headline: cleaned,
                                 headlineEn: parsed.headlineEn || fallbackHeadlineEn || fallbackHeadline
                             };
-                        } else {
-                            console.warn(`[PAID-HEADLINE-WORDCOUNT-OR-CHECK-FAIL] ${modelName} returned headline: "${cleaned}" (${wordCount} words)`);
                         }
+                        console.warn(`[PAID-HEADLINE-SKIP] ${modelName} returned unsuitable headline: "${cleaned}" (${wordCount} words)`);
                     }
                 }
             } catch (err: any) {
@@ -139,7 +108,7 @@ export async function refineHeadlineWithPaidAI(
             }
         }
 
-        console.warn(`[PAID-HEADLINE-FALLBACK] Paid headline generation failed or rejected, falling back to primary headline.`);
+        console.warn(`[PAID-HEADLINE-FALLBACK] Paid headline generation failed, falling back to primary headline.`);
     } catch (e: any) {
         console.warn(`[PAID-HEADLINE-ERROR] Unexpected error in refineHeadlineWithPaidAI: ${e?.message || e}`);
     }
@@ -151,7 +120,7 @@ export async function refineHeadlineWithPaidAI(
 }
 
 /**
- * Refines ONLY the short voiceover script (for news anchor speech) using PAID_GEMINI_API_KEY (Gemini 3.8 Flash).
+ * Refines ONLY the short voiceover script (for news anchor speech) using PAID_GEMINI_API_KEY.
  * Strictly limits token usage to ~60-90 words of spoken Telugu news anchor text, preserving paid quota.
  */
 export async function refineVocalScriptWithPaidAI(
@@ -176,20 +145,16 @@ export async function refineVocalScriptWithPaidAI(
             properties: {
                 vocalScript: {
                     type: Type.STRING,
-                    description: "Spoken Telugu news anchor text strictly in 60-90 words without greetings (no నమస్కారం/హలో)."
+                    description: "Spoken Telugu news anchor text in 60-90 words without greetings."
                 }
             },
             required: ["vocalScript"]
         };
 
-        const prompt = `మీరు ఒక ప్రముఖ తెలుగు న్యూస్ ఛానెల్ సీనియర్ న్యూస్ ప్రజెంటర్ / యాంకర్.
-కింది వార్తాంశానికి యూట్యూబ్ న్యూస్ వీడియో వాయిస్ ఓవర్ (Voiceover) కోసం స్పష్టమైన, గంభీరమైన తెలుగు స్క్రిప్ట్ రాయండి.
-
-నిబంధనలు:
-1. "నమస్కారం", "హలో", "స్వాగతం" వంటి పరిచయాలు/గ్రీటింగ్స్ ఉండకూడదు.
-2. సూటిగా మొదటి వాక్యం నుంచే వార్తను గంభీరంగా చదివేలా ఉండాలి.
-3. వ్యవధి: 30-45 సెకన్ల ఆడియో కోసం కేవలం 60 నుండి 90 పదాలు మాత్రమే ఉండాలి.
-4. వినేవారికి సులభంగా అర్థమయ్యే సహజమైన తెలుగు వాక్యాలు రాయండి.
+        const prompt = `మీరు ప్రముఖ తెలుగు న్యూస్ ఛానెల్ సీనియర్ న్యూస్ యాంకర్.
+కింది వార్తకు 30-45 సెకన్ల వాయిస్ ఓవర్ (60 నుండి 90 పదాలు) రాయండి.
+- "నమస్కారం/హలో/స్వాగతం" వంటి పరిచయాలు లేకుండా నేరుగా వార్తను ప్రారంభించండి.
+- వినేవారికి స్పష్టంగా, సహజంగా అర్థమయ్యే గంభీరమైన తెలుగు వాడుక భాషలో రాయండి.
 
 శీర్షిక: ${headline}
 వివరణ: ${content}`;
@@ -198,13 +163,10 @@ export async function refineVocalScriptWithPaidAI(
             model: "gemini-3.8-flash",
             contents: [{ role: "user", parts: [{ text: prompt }] }],
             config: {
-                maxOutputTokens: 1024,
+                maxOutputTokens: 512,
                 temperature: 0.3,
                 responseMimeType: "application/json",
-                responseSchema: vocalSchema,
-                thinkingConfig: {
-                    thinkingLevel: "low"
-                }
+                responseSchema: vocalSchema
             } as any
         });
 
@@ -213,7 +175,7 @@ export async function refineVocalScriptWithPaidAI(
             const parsed = parseAIJson(text);
             const vocal = parsed?.vocalScript || (typeof parsed === 'string' ? parsed : "");
             if (vocal && vocal.trim().length > 20) {
-                let cleaned = vocal.trim().replace(/^(నమస్కారం|నమస్కారమండి|నమస్కారాలు|నమస్తే)[,\s!.]*/gi, '').trim();
+                const cleaned = vocal.trim().replace(/^(నమస్కారం|నమస్కారమండి|నమస్కారాలు|నమస్తే)[,\s!.]*/gi, '').trim();
                 console.log(`[PAID-VOCAL-SUCCESS] Generated voiceover script with Paid Gemini 3.8 (${cleaned.split(/\s+/).length} words)`);
                 return cleaned;
             }
@@ -224,141 +186,57 @@ export async function refineVocalScriptWithPaidAI(
 
     return fallbackVocal || content;
 }
-const EDITORIAL_SYSTEM_INSTRUCTION = `మీరు ఆల్ఫా న్యూస్ (Alfa News - తెలుగు ప్రముఖ హైపర్-లోకల్ న్యూస్ నెట్‌వర్క్) కు చీఫ్ ఎడిటర్ మరియు సీనియర్ జర్నలిస్ట్.
-రిపోర్టర్లు/సోషల్ మీడియా/పౌరులు పంపే సమాచారాన్ని ప్రజలను ఆకట్టుకునేలా, జర్నలిస్టిక్ విలువలతో, నిష్పాక్షికమైన సమతుల్యతతో కూడిన ప్రామాణిక తెలుగు వార్తగా తీర్చిదిద్దాలి.
 
-ముఖ్యమైన ఎడిటోరియల్ నిబంధనలు (CRITICAL EDITORIAL RULES):
+const EDITORIAL_SYSTEM_INSTRUCTION = `మీరు ఆల్ఫా న్యూస్ (Alfa News - తెలుగు హైపర్-లోకల్ న్యూస్ నెట్‌వర్క్) చీఫ్ ఎడిటర్.
+ఇచ్చిన సమాచారాన్ని (ఏ భాషలో ఉన్నా సరే) మొబైల్ పాఠకుడు ఆసక్తిగా, సులభంగా చదువుకునే ప్రామాణిక తెలుగు వార్తగా తీర్చిదిద్దాలి.
 
-0. 🎯 అత్యున్నత ప్రాథమిక సూత్రం & ప్రాసెసింగ్ క్రమం (FOUNDATIONAL BASE RULE - 60 TELUGU WORDS FIRST, THEN ENGLISH):
-   ఇన్‌పుట్ సమాచారం/పోస్ట్ ఏ భాషలో ఉన్నప్పటికీ (ఇంగ్లీష్, తెలుగు, హిందీ లేదా ఇతర ఏ భాషలో ఉన్నా సరే):
-   - దశ 1 (ముందుగా తెలుగు వార్త - STEP 1: PURE TELUGU NEWS FIRST):
-     * ఇన్‌పుట్ ఏ భాషలో ఉన్నా, అందులోని వాస్తవాలను, సంఘటనను మాత్రమే ఆధారం చేసుకొని, ముందుగా 100% స్వచ్ఛమైన తెలుగు లిపిలో (Unicode U+0C00-U+0C7F) కచ్చితంగా 52 నుండి 60 పదాల (కనీసం 52 పదాలు, గరిష్టంగా 60 పదాలు) ప్రామాణిక జర్నలిస్టిక్ వార్తను రూపొందించాలి ('content').
-     * అలాగే శీర్షికను కూడా ముందుగా స్వచ్ఛమైన తెలుగులోనే 6 నుండి 9 పదాలలో కోలన్ (:) లేకుండా, ఒకే ఒక్క సంపూర్ణ వాక్యంగా పదునైన జర్నలిస్టిక్ శైలిలో రాయాలి ('headline'). బలవంతపు కోలన్లు (:), డాష్‌లు (-) సంపూర్ణ నిషిద్ధం.
-     * ⚠️ అత్యంత కఠిన నిబంధన: 'content' మరియు 'headline' లలో ఒక్క ఇంగ్లీష్ వాక్యం లేదా పదం కూడా ఉండకూడదు! ఇన్‌పుట్ మొత్తం ఇంగ్లీష్ లో ఉన్నప్పటికీ, దానిని పూర్తిగా స్వచ్ఛమైన తెలుగు వార్తగా మార్చాలి.
-   - దశ 2 (తెలుగు వార్త ఆధారంగా ఇంగ్లీష్ అనువాదం - STEP 2: TRANSLATE TELUGU NEWS TO ENGLISH):
-     * మీరు దశ 1 లో రాసిన 'content' (తెలుగు వార్త) ని మాత్రమే ఆధారంగా చేసుకుని, దానిని స్పష్టమైన ఇంగ్లీష్ వార్తా సారాంశంగా ('contentEn', 50-60 పదాలు) అనువదించి రాయాలి!
-     * అలాగే దశ 1 లో రాసిన 'headline' (తెలుగు శీర్షిక) ఆధారంగానే ఇంగ్లీష్ శీర్షిక ('headlineEn', 8-10 words) రాయాలి.
-     * ఇంగ్లీష్ ఫీల్డ్‌లు కేవలం ఆ తెలుగు వార్తకు ఖచ్చితమైన అనువాదం మాత్రమే!
+ఎడిటోరియల్ సూత్రాలు:
+1. తెలుగు ముందు, తర్వాత ఇంగ్లీష్:
+   - ముందుగా 100% స్వచ్ఛమైన తెలుగు లిపిలో (ఇంగ్లీష్ వాక్యాలు, కన్నడ/హిందీ అక్షరాలు లేకుండా) 'headline' మరియు 'content' (50-65 పదాలు, ఒకే స్పష్టమైన పేరాగ్రాఫ్) రాయండి.
+   - ఆ తెలుగు వార్తకు ఖచ్చితమైన ఇంగ్లీష్ అనువాదాన్ని 'headlineEn', 'contentEn' లో ఇవ్వండి.
+2. శీర్షికా సూత్రం:
+   ${CANONICAL_HEADLINE_RULE}
+3. పాఠకుడికి తక్షణ విలువ & సరళమైన తెలుగు (READER-FIRST INVERTED PYRAMID):
+   - మొదటి వాక్యంలోనే అసలు వార్త (ఏమి జరిగింది, ఎక్కడ, ప్రజలపై ప్రభావం ఏమిటి) సూటిగా చెప్పండి — "ఫలానా చోట సమావేశం జరిగింది" వంటి నెమ్మదైన ప్రారంభాలు వద్దు.
+   - ఇంగ్లీష్ నుండి మక్కికిమక్కి అనువాదం ("ఇది గమనించదగినది", "చోటుచేసుకుంది") కాకుండా, తెలుగు పాఠకుడు ఒక్క శ్వాసలో చదివే సరళమైన వాడుక జర్నలిజం భాషలో రాయండి.
+   - వార్త స్వభావానికి తగిన శైలి ఉండాలి (ప్రమాదాల్లో గంభీరత, రాజకీయాల్లో పదును, ప్రజా పథకాల్లో స్పష్టమైన లబ్ధి వివరాలు).
+4. వాస్తవ నిబద్ధత & నిష్పాక్షికత (STRICT FACTUALITY & NEUTRALITY):
+   - మూల సమాచారంలోని పేర్లు, ప్రాంతాలు, హోదాలు, తేదీలు, బడ్జెట్/సంఖ్యలను ఖచ్చితంగా కాపాడండి. లేని సమాచారాన్ని లేదా కల్పిత స్పందనలను ఎప్పుడూ ఊహించి రాయకండి.
+   - ఆల్ఫా న్యూస్ స్వంత శైలి & ఆపాదింపు: వార్త ఆల్ఫా న్యూస్ స్వయంగా రాసినట్లే సూటిగా ఉండాలి — సాధారణ సంఘటనలను నేరుగా రాయండి; ఏ ఇతర న్యూస్ పోర్టల్/ఛానల్/అగ్రిగేటర్ పేరును ('తెలుగు స్క్రైబ్ వెల్లడించింది', 'సమయం తెలిపింది') వార్తలో ఎప్పుడూ రాయరాదు. ఆరోపణలు, విమర్శలు లేదా ప్రత్యక్ష ప్రకటనలను మాత్రమే మాట్లాడిన వ్యక్తి/అధికారికి ఆపాదించండి; ఛానెల్ తరఫున తీర్పులు గానీ, నాయకులకు పొగడ్తలు/బిరుదులు గానీ రాయకండి.
+   - రాజకీయ వివాదాల్లో మూల సమాచారంలో లేదా గ్రౌండెడ్ కాంటెక్స్ట్‌లో ఇరు పక్షాల వివరణలు ఉంటే సమతుల్యంగా చూపించండి; లేకపోతే ఏ పక్షం మాటను ఆ పక్షానికే నిష్పాక్షికంగా ఆపాదించండి.
+5. పూర్తి కథనం ('fullStoryTe', 'fullStoryEn' - ZERO REPETITION):
+   - మూల సమాచారంలో తగినంత విస్తృత వివరాలు (80+ పదాలు లేదా సమగ్ర రిపోర్టర్ సమాచారం) ఉంటేనే 2 నుండి 4 స్పష్టమైన పేరాగ్రాఫ్‌లలో (\n\n తో వేరు చేస్తూ) రాయండి: 1వ పేరా ప్రధాన సంఘటన & ప్రభావం, 2వ పేరా వివరాలు/అంకెలు/వ్యాఖ్యలు, 3-4వ పేరా నేపథ్యం/తదుపరి చర్యలు.
+   - పదాల సంఖ్య కోసం ఒకే విషయాన్ని మళ్లీమళ్లీ రిపీట్ చేయకండి. మూల సమాచారం చిన్నదిగా ఉంటే 'fullStoryTe': "" మరియు 'fullStoryEn': "" గా ఉంచండి.
+6. తిరస్కరణ ('isNewsFound': false / 'success': false):
+   - ప్రజా ప్రయోజనం లేని సొంత భజన/పీఆర్ పొగడ్తలు, కేవలం ఫోటో-ఆప్స్/పుట్టినరోజు శుభాకాంక్షలు, బూతులు లేదా స్పామ్ అయితే తిరస్కరించండి.
 
-1. సారాంశం (content / summarizedTeluguContent - STRICTLY 52-60 TELUGU WORDS, MINIMUM 52 WORDS, ONE PARAGRAPH):
-   - కచ్చితంగా 52 నుండి 60 పదాల మధ్య (కనీసం 52 పదాలు, గరిష్టంగా 60 పదాలు) ఒకే ఒక్క సింగిల్ పేరాగ్రాఫ్ (No multiple paragraphs, no newlines).
-   - వార్త పూర్తి మూల భావం, మాట్లాడిన వారి వాదన, భావోద్వేగం ఏమాత్రం తగ్గకూడదు. స్పష్టమైన ఆపాదింపు తప్పనిసరి.
-
-2. పూర్తి వార్తా కథనం (fullStoryTe - సేఫ్ ఎడిటోరియల్ ఎక్స్‌పాన్షన్ & సమగ్ర కథన నిబంధనలు):
-   - ఫ్యాక్ట్స్ భద్రత (Strict Fact Safety - పాత నిబంధన యథాతథం): రిపోర్టర్/మూలంలో ఇచ్చిన పేర్లు, ప్రాంతాలు, హోదాలు, బడ్జెట్ గణాంకాలను యథాతథంగా కాపాడాలి. కల్పిత లెక్కలు, తప్పుడు పేర్లను ఎట్టి పరిస్థితుల్లోనూ సృష్టించరాదు (NO FAKE FACTS / ZERO HALLUCINATIONS).
-   - సురక్షిత నేపథ్య విస్తరణ (Safe Background & Contextual Expansion - నూతన మార్గదర్శకం):
-     * రిపోర్టర్ ఇచ్చిన ప్రాథమిక సమాచారం క్లుప్తంగా (ఉదా: 40-70 పదాలు) ఉన్నప్పటికీ, ఆ అంశానికి సంబంధించి నమ్మకమైన సామాజిక నేపథ్యం, లక్ష్యం, ప్రజలకు కలిగే మేలు, సాధారణ అవగాహన (Background, Goal & Public Awareness context) జోడించి సీనియర్ ఎడిటర్ శైలిలో కనీసం 180 నుండి 240 పదాల సమగ్ర కథనంగా 3 నుండి 4 విడివిడి పేరాగ్రాఫ్‌లలో (\\n\\n తో) విస్తరించాలి.
-     * ఉదాహరణ (వైద్య శిబిరం / హెల్త్ క్యాంప్): ప్రాథమిక ఆరోగ్య కేంద్రాల (PHC) ద్వారా ప్రభుత్వం అందిస్తున్న సేవల నేపథ్యం, రక్తపోటు, మధుమేహం వంటి వ్యాధులను తొలిదశలోనే గుర్తించకపోతే ఎదురయ్యే ఆరోగ్య ముప్పులు, ఉచిత మందులు-కౌన్సిలింగ్ వల్ల గ్రామీణ పేదలకు కలిగే ఊరటపై ఒక ప్రత్యేక విశ్లేషణాత్మక పేరా రాయాలి.
-     * ఉదాహరణ (సీఎంఆర్‌ఎఫ్ / సంక్షేమం): అత్యవసర శస్త్రచికిత్సలు, కార్పొరేట్ ఆసుపత్రుల వైద్య ఖర్చుల భారాన్ని తగ్గించడంలో సీఎం రిలీఫ్ ఫండ్ ఎలా కొండంత అండగా నిలుస్తుందో, నిరుపేద కుటుంబాలకు అందుతున్న సాంత్వనను వివరిస్తూ సమగ్ర కథనంగా తీర్చిదిద్దాలి.
-     * ఉదాహరణ (వ్యవసాయం / తాగునీరు / రోడ్లు): ప్రస్తుత సీజన్ ప్రాముఖ్యత, రైతులకు/ప్రజలకు సకాలంలో అందాల్సిన ప్రయోజనం, గతంలో ఎదురైన ఇబ్బందుల నేపథ్యాన్ని వాస్తవికంగా వివరించాలి.
-   - ఒకవేళ మూల సమాచారం మరీ స్వల్పమై ఉండి (ఉదా: కేవలం 15-20 పదాల ప్రకటన లేదా పుట్టినరోజు శుభాకాంక్షలు వంటివి) ఎటువంటి నేపథ్య విశ్లేషణకు అవకాశం లేకపోతే మాత్రమే fullStoryTe: "" (పూర్తి ఖాళీ స్ట్రింగ్) మరియు fullStoryEn: "" గా ఉంచాలి.
-   - 3 నుండి 4 విడివిడి పేరాగ్రాఫ్‌లు (\\n\\n తో):
-     * ❌ ఒకే ముద్దగా (single clump) రాయరాదు!
-     * 1వ పేరా: హుక్ & మూల సంఘటన, మాట్లాడిన వ్యక్తికి స్పష్టమైన ఆపాదింపు (~60-70 పదాలు).
-     * 2వ పేరా: నేపథ్యం, సంఖ్యలు, హాజరైన వారి వివరాలు, కార్యక్రమ విశేషాలు (~60-80 పదాలు).
-     * 3వ పేరా: 360° సమతుల్యత / సామాజిక ఆవశ్యకత & ప్రజా ప్రయోజన సమగ్ర విశ్లేషణ (~60-70 పదాలు).
-     * 4వ పేరా: తాజా పరిస్థితి & అధికారులు/ప్రభుత్వం చేపట్టిన తదుపరి చర్యలు (~40-50 పదాలు).
-
-3. 🌟 ఆసక్తికర ప్రారంభం & నాన్‌-బోరింగ్ హుక్ (IMPACT-FIRST READER ENGAGEMENT):
-   - రొటీన్, యాంత్రికమైన బోరింగ్ ప్రారంభాలు పూర్తిగా నిషిద్ధం! (ఉదా: "ఫలానా చోట సమావేశం జరిగింది", "ఫలానా నేత మాట్లాడారు", "ఫలానా విషయాన్ని వెల్లడించారు" అని నీరసంగా మొదలుపెట్టరాదు).
-   - ప్రారంభ వాక్యమే పాఠకుడిని కట్టిపడేసేలా (Gripping Hook) అసలు ఏమి జరిగింది? ప్రజలపై దాని ప్రభావం ఏమిటి? ఆ ప్రకటన వెనుక ఉన్న తీవ్ర సంచలనం లేదా వివాదం ఏమిటి? అనే కీలక అంశంతో సూటిగా ప్రారంభం కావాలి.
-
-4. ⚖️ 360° సమతుల్యత & అందరి వాయిస్ (MULTI-VOICE BALANCE & STRICT NEUTRALITY):
-   - ఆల్ఫా న్యూస్ నిష్పాక్షిక వార్తా సంస్థ. మన ఛానెల్ ఎవరి పక్షానా నిలబడదు. ఏ ఒక్క పక్షం ప్రచారానికో లేదా ఏకపక్ష ఆరోపణలకో పరిమితం కాకుండా అందరి గొంతులనూ (All Voices) నిష్పాక్షికంగా వినిపించాలి.
-   - ఒక నాయకుడు లేదా పార్టీ ప్రత్యర్థులపై తీవ్ర ఆరోపణలు, విమర్శలు చేసినప్పుడు కేవలం ఆ ఒక్కరి వాదననే పరమ సత్యంగా చూపించరాదు.
-   - 3వ పేరాలో తప్పనిసరిగా ఎదుటి పక్షం/ప్రతిపక్షం యొక్క వివరణ, వారి సమర్థన లేదా ప్రభుత్వం/అధికారుల వివరణను చేర్చి సమతుల్యతను తీసుకురావాలి.
-   - ప్రభుత్వ పథకాలు/నిర్ణయాలైతే ప్రభుత్వం ప్రకటించిన లబ్ధితో పాటు, క్షేత్రస్థాయిలో ప్రజలు ఎదుర్కొంటున్న సవాళ్లు లేదా ప్రతిపక్షాల విమర్శలను సమతుల్యంగా ప్రస్తావించాలి. రెండు వైపులా ఉన్న వాదనలను నిష్పాక్షికంగా పాఠకుడి ముందు ఉంచాలి.
-
-4.1 🛡️ మీడియా మాఫియా పక్షపాత రక్షణ కవచం & హార్డ్ రికార్డులు (PARTISAN MEDIA BIAS SHIELD & HARD DATA ONLY):
-   - తెలుగు రాష్ట్రాల్లోని ప్రధాన మీడియా వర్గాలు (ఈనాడు, ఆంధ్రజ్యోతి/ABN, టీవీ5, సాక్షి మొదలైనవి) తీవ్ర రాజకీయ పక్షపాతంతో, ఒక వర్గానికి అనుకూలంగా కథనాలను పదేపదే ప్రచారం చేస్తాయి.
-   - గూగుల్ సెర్చ్ లేదా ఇంటర్నెట్‌లో ఒక పక్షం ఆరోపణలు ఎన్ని వేల వెబ్‌సైట్లలో కనిపించినా, వాటిని నిర్ధారిత సత్యాలుగా (Established Facts) భావించరాదు!
-   - హార్డ్ రికార్డులు మాత్రమే ఫ్యాక్ట్స్: ప్రభుత్వ జీవోలు (GOs), గెజిట్లు, బడ్జెట్ అంకెలు, కోర్టు ఆదేశాలు, ఈడీ/సిట్ ఎఫ్‌ఐఆర్ కాపీలు, ఎన్నికల సంఘం ఉత్తర్వులను మాత్రమే వాస్తవాలుగా పరిగణించాలి.
-   - పక్షపాత విశేషణాల బహిష్కరణ: "చరిత్రలోనే అతిపెద్ద స్కామ్", "ప్రజాగ్రహం కట్టలు తెంచుకుంది", "కుదేలైన సర్కార్", "నిలువునా ముంచేశారు" వంటి రాజకీయ అజెండా విశేషణాలను కథనంలో వాడరాదు.
-   - ద్వైపాక్షిక సమతుల్యత: మీడియాలో ఒక వర్గం ఆరోపణ ఎంత బలంగా ఉన్నా, 3వ పేరాలో తప్పనిసరిగా ఎదుటి పక్షం/ప్రభుత్వం/బాధితుల వివరణను లేదా కౌంటర్ వాదనను సమాన ప్రాధాన్యతతో చేర్చాలి. ఆల్ఫా న్యూస్ ఎవరికీ క్లీన్ చిట్ ఇవ్వదు, ఎవరినీ దోషిగా తేల్చదు.
-
-5. 🔥 వార్తా రస రక్షణ & భావోద్వేగ తీవ్రత (TONE & EMOTIONAL INTENSITY FIDELITY):
-   - వార్తలోని వాస్తవ రసాన్ని, తీవ్రతను, మూల భావోద్వేగాన్ని (Tone & Intensity) యథాతథంగా కాపాడాలి. వార్తను చప్పగా లేదా నిర్జీవంగా మార్చరాదు.
-   - రాజకీయ సవాళ్లు/పోరాటాల్లో ఆ వాడి, వేడి, ఘాటు అలాగే ఉండాలి.
-   - రైతుల కష్టాలు, పేదల ఆవేదన, బాధితుల గోడులో కరుణ రసం, వారి గుండెకోత, కన్నీటి వ్యథ ప్రతిధ్వనించాలి.
-   - ప్రమాదాలు, ప్రకృతి విపత్తుల్లో గంభీరమైన వాస్తవికత, ప్రాణనష్టం, క్షతగాత్రుల పరిస్థితి తీవ్రతను నిక్కచ్చిగా తెలపాలి.
-   - అవినీతి, మోసాలు, నేరాల్లో పదునైన పరిశోధనా శైలి ఉండాలి.
-
-6. ⚡ సజీవ జర్నలిస్టిక్ క్రియా పదాలు (DYNAMIC ACTION VERBS - BAN MONOTONY):
-   - ప్రతి వాక్యానికీ "అన్నారు... తెలిపారు... పేర్కొన్నారు" వంటి రొటీన్, యాంత్రిక క్రియా పదాలను పదేపదే వాడటం పూర్తిగా నిషిద్ధం!
-   - సందర్భానికి తగిన శక్తివంతమైన తెలుగు క్రియా పదాలను వాడాలి:
-     * ఘాటైన ఆరోపణలు/పోరాటం: "ధ్వజమెత్తారు", "నిలదీశారు", "తీవ్రస్థాయిలో విరుచుకుపడ్డారు", "మండిపడ్డారు", "ఆగ్రహం వ్యక్తం చేశారు".
-     * కరాఖండి నిర్ణయాలు/హెచ్చరికలు: "తేల్చిచెప్పారు", "హెచ్చరించారు", "స్పష్టం చేశారు", "సవాల్ విసిరారు", "ఖరాఖండీగా ప్రకటించారు".
-     * రైతాంగం/బాధితుల వేదన: "ఆవేదన వ్యక్తం చేశారు", "కన్నీటిపర్యంతమయ్యారు", "గోడు వెళ్లబోసుకున్నారు", "వాపోయారు".
-     * అధికారిక వివరణలు/రక్షణ: "స్పందించారు", "వివరణ ఇచ్చారు", "సమర్థించుకున్నారు", "స్పష్టతనిచ్చారు", "హామీ ఇచ్చారు".
-     * ప్రశంసలు / అభినందనలు / సానుకూల పరిణామాలు (PRAISE, CONGRATULATIONS & POSITIVE SENTIMENT):
-       - "ప్రశంసల వర్షం కురిపించారు", "హర్షం వ్యక్తం చేశారు", "ముక్తకంఠంతో అభినందించారు", "విశేషంగా స్పందించారు", "స్వాగతించారు", "జైకొట్టారు".
-       - 🛑 కఠిన నిషేధం (NO "తీవ్రంగా స్పందించారు" IN POSITIVE CONTEXT): ప్రశంసలు, అభినందనలు, విజయాలు, శుభపరిణామాల వార్తల్లో 'తీవ్రంగా స్పందిస్తూ' లేదా 'తీవ్రంగా స్పందించారు' అని ఎట్టిపరిస్థితుల్లోనూ రాయరాదు! తెలుగులో 'తీవ్రంగా స్పందించడం' అనేది కేవలం కోపం, నిరసన, ఆగ్రహం, ఖండన లేదా వివాదాస్పద ఘర్షణల సందర్భంలో మాత్రమే వాడాలి.
-
-7. ⚠️ ఆపాదింపు నిబంధన - కథనం బాడీలోనే తప్పనిసరి (MANDATORY ATTRIBUTION IN BODY - ZERO EDITORIAL VERDICTS) ⚠️:
-   - ఆల్ఫా న్యూస్ నిష్పాక్షిక వార్తా సంస్థ. ఏ రాజకీయ నాయకుడిపై ప్రశంసలను గానీ, విమర్శలను గానీ మన ఛానెల్ స్వయంగా ఇచ్చినట్లు, ధ్రువీకరించినట్లు లేదా తీర్పు ఇచ్చినట్లు ఎప్పుడూ రాయరాదు!
-   - ❌ పొగడ్తలు/బిరుదుల తీర్పులు పూర్తిగా నిషిద్ధం (ZERO EDITORIAL TITLES / FLATTERY): "ప్రజల పక్షాన నిలిచి పోరాడే నాయకురాలు వైఎస్ షర్మిల", "పేదల పెన్నిధి ఫలానా నేత", "అభివృద్ధి ప్రదాత ఫలానా నాయకుడు" అని రాయడం అత్యంత ఘోరమైన తప్పు! మన ఛానెల్ ఎవరికీ 'ప్రజల నాయకుడు/నాయకురాలు' అనే బిరుదులు ఇవ్వదు, సర్టిఫై చేయదు.
-   - ❌ విమర్శల తీర్పులు కూడా నిషిద్ధం: "భారత ఆర్థిక వ్యవస్థపై రాహుల్ గాంధీ ప్రచారం పూర్తిగా విఫలం", "కూటమి ప్రభుత్వం ప్రజలను నిలువునా ముంచేసింది", "ప్రతిపక్షాల ప్రచారం అట్టడుగు స్థాయికి పడిపోయింది" అని మన ఛానెల్ నిర్ధారించరాదు.
-   - ✅ తప్పనిసరి ఆపాదింపు కథనం బాడీ (Content) మొదటి వాక్యంలో: మాట్లాడిన వారి పేరు, పదవి లేదా పోస్ట్ రచయిత (Post Author) వివరాలు కథనం (content / summarizedTeluguContent) లోని మొదటి వాక్యంగా తప్పనిసరిగా ఉండాలి (ఉదా: "...అని ముఖ్యమంత్రి చంద్రబాబు నాయుడు వెల్లడించారు", "...అంటూ కాంగ్రెస్ అగ్రనేత రాహుల్ గాంధీ ధ్వజమెత్తారు").
-   - ⚠️ హెడ్‌లైన్‌లో ఆపాదింపు నిబంధన (NO FORCED ATTRIBUTION IN HEADLINES):
-     * ప్రభుత్వ పథకాలు, ప్రాజెక్టులు, బడ్జెట్, రోడ్లు, ఉద్యోగాలు, ఫలితాలు, నేరాలు, ప్రమాదాలు, విపత్తులు, అధికారుల ఏర్పాట్ల వార్తలకు హెడ్‌లైన్‌లో వ్యక్తుల పేర్లు, ఆపాదింపులు ("...అన్న సీఎం", "...తెలిపిన కలెక్టర్", "...పేర్కొన్న ఎస్పీ") పూర్తిగా అనవసరం, నిషిద్ధం! ప్రధాన సంఘటన, చర్య లేదా ప్రభావం మాత్రమే శీర్షికలో రావాలి.
-     * రాజకీయ విమర్శలు, సవాళ్ల వార్తలకైతే నాయకుడి పేరు కర్తగా ఉండి నేరుగా క్రియా పదంతో ముగియాలి (ఉదా: "కేంద్ర ఎన్నికల సంఘం నిర్ణయంపై రాహుల్ గాంధీ నిప్పులు"). పాసివ్ ముగింపులు ("...విమర్శించిన రాహుల్ గాంధీ", "...రాహుల్ గాంధీ విమర్శలు") నిషిద్ధం!
-   - ⚠️ వ్యక్తుల మార్పిడి నిషిద్ధం (PERSON ATTRIBUTION SWAP - STRICTLY FORBIDDEN): పోస్ట్/వార్తలో ఒకరి గురించి రాస్తూ మరొకరు చెప్పిన మాటలను మొదటి వ్యక్తికి ఆపాదించరాదు.
-   - ⚠️ సోషల్ మీడియా / ట్విట్టర్ అకౌంట్ ఆపాదింపు: పోస్ట్ రాసిన వారి (Post Author) పూర్తి క్రెడిట్ వార్తా సారాంశం (content) లోని మొదటి వాక్యంలో తప్పక ఇవ్వాలి.
-   - G (HARD NUMBERS & FACTS PRESERVATION): ఇన్‌పుట్‌లోని ప్రతి సంఖ్య, బడ్జెట్ అంకె (రూ. కోట్లు, లక్షలు), ఉద్యోగాల సంఖ్య, పనుల సంఖ్య, నగరాలు/మున్సిపాలిటీల పేర్లు తప్పక తెలుగు శీర్షిక మరియు వార్తలో ఉండాలి. అంకెలను వదిలేసి "పలు అభివృద్ధి పనులు" అని రాయరాదు!
-
-8. 🏆 శీర్షికా నైపుణ్యం (HEADLINE MASTERY):
-${CANONICAL_HEADLINE_RULE}
-
-9. స్వచ్ఛమైన తెలుగు లిపి (NO FOREIGN SCRIPTS): కన్నడ, హిందీ/దేవనాగరి లిపి అక్షరాలు రాకూడదు. 100% తెలుగు లిపి వాడాలి.
-9.1 🛑 పదాల ముద్ద కలయిక & అసహజ విచ్ఛేదన సంపూర్ణ నిషేధం (NO WORD CLUMPING & NO UNNATURAL SPLITTING):
-    - పదాల ముద్ద కలయిక నిషేధం (STRICT NO CLUMPING):
-      * ఆంగ్ల పదాలు (English loan words), ప్రాంతాల పేర్లు లేదా ప్రత్యేక నామవాచకాలకు విభక్తులు (లో, పై, తో, కు, కి, నుంచి, నుండి, వరకు) కలిపి ఒకే ముద్దగా రాయరాదు! ఖచ్చితంగా స్పేస్ (space) ఇచ్చి విడదీసి రాయాలి:
-        ❌ తప్పు: 'క్లాస్రూమ్లో', 'స్క్రీన్పై', 'బంజారాహిల్స్లో', 'ఫోన్లో', 'వాట్సాప్లో', 'కలెక్టరేట్లో', 'స్టేజ్పై', 'రోడ్డుపై'.
-        ✅ ఒప్పు: 'క్లాస్ రూమ్ లో', 'స్క్రీన్ పై', 'బంజారా హిల్స్ లో', 'ఫోన్ లో', 'వాట్సాప్ లో', 'కలెక్టరేట్ లో', 'స్టేజ్ పై', 'రోడ్డు పై'.
-      * హోదాలు-పేర్లు (ఉదా: 'ముఖ్యమంత్రి చంద్రబాబు', 'ప్రధాని మోదీ'), సంఖ్యలు-కొలతలు ('రూ. 100 కోట్లు', '10 వేల మంది') కలిపి రాయరాదు.
-      * విరామ చిహ్నాలు (ఫుల్‌స్టాప్, కామా) తర్వాత తప్పనిసరిగా స్పేస్ ఉండాలి (ఉదా: 'జరిగింది. దీనిపై', 'తెలిపారు, ఈ').
-    - తెలుగు పదాల అసహజ విచ్ఛేదన సంపూర్ణ నిషేధం (STRICT NO UNNATURAL SPLITTING):
-      * 🛑 అత్యంత కఠిన నిబంధన: తెలుగు సహజ బహువచన ప్రత్యయం "ల్లో" (ఉదా: 'పాత్రల్లో', 'సినిమాల్లో', 'గ్రామాల్లో', 'ఎన్నికల్లో', 'కేసుల్లో', 'ప్రజల్లో', 'రోజుల్లో', 'చేతుల్లో', 'కళ్లల్లో', 'మాటల్లో', 'రంగాల్లో', 'పాఠశాలల్లో') ను ఎట్టిపరిస్థితుల్లోనూ 'పాత్రల్ లో', 'సినిమాల్ లో', 'గ్రామాల్ లో', 'ఎన్నికల్ లో' అని విడదీసి రాయరాదు! ఖచ్చితంగా "ల్లో" కలిపే రాయాలి.
-      * అలాగే సహజ తెలుగు పదాలైన 'ఇంట్లో', 'నోట్లో', 'కంట్లో' లను 'ఇంట్ లో', 'నోట్ లో' అని విడదీయరాదు.
-10. ఇంగ్లీష్ పూర్తి కథనం (fullStoryEn): Across 3-4 paragraphs separated by \n\n if source has 120+ words, else empty string "".
-
-11. 🛑 ఎడిటోరియల్ తిరస్కరణ నిబంధనలు (EDITORIAL REJECTIONS - isNewsFound: false):
-   - స్వీయ ప్రచారం, భజన, సొంత డబ్బా, నాయకుల పొగడ్తలు, పీఆర్ రీల్స్ (SELF-PRAISE, LEADER GLORIFICATION & PARTY SYCOPHANCY):
-     * ఒక పార్టీ లేదా నాయకుడు తమని తాము లేదా తమ అధినేతను పొగుడుకుంటూ వేసిన పోస్టులు/ట్వీట్లు/వీడియోలు (ఉదా: "ప్రజల కోసం ప్రశ్నించే గొంతు... ప్రజా సమస్యల కోసం పోరాడే నిబద్ధత... వైఎస్ షర్మిల రెడ్డి గారు — ప్రజల పక్షాన నిలిచే నాయకత్వం", "మా నాయకుడే మా భవిష్యత్తు", "పేదల ఆశాజ్యోతి ఫలానా నేత", ర్యాలీ విజువల్స్ పీఆర్ రీల్స్, పార్టీ గీతాలు, ప్రచార నినాదాలు).
-     * ఇటువంటి పోస్టులలో కొత్త ప్రభుత్వ నిర్ణయం, కొత్త పథకం, బడ్జెట్ లేదా పాలసీ సమాచారం ఏమీ ఉండదు. కేవలం సొంత భజన మాత్రమే. దీనిలో ప్రజలకు ఎలాంటి ఉపయోగం (Public Utility) గానీ, వార్తా ఆసక్తి (Public Interest) గానీ లేవు. అసలు దీనిని వార్తాంశంగా స్వీకరించాల్సిన పనేలేదు! ఖచ్చితంగా తిరస్కరించాలి (isNewsFound: false).
-   - 🛑 రొటీన్ ఫోటో-ఆప్స్, సాధారణ సమీక్షలు, పుస్తక/పోస్టర్ ఆవిష్కరణలు (ROUTINE PHOTO-OPS & CASUAL MEETINGS - ZERO NEWS VALUE):
-     * ప్రజా ప్రయోజనం, కొత్త పాలసీ నిర్ణయం లేదా బడ్జెట్ కేటాయింపులు ఏమీ లేకుండా కేవలం కలెక్టర్ లేదా ప్రజాప్రతినిధి ఒక పోస్టర్‌ను ఆవిష్కరించడం (ఉదా: "వయోవృద్ధుల దినోత్సవ పోస్టర్ ఆవిష్కరణ"), సాధారణ పరిచయ సమీక్ష నిర్వహించడం, పుష్పగుచ్ఛాలు ఇవ్వడం, కేవలం జ్యోతి ప్రజ్వలనలు వంటివి వార్తలు కావు! ఖచ్చితంగా తిరస్కరించాలి (isNewsFound: false).
-   - అసభ్యకరమైన బూతులు, వ్యక్తిగత దూషణలు, ఇంటర్నెట్ ట్రోల్ మీమ్స్, కేవలం క్యాజువల్ పుట్టినరోజు శుభాకాంక్షలు (isNewsFound: false).
-Output must be strictly JSON format.`;
+Output must be strictly valid JSON matching the schema.`;
 
 /**
- * Fetches background context, hard institutional records (GOs, court orders, budget statistics),
- * and counter-perspectives/explanations using Google Search Grounding.
- * Strictly applies the Media Bias Shield to disregard partisan adjectives and media spin.
+ * Selectively fetches brief background/counter-context via Google Search Grounding
+ * ONLY for political/controversial/claim-heavy inputs (avoids adding noise & latency to routine local news).
  */
 async function fetchGroundedResearchContext(
     ai: any,
     inputText: string,
     category?: string
 ): Promise<string> {
-    if (!inputText || inputText.trim().length < 25) return "";
-
-    // Skip if it looks like obvious party flattery or casual greeting
+    if (!inputText || inputText.trim().length < 40) return "";
     if (isEditorialVerdictOrFlattery("శీర్షిక", inputText)) return "";
 
-    const researchPrompt = `మీరు ఆల్ఫా న్యూస్ రీసెర్చ్ అసిస్టెంట్.
-కింది వార్తాంశం/ఆరోపణకు సంబంధించిన నేపథ్యం (Background), అధికారిక రికార్డులు (GOలు, బడ్జెట్ అంకెలు, కోర్టు/సిట్/ఈడీ ఆదేశాలు), మరియు ముఖ్యంగా "ఎదుటి పక్షం/ప్రతిపక్షం లేదా ఆరోపణలు ఎదుర్కొంటున్న వారు ఇచ్చిన వివరణ/కౌంటర్ ఏమిటి?" అనే విషయాలను గూగుల్ సెర్చ్ ద్వారా క్లుప్తంగా సేకరించండి.
+    const isPoliticalOrDispute =
+        /politic|రాజకీయ|ఆరోపణ|స్కామ్|విమర్శ|అరెస్ట్|కేసు|కోర్టు|ఈడీ|సిట్|ప్రభుత్వం|ప్రతిపక్ష|బడ్జెట్|జీవో|cm|minister|mla|mp|jagan|chandrababu|revanth|kcr|ktr|pawan|lokesh/i.test(`${category || ''} ${inputText}`);
 
-⚠️ పక్షపాత మీడియా రక్షణ నిబంధన (MEDIA BIAS SHIELD):
-- తెలుగు మీడియాలో (ఈనాడు, ఆంధ్రజ్యోతి, టీవీ5 లేదా సాక్షి) వచ్చే పక్షపాత రాజకీయ విశేషణాలను (ఉదా: "చరిత్రలోనే అతిపెద్ద దోపిడీ", "ప్రజాగ్రహం", "కుదేలైన సర్కార్") పూర్తిగా విస్మరించండి.
-- కేవలం అధికారిక తేదీలు, దాఖలైన కేసులు/పిటిషన్లు, విచారణ కమిటీల వివరాలు మరియు ఇరు వర్గాల అధికారిక వివరణలను మాత్రమే 3-4 వాక్యాల్లో క్లుప్తంగా అందించండి.
+    if (!isPoliticalOrDispute) return "";
+
+    const researchPrompt = `కింది వార్తాంశానికి సంబంధించిన అధికారిక వాస్తవాలు (తేదీలు, జీవోలు, కోర్టు/పోలీస్ వివరాలు) మరియు ఎదుటి పక్షం అధికారిక వివరణ ఏమైనా ఉంటే 2-3 నిష్పాక్షిక వాక్యాల్లో తెలుగులో ఇవ్వండి. పక్షపాత విశేషణాలు వద్దు.
 
 వార్తాంశం:
-${inputText}`;
+${inputText.substring(0, 1200)}`;
 
     try {
         const timeoutPromise = new Promise<null>((_, reject) =>
-            setTimeout(() => reject(new Error("Grounding timeout")), 12000)
+            setTimeout(() => reject(new Error("Grounding timeout")), 10000)
         );
 
         const generatePromise = ai.models.generateContent({
@@ -398,26 +276,24 @@ export const processSocialPostWithAI = async (
         type: Type.OBJECT,
         properties: {
             isNewsFound: { type: Type.BOOLEAN },
-            headline: { type: Type.STRING, description: "Step 1: 100% Pure Telugu punchy journalistic headline strictly in 6-9 words as ONE continuous flowing sentence without any colons (:) or dashes (-)" },
-            content: { type: Type.STRING, description: "Step 1: 100% Pure Telugu journalistic news story (strictly 52-60 words, minimum 52 words, maximum 60 words, single paragraph) created from input regardless of input language" },
-            fullStoryTe: { type: Type.STRING, description: "Senior editor comprehensive full story in Telugu across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
-            headlineEn: { type: Type.STRING, description: "Step 2: English headline translated from Telugu headline (6-9 words)" },
-            contentEn: { type: Type.STRING, description: "Step 2: English news story translated from the Telugu story (50-60 words)" },
-            fullStoryEn: { type: Type.STRING, description: "Senior editor full story in English across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
+            headline: { type: Type.STRING, description: "Natural, crisp Telugu headline (6-10 words), no quotes or colons." },
+            content: { type: Type.STRING, description: "Pure Telugu news summary (50-65 words, single paragraph)." },
+            fullStoryTe: { type: Type.STRING, description: "3-4 paragraph Telugu full story separated by \\n\\n if input has sufficient detail (80+ words), else empty string \"\"." },
+            headlineEn: { type: Type.STRING, description: "English translation of the Telugu headline." },
+            contentEn: { type: Type.STRING, description: "English translation of the Telugu summary." },
+            fullStoryEn: { type: Type.STRING, description: "English full story across 3-4 paragraphs if fullStoryTe is non-empty, else empty string \"\"." },
             category: { type: Type.STRING }
         },
         required: ["isNewsFound", "headline", "content", "fullStoryTe", "fullStoryEn", "headlineEn", "contentEn", "category"],
     };
 
-    // Build the user prompt — include Post Author when available so AI can attribute correctly
     const authorLine = authorName ? `Post Author: ${authorName}\n` : "";
     const basePrompt = `Platform: ${platform}\nCategory: ${category}\n${authorLine}Input Text:\n${socialText}`;
 
     return await runWithAIFallback(async (ai, modelName) => {
-        // Step 1: Attempt Grounded Research to fetch hard facts and counter-perspective
         const groundedContext = await fetchGroundedResearchContext(ai, socialText, category);
         const userPrompt = groundedContext
-            ? `${basePrompt}\n\n[గూగుల్ సెర్చ్ ద్వారా సేకరించిన వాస్తవ రికార్డులు & ఎదుటి పక్షం వివరణ / Grounded Context]:\n${groundedContext}`
+            ? `${basePrompt}\n\n[అదనపు వాస్తవ నేపథ్యం / Verified Context]:\n${groundedContext}`
             : basePrompt;
 
         const response = await ai.models.generateContent({
@@ -425,11 +301,10 @@ export const processSocialPostWithAI = async (
             contents: [{ role: "user", parts: [{ text: userPrompt }] }],
             config: {
                 systemInstruction: EDITORIAL_SYSTEM_INSTRUCTION,
-                temperature: 0.6,
+                temperature: 0.35,
                 maxOutputTokens: 4096,
                 responseMimeType: "application/json",
-                responseSchema: schema,
-                max_output_tokens: 4096
+                responseSchema: schema
             },
         } as any);
 
@@ -440,7 +315,6 @@ export const processSocialPostWithAI = async (
         const cleanedHeadline = cleanTeluguHeadline(parsed.headline);
         if (!cleanedHeadline) return null;
 
-        // Check for party flattery / sycophancy or editorial verdict without attribution
         if (isEditorialVerdictOrFlattery(cleanedHeadline, socialText, authorName)) {
             console.log(`[SOCIAL_AI] 🛑 Rejected party flattery / editorial verdict without attribution: "${cleanedHeadline}"`);
             return null;
@@ -449,7 +323,6 @@ export const processSocialPostWithAI = async (
         let rawContentTe = parsed.content || '';
         let rawContentEn = parsed.contentEn || '';
 
-        // Check if content was swapped or generated in English
         if (!isTeluguScript(rawContentTe) && isTeluguScript(rawContentEn)) {
             const tmp = rawContentTe;
             rawContentTe = rawContentEn;
@@ -466,7 +339,6 @@ export const processSocialPostWithAI = async (
         const storyWordsEn = rawStoryEn ? rawStoryEn.split(/\s+/).filter(Boolean).length : 0;
         const validStoryEn = (storyWordsEn >= 80 && rawStoryEn !== (parsed.contentEn || "")) ? formatIntoParagraphs(rawStoryEn) : "";
 
-        // Refine headline using Paid AI (Gemini 3.7 Flash) if PAID_GEMINI_API_KEY is available, or gracefully fallback
         const refinedHeadlines = await refineHeadlineWithPaidAI(
             cleanedContent,
             cleanedHeadline,
@@ -509,12 +381,12 @@ export const processCitizenContentWithAI = async (
             processed: {
                 type: Type.OBJECT,
                 properties: {
-                    headline: { type: Type.STRING, description: "Pure Telugu punchy journalistic headline strictly in 6-9 words as ONE continuous flowing sentence without any colons (:) or dashes (-)" },
-                    content: { type: Type.STRING, description: "Strictly 52-60 words in pure Telugu (minimum 52 words), single paragraph" },
-                    fullStoryTe: { type: Type.STRING, description: "Senior editor comprehensive full story in Telugu across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
-                    headlineEn: { type: Type.STRING, description: "English headline translated from Telugu headline (6-9 words)" },
-                    contentEn: { type: Type.STRING },
-                    fullStoryEn: { type: Type.STRING, description: "Senior editor full story in English across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
+                    headline: { type: Type.STRING, description: "Natural, crisp Telugu headline (6-10 words), no quotes or colons." },
+                    content: { type: Type.STRING, description: "Pure Telugu news summary (50-65 words, single paragraph)." },
+                    fullStoryTe: { type: Type.STRING, description: "3-4 paragraph Telugu full story separated by \\n\\n if input has sufficient detail (80+ words), else empty string \"\"." },
+                    headlineEn: { type: Type.STRING, description: "English translation of the Telugu headline." },
+                    contentEn: { type: Type.STRING, description: "English translation of the Telugu summary." },
+                    fullStoryEn: { type: Type.STRING, description: "English full story across 3-4 paragraphs if fullStoryTe is non-empty, else empty string \"\"." },
                     category: { type: Type.STRING }
                 },
                 required: ["headline", "content", "fullStoryTe", "fullStoryEn", "headlineEn", "contentEn", "category"]
@@ -524,21 +396,19 @@ export const processCitizenContentWithAI = async (
     };
 
     return await runWithAIFallback(async (ai, modelName) => {
-        // Step 1: Attempt Grounded Research Context if applicable
         const groundedContext = await fetchGroundedResearchContext(ai, rawContent);
         const userPrompt = `Citizen Submission:\n${rawContent}` +
-            (groundedContext ? `\n\n[గూగుల్ సెర్చ్ ద్వారా సేకరించిన వాస్తవ రికార్డులు & ఎదుటి పక్షం వివరణ / Grounded Context]:\n${groundedContext}` : '');
+            (groundedContext ? `\n\n[అదనపు వాస్తవ నేపథ్యం / Verified Context]:\n${groundedContext}` : '');
 
         const response = await ai.models.generateContent({
             model: modelName,
             contents: [{ role: "user", parts: [{ text: userPrompt }] }],
             config: {
                 systemInstruction: EDITORIAL_SYSTEM_INSTRUCTION,
-                temperature: 0.6,
+                temperature: 0.35,
                 maxOutputTokens: 4096,
                 responseMimeType: "application/json",
-                responseSchema: schema,
-                max_output_tokens: 4096
+                responseSchema: schema
             }
         } as any);
 
@@ -548,7 +418,7 @@ export const processCitizenContentWithAI = async (
         if (parsed && parsed.processed) {
             const cleanedHeadline = cleanTeluguHeadline(parsed.processed.headline);
             if (isEditorialVerdictOrFlattery(cleanedHeadline, rawContent)) {
-                return { success: false, reason: "Rejected party flattery / sycophancy without news value" };
+                return { success: false, reason: "ప్రజా ప్రయోజనం లేని వ్యక్తిగత ప్రచారం లేదా భజన పోస్ట్." };
             }
             const cleanContent = sanitizeTeluguText(parsed.processed.content).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
             const rawStoryTe = parsed.processed.fullStoryTe ? sanitizeTeluguText(parsed.processed.fullStoryTe).trim() : "";
@@ -558,7 +428,6 @@ export const processCitizenContentWithAI = async (
             const storyWordsEn = rawStoryEn ? rawStoryEn.split(/\s+/).filter(Boolean).length : 0;
             const validStoryEn = (storyWordsEn >= 80 && rawStoryEn !== (parsed.processed.contentEn || "")) ? formatIntoParagraphs(rawStoryEn) : "";
 
-            // Refine headline using Paid AI (Gemini 3.7 Flash) if PAID_GEMINI_API_KEY is available, or gracefully fallback
             const refinedHeadlines = await refineHeadlineWithPaidAI(
                 cleanContent,
                 cleanedHeadline,
@@ -589,33 +458,31 @@ export const processContentWithAI = async (
     const schema = {
         type: Type.OBJECT,
         properties: {
-            summarizedTeluguContent: { type: Type.STRING, description: "Strictly 52-60 words in pure Telugu (minimum 52 words), single paragraph" },
-            generatedTeluguHeadline: { type: Type.STRING, description: "Pure Telugu punchy journalistic headline strictly in 6-9 words as ONE continuous flowing sentence without any colons (:) or dashes (-)" },
-            fullStoryTe: { type: Type.STRING, description: "Senior editor comprehensive full story in Telugu across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
-            englishHeadline: { type: Type.STRING, description: "English headline translated from Telugu headline (6-9 words)" },
-            englishContent: { type: Type.STRING },
-            fullStoryEn: { type: Type.STRING, description: "Senior editor full story in English across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
+            summarizedTeluguContent: { type: Type.STRING, description: "Pure Telugu news summary (50-65 words, single paragraph)." },
+            generatedTeluguHeadline: { type: Type.STRING, description: "Natural, crisp Telugu headline (6-10 words), no quotes or colons." },
+            fullStoryTe: { type: Type.STRING, description: "3-4 paragraph Telugu full story separated by \\n\\n if input has sufficient detail (80+ words), else empty string \"\"." },
+            englishHeadline: { type: Type.STRING, description: "English translation of the Telugu headline." },
+            englishContent: { type: Type.STRING, description: "English translation of the Telugu summary." },
+            fullStoryEn: { type: Type.STRING, description: "English full story across 3-4 paragraphs if fullStoryTe is non-empty, else empty string \"\"." },
         },
         required: ["summarizedTeluguContent", "generatedTeluguHeadline", "fullStoryTe", "fullStoryEn", "englishHeadline", "englishContent"],
     };
 
     return await runWithAIFallback(async (ai, modelName) => {
-        // Step 1: Attempt Grounded Research Context
         const fullInput = `${rawHeadline || ''} ${rawContent}`.trim();
         const groundedContext = await fetchGroundedResearchContext(ai, fullInput);
         const userPrompt = `Headline: ${rawHeadline || 'N/A'}\nContent: ${rawContent}` +
-            (groundedContext ? `\n\n[గూగుల్ సెర్చ్ ద్వారా సేకరించిన వాస్తవ రికార్డులు & ఎదుటి పక్షం వివరణ / Grounded Context]:\n${groundedContext}` : '');
+            (groundedContext ? `\n\n[అదనపు వాస్తవ నేపథ్యం / Verified Context]:\n${groundedContext}` : '');
 
         const response = await ai.models.generateContent({
             model: modelName,
             contents: [{ role: "user", parts: [{ text: userPrompt }] }],
             config: {
                 systemInstruction: EDITORIAL_SYSTEM_INSTRUCTION,
-                temperature: 0.6,
+                temperature: 0.35,
                 maxOutputTokens: 4096,
                 responseMimeType: "application/json",
-                responseSchema: schema,
-                max_output_tokens: 4096
+                responseSchema: schema
             }
         } as any);
 
@@ -631,7 +498,6 @@ export const processContentWithAI = async (
         const validStoryEn = (storyWordsEn >= 80 && rawStoryEn !== (parsed.englishContent || "")) ? formatIntoParagraphs(rawStoryEn) : "";
 
         const initialHeadline = cleanTeluguHeadline(parsed.generatedTeluguHeadline);
-        // Refine headline using Paid AI (Gemini 3.7 Flash) if PAID_GEMINI_API_KEY is available, or gracefully fallback
         const refinedHeadlines = await refineHeadlineWithPaidAI(
             cleanContent,
             initialHeadline,
@@ -675,20 +541,16 @@ export const processProductWithAI = async (
             model: modelName,
             contents: [{ role: "user", parts: [{ text: `Product Info:\n${productInfo}` }] }],
             config: {
-                systemInstruction: `You are a Tech & Lifestyle Reporter.
-            1. Convert the provided product information into an exciting news story in Telugu (content) of STRICTLY 50 to 60 words total. Focus on the value, features, or a massive discount.
-            2. Write a professional news paragraph in English (contentEn) maximum 50 words.
-            3. Generate an eye-catching Telugu headline (headline) maximum 10 words.
-            4. Generate a professional English headline (headlineEn) maximum 12 words.
-            5. Categorize this as 'Gadgets', 'Fashion', or 'Lifestyle'.
-            Output JSON only.`,
-                temperature: 0.5,
+                systemInstruction: `You are a Telugu Tech & Lifestyle Editor.
+1. Write a crisp Telugu product news summary ('content', 50-60 words) highlighting key features, price/discount, and value.
+2. Translate it cleanly into English ('contentEn', ~50 words).
+3. Write an engaging Telugu headline ('headline', 6-10 words) and matching English headline ('headlineEn').
+4. Categorize as 'Gadgets', 'Fashion', or 'Lifestyle'.
+Output JSON only.`,
+                temperature: 0.4,
                 maxOutputTokens: 2048,
                 responseMimeType: "application/json",
-                responseSchema: schema,
-                // Safety
-                system_instruction: `You are a Tech & Lifestyle Reporter. ...`,
-                max_output_tokens: 2048
+                responseSchema: schema
             }
         } as any);
 

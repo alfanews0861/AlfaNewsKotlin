@@ -280,89 +280,43 @@ export function fixTeluguWordClumps(text: string): string {
     if (!text) return "";
     let s = text;
 
-    // 1. Common English compound words that got clumped or dropped virama
+    // 1. Safe fixes for genuinely clumped compound English/place loanwords
     const compoundFixes: [RegExp, string][] = [
-        [/క్లాస్[\s\u200B]*రూ(?:మ్|ం|మ)?/gu, 'క్లాస్ రూమ్'],
-        [/క్లాస్రూ(?:మ్|ం|మ)?/gu, 'క్లాస్ రూమ్'],
-        [/వాట్సా(?:ప్|ఫ్|పు)?/gu, 'వాట్సాప్'],
-        [/ఫేస్[\s\u200B]*బు(?:క్|క్కు)?/gu, 'ఫేస్‌బుక్'],
-        [/ఫేస్బు(?:క్|క్కు)?/gu, 'ఫేస్‌బుక్'],
-        [/యూట్యూ(?:బ్|ప్)?/gu, 'యూట్యూబ్'],
-        [/ట్విట్ట(?:ర్|రు)?/gu, 'ట్విట్టర్'],
-        [/ఇన్‌స్టాగ్రా(?:మ్|ం)?/gu, 'ఇన్‌స్టాగ్రామ్'],
-        [/ఇన్స్టాగ్రా(?:మ్|ం)?/gu, 'ఇన్‌స్టాగ్రామ్'],
-        [/స్మార్ట్[\s\u200B]*ఫో(?:న్|ను)?/gu, 'స్మార్ట్‌ఫోన్'],
-        [/స్మార్ట్ఫో(?:న్|ను)?/gu, 'స్మార్ట్‌ఫోన్'],
-        [/హై[\s\u200B]*కోర్టు/gu, 'హైకోర్టు'],
-        [/సుప్రీం[\s\u200B]*కోర్టు/gu, 'సుప్రీంకోర్టు'],
-        [/బంజారా[\s\u200B]*హిల్స్/gu, 'బంజారా హిల్స్'],
-        [/జూబ్లీ[\s\u200B]*హిల్స్/gu, 'జూబ్లీ హిల్స్'],
+        [/క్లాస్రూమ్/gu, 'క్లాస్ రూమ్'],
+        [/బెడ్రూమ్/gu, 'బెడ్ రూమ్'],
+        [/లివింగ్రూమ్/gu, 'లివింగ్ రూమ్'],
+        [/షోరూమ్/gu, 'షో రూమ్'],
+        [/బంజారాహిల్స్/gu, 'బంజారా హిల్స్'],
+        [/జూబ్లీహిల్స్/gu, 'జూబ్లీ హిల్స్'],
     ];
     for (const [pattern, replacement] of compoundFixes) {
         s = s.replace(pattern, replacement);
     }
 
-    // 2. Separate postpositions from loan words ending in pollu (virama \u0C4D)
-    // A. For 'పై', 'నుంచి', 'నుండి', 'వరకు': ANY consonant + pollu + postposition is unnatural and separated
-    // e.g. న్పై -> న్ పై, స్పై -> స్ పై, ట్పై -> ట్ పై, ప్పై -> ప్ పై
-    const paiRegex = new RegExp('([\\u0C15-\\u0C39]\\u0C4D)(పై|నుంచి|నుండి|వరకు)(?=[\\s\\p{P}]|$)', 'gu');
-    s = s.replace(paiRegex, '$1 $2');
-
-    // B. For 'లో', 'తో', 'కు', 'కి':
-    // Separate after English loan consonants:
-    // స్ (\u0C38), న్ (\u0C28), మ్ (\u0C2E), ప్ (\u0C2A), జ్ (\u0C1C), డ్ (\u0C21), బ్ (\u0C2C), క్ (\u0C15)
-    // Examples: స్క్రీన్లో -> స్క్రీన్ లో, బంజారా హిల్స్లో -> బంజారా హిల్స్ లో, వాట్సాప్లో -> వాట్సాప్ లో, రూమ్లో -> రూమ్ లో, స్టేజ్లో -> స్టేజ్ లో
-    // Native Telugu words (గుండెల్లో, మాటల్లో, ఊర్లో) do not use these pollu consonants before లో and remain 100% preserved.
-    const loanConsonants = '[\\u0C38\\u0C28\\u0C2E\\u0C2A\\u0C1C\\u0C21\\u0C2C\\u0C15]';
-    const postpositionRegex = new RegExp('(' + loanConsonants + '\\u0C4D)(లో|తో|కు|కి)(?=[\\s\\p{P}]|$)', 'gu');
-    s = s.replace(postpositionRegex, '$1 $2');
-
-    // C. For ట్లో: Split ONLY if preceded by long vowel or English loan endings (like కలెక్టరేట్లో, ఫ్లైట్లో, సైట్లో, మార్కెట్లో, బడ్జెట్లో, ఫ్లాట్లో, సీట్లో, గేట్లో, ప్లేట్లో)
-    // Protect native Telugu words: ఇంట్లో, కంట్లో, నోట్లో, ఒంట్లో, గంట్లో, గొంట్లో, పుంట్లో, తుంట్లో
-    s = s.replace(/(\S+?)ట్లో(?=[\s\p{P}]|$)/gu, (match, prefix) => {
-        if (/^(?:ఇం|కం|నో|ఒం|గొం|పుం|తుం|పెం)$/.test(prefix)) {
-            return match; // preserve native words: ఇంట్లో, కంట్లో, నోట్లో etc.
-        }
-        return prefix + 'ట్ లో';
-    });
-
-    // 3. Common English words ending in 'ు' or 'ల్' taking postpositions (e.g. రోడ్డుపై -> రోడ్డు పై, కోర్టులో -> కోర్టు లో, స్కూల్లో -> స్కూల్ లో)
-    const loanUWords: [RegExp, string][] = [
-        [/(రోడ్డు|బోర్డు|వార్డు|గ్రౌండు|స్టాండు|ఫీల్డు|కోర్టు|సీటు|గేటు|ప్లేటు|ఫ్లాటు|నెట్టు|బెడ్)(పై|లో|తో|నుంచి|నుండి|వరకు|కి|కు)(?=[\s\p{P}]|$)/gu, '$1 $2'],
-        [/(హాస్పిటల్|ఆఫీస్|కాలేజ్|యూనివర్సిటీ|పార్లమెంట్|అసెంబ్లీ|పోలీస్)(లో|పై|తో|నుంచి|నుండి|వరకు|కి|కు)(?=[\s\p{P}]|$)/gu, '$1 $2'],
-        [/(స్కూల్|హాల్|మాల్)(?:్లో|లో)(?=[\s\p{P}]|$)/gu, '$1 లో'],
-        [/(స్కూల్|హాల్|మాల్)(పై|తో|కి|కు)(?=[\s\p{P}]|$)/gu, '$1 $2']
-    ];
-    for (const [pattern, replacement] of loanUWords) {
-        s = s.replace(pattern, replacement);
-    }
-
-    // 4. Rejoin unnatural splitting of Telugu plural locative 'ల్లో' (e.g. 'పాత్రల్ లో' -> 'పాత్రల్లో', 'సినిమాల్ లో' -> 'సినిమాల్లో', 'గ్రామాల్ లో' -> 'గ్రామాల్లో')
+    // 2. Rejoin unnatural splitting of native Telugu plural locative 'ల్లో' and native 'ట్లో'
+    // e.g. 'పాత్రల్ లో' -> 'పాత్రల్లో', 'ఇంట్ లో' -> 'ఇంట్లో'
     s = s.replace(/ల్\s+లో(?=[\s\p{P}]|$)/gu, 'ల్లో');
+    s = s.replace(/(ఇం|కం|నో|ఒం|గొం|పుం|తుం|పెం|చో|చె|కో)ట్\s+లో(?=[\s\p{P}]|$)/gu, '$1ట్లో');
 
-    // 5. Rejoin native Telugu words unnaturally split with 'ట్ లో' (e.g. 'ఇంట్ లో' -> 'ఇంట్లో', 'నోట్ లో' -> 'నోట్లో', 'కంట్ లో' -> 'కంట్లో')
-    s = s.replace(/(ఇం|కం|నో|ఒం|గొం|పుం|తుం|పెం)ట్\s+లో(?=[\s\p{P}]|$)/gu, '$1ట్లో');
-
-    // 6. Fix numbers & currencies glued to words (e.g. 'రూ.100కోట్లు' -> 'రూ. 100 కోట్లు', '10వేల' -> '10 వేల', '5మంది' -> '5 మంది')
+    // 3. Fix numbers & currencies glued to words (e.g. 'రూ.100కోట్లు' -> 'రూ. 100 కోట్లు', '10వేల' -> '10 వేల')
     s = s.replace(/(రూ\.|రూ)(?=\d)/gu, 'రూ. ');
     s = s.replace(/(\d+)(కోట్లు|కోట్ల|లక్షలు|లక్షల|వేలు|వేల|మంది|శాతం|శాతానికి|కిలోమీటర్ల?|గంటల?|రోజుల?|నెలల?|సంవత్సరాల?|ఏళ్ల|మందికి|మందితో)(?=[\s\p{P}]|$)/gu, '$1 $2');
 
-    // 7. Fix punctuation glued to Telugu words without space (e.g. 'జరిగింది.దీనిపై' -> 'జరిగింది. దీనిపై', 'తెలిపారు,ఈ' -> 'తెలిపారు, ఈ')
+    // 4. Fix punctuation glued to Telugu words without space (e.g. 'జరిగింది.దీనిపై' -> 'జరిగింది. దీనిపై')
     s = s.replace(/([\u0C00-\u0C7F])([.,:;!?])([\u0C00-\u0C7F])/gu, '$1$2 $3');
 
-    // Clean any double spaces
     return s.replace(/[ \t]+/g, ' ').trim();
 }
 
 /**
- * Sanitizes Telugu text by converting any bled Kannada Unicode characters (0x0C80-0x0CFF)
- * and Devanagari/Hindi Unicode characters (0x0900-0x097F) to Telugu, removing orphaned matras,
- * broken placeholder glyphs, zero-width spaces, and resolving unnatural English/loan word clumps.
+ * Sanitizes Telugu text by stripping non-Telugu Indic/Arabic scripts cleanly (without broken
+ * Unicode code-point arithmetic), removing orphaned placeholders/zero-width chars, and fixing
+ * unambiguous spacing/collocation issues while preserving all genuine Telugu words.
  */
 export function sanitizeTeluguText(text: string): string {
     if (!text) return "";
     const cleaned = text
-        // 0. Decode and eliminate HTML entities & zero-width non-joiners
+        // 0. Decode HTML entities
         .replace(/&zwnj;/gi, '')
         .replace(/&zwj;/gi, '')
         .replace(/&nbsp;/gi, ' ')
@@ -373,23 +327,13 @@ export function sanitizeTeluguText(text: string): string {
         .replace(/&gt;/gi, '>')
         .replace(/&#\d+;/g, '')
         .replace(/&#x[0-9a-fA-F]+;/gi, '')
-        // 1. Map any bled Kannada Unicode characters (0x0C80-0x0CFF) to Telugu Unicode (0x0C00-0x0C7F)
-        .replace(/[\u0C80-\u0CFF]/g, (char) => {
-            const code = char.charCodeAt(0) - 0x0080;
-            return (code >= 0x0C00 && code <= 0x0C7F) ? String.fromCharCode(code) : '';
-        })
-        // 2. Map any bled Devanagari / Hindi Unicode characters (0x0900-0x097F) to Telugu Unicode (0x0C00-0x0C7F)
-        .replace(/[\u0900-\u097F]/g, (char) => {
-            const code = char.charCodeAt(0) + 0x0300;
-            return (code >= 0x0C00 && code <= 0x0C7F) ? String.fromCharCode(code) : '';
-        })
-        // 3. Strip any residual unmapped Kannada or Hindi characters to guarantee 0% Kannada/Hindi
-        .replace(/[\u0900-\u097F\u0C80-\u0CFF]/g, '')
-        // 4. Remove dotted circle characters used as fallback for broken combining marks
-        .replace(/\u25CC/g, '')
-        // 5. Remove invisible zero-width spaces that break Telugu word joining
+        // 1. Cleanly strip Arabic/Urdu/Devanagari/Kannada/Tamil/Malayalam scripts without corrupting glyphs
+        .replace(/[\u0600-\u06FF\u0900-\u0BFF\u0C80-\u0DFF]/g, '')
+        // 2. Remove dotted circle / replacement placeholder glyphs
+        .replace(/[\u25CC\uFFFD]/g, '')
+        // 3. Remove invisible zero-width spaces that break Telugu word joining
         .replace(/[\u200B-\u200D\uFEFF]/g, '')
-        // 6. Fix spaces before Telugu combining vowel marks / virama
+        // 4. Fix accidental spaces before Telugu combining vowel marks / virama
         .replace(/\s+([\u0C01-\u0C03\u0C3E-\u0C4D\u0C55\u0C56\u0C62\u0C63])/g, '$1')
         .trim();
 

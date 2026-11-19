@@ -823,70 +823,125 @@ object AnalyticsService {
     }
 
     /**
-     * ఒక వార్తా పోస్ట్ యొక్క యూజర్ ఆసక్తిని (Relevance Score) లెక్కిస్తుంది.
+     * యూజర్ యొక్క canonical bilingual ఆసక్తి ప్రొఫైల్‌ను రూపొందిస్తుంది.
+     * ("సినిమా" మరియు "Cinema" రెండూ ఒకే "cinema" స్కోర్ కింద కలుస్తాయి)
      */
-    fun calculateRelevanceScore(post: NewsPost): Double {
-        var score = 0.0
+    fun getInterestProfile(): com.alfanews.telugu.utils.NewsFeedBlender.InterestProfile {
+        return com.alfanews.telugu.utils.NewsFeedBlender.buildInterestProfile(categoryScores)
+    }
 
-        // 1. కేటగిరీల ఆధారంగా స్కోర్ (Clean topical categories only)
-        val cleanCats = extractCleanCategories(post)
-        cleanCats.forEach { cat ->
-            score += (categoryScores[cat] ?: 0) * 1.0
+    /**
+     * Firestore `whereArrayContainsAny("categories", ...)` క్వెరీ కోసం
+     * తెలుగు + ఇంగ్లీష్ అలియాస్‌లతో గరిష్టంగా 10 ఇష్టమైన కేటగిరీలను అందిస్తుంది.
+     */
+    fun getExpandedPreferredCategoriesForQuery(maxLimit: Int = 10): List<String> {
+        val rawPreferred = getUserPreferredCategories()
+        if (rawPreferred.isEmpty()) return emptyList()
+        return com.alfanews.telugu.utils.NewsFeedBlender.expandCategoriesForFirestoreQuery(rawPreferred, maxLimit)
+    }
+
+    /**
+     * పోస్ట్‌పై యూజర్ యొక్క వ్యక్తిగత ఆసక్తి స్కోర్‌ను మాత్రమే (Editorial bonus లేకుండా) లెక్కిస్తుంది.
+     * తెలుగు & ఇంగ్లీష్ కేటగిరీలను canonical కీ ద్వారా సరిపోల్చుతుంది.
+     */
+    fun calculateUserInterestScore(post: NewsPost): Double {
+        var personalScore = 0.0
+        val profile = getInterestProfile()
+        val canonicalTopics = com.alfanews.telugu.utils.NewsFeedBlender.extractCanonicalTopics(post)
+
+        // 1. Canonical category affinity (matches both Telugu & English strings!)
+        canonicalTopics.forEach { topic ->
+            val catVal = profile.canonicalCategoryScores[topic] ?: 0.0
+            if (catVal > 0.0) {
+                personalScore += minOf(45.0, kotlin.math.ln(1.0 + catVal) * 14.0)
+            } else if (catVal < 0.0) {
+                personalScore += maxOf(-25.0, catVal * 3.5)
+            }
         }
-
-        // 🎯 1b. కేటగిరీ ప్రాధాన్యత బోనస్ పాయింట్లు: రాజకీయం #1 (+45 pts), సినిమా #2 (+28 pts)
-        score += getCategoryPriorityBonus(post)
 
         // 2. రిపోర్టర్ ఆధారంగా స్కోర్
         if (post.reporter.id.isNotBlank()) {
-            score += (reporterScores[post.reporter.id] ?: 0) * 1.5
+            val repVal = (reporterScores[post.reporter.id] ?: 0) * 1.5
+            personalScore += repVal.coerceIn(-10.0, 15.0)
         }
 
         // 3. కీవర్డ్స్ (Tags) ఆధారంగా స్కోర్
         post.tags.filter { !isNonTopicalCategory(it) }.forEach { tag ->
-            score += (tagScores[tag] ?: 0) * 2.0
+            val tagVal = (tagScores[tag] ?: 0) * 2.0
+            personalScore += tagVal.coerceIn(-10.0, 15.0)
         }
 
         // 4. వ్యక్తులు (People) ఆధారంగా స్కోర్
         post.entities.people.forEach { person ->
-            score += (peopleScores[person] ?: 0) * 2.5
+            val pVal = (peopleScores[person] ?: 0) * 2.5
+            personalScore += pVal.coerceIn(-10.0, 18.0)
         }
 
         // 5. సంస్థలు (Organizations) ఆధారంగా స్కోర్
         post.entities.organizations.forEach { org ->
-            score += (organizationScores[org] ?: 0) * 2.0
+            val oVal = (organizationScores[org] ?: 0) * 2.0
+            personalScore += oVal.coerceIn(-10.0, 15.0)
         }
 
         // 6. ప్రాంతం (Location) ఆధారంగా స్కోర్
         post.entities.locations.forEach { loc ->
-            score += (locationScores[loc] ?: 0) * 1.2
+            val lVal = (locationScores[loc] ?: 0) * 1.2
+            personalScore += lVal.coerceIn(-8.0, 12.0)
         }
 
-        // 7. 🔥 POPULARITY & EDITORIAL QUALITY BOOST:
-        // Likes, shares, comments, and special story flags give high-quality articles a competitive boost
-        // so a blockbuster article loved by readers isn't buried under trivial filler news.
-        val engagementBoost = (post.likes * 2.0) + (post.shares * 3.0) + (post.comments * 1.5) + (if (post.isSpecialStory) 25.0 else 0.0)
+        return personalScore
+    }
+
+    /**
+     * ఒక వార్తా పోస్ట్ యొక్క యూజర్ ఆసక్తి + ఎడిటోరియల్ నాణ్యత (Relevance Score) లెక్కిస్తుంది.
+     * - యాక్టివ్ యూజర్లకు వారి వ్యక్తిగత ఆసక్తులే ప్రధాన ప్రాధాన్యత పొందుతాయి.
+     * - కొత్త యూజర్లకు (Cold Start) రాజకీయం/సినిమా సున్నితమైన ఎడిటోరియల్ ప్రాధాన్యత ఇస్తాయి.
+     */
+    fun calculateRelevanceScore(post: NewsPost): Double {
+        val profile = getInterestProfile()
+        var score = calculateUserInterestScore(post)
+
+        // 🎯 1b. ఎడిటోరియల్ ప్రాధాన్యత బోనస్:
+        // కొత్త యూజర్లకు (cold start) రాజకీయం/సినిమా స్పష్టమైన ప్రాధాన్యత ఇస్తాయి;
+        // ఆసక్తులు ఏర్పడిన యూజర్లకు వారి నిజమైన ఆసక్తులను అణచివేయకుండా స్వల్ప టై-బ్రేకర్‌గా మాత్రమే పనిచేస్తుంది.
+        val rawPriorityBonus = getCategoryPriorityBonus(post)
+        val effectiveEditorialBonus = if (profile.hasEstablishedInterests) {
+            when (rawPriorityBonus) {
+                BONUS_POLITICS_POINTS -> 6.0
+                BONUS_CINEMA_POINTS -> 4.0
+                else -> 0.0
+            }
+        } else {
+            when (rawPriorityBonus) {
+                BONUS_POLITICS_POINTS -> 18.0
+                BONUS_CINEMA_POINTS -> 12.0
+                else -> 0.0
+            }
+        }
+        score += effectiveEditorialBonus
+
+        // 7. 🔥 POPULARITY & EDITORIAL QUALITY BOOST (log-scaled so viral posts boost fairly without drowning interests)
+        val rawEngagement = (post.likes * 2.0) + (post.shares * 3.0) + (post.comments * 1.5)
+        val engagementBoost = (kotlin.math.ln(1.0 + maxOf(0.0, rawEngagement)) * 4.0) + (if (post.isSpecialStory) 18.0 else 0.0)
         score += engagementBoost
 
-        // 8. 🌟 AI EDITORIAL QUALITY & IMPORTANCE SCORE (0 - 10 scale):
-        // Strict journalistic evaluation: 8-10 gives a massive boost (+12 to +20),
-        // while 1-4 receives a sharp penalty (-4 to -16).
+        // 8. 🌟 EDITORIAL QUALITY & IMPORTANCE SCORE (0 - 10 scale)
         val qualityScoreVal = post.qualityScore.coerceIn(0.0, 10.0)
-        val qualityWeight = (qualityScoreVal - 5.0) * 4.0
+        val qualityWeight = (qualityScoreVal - 5.0) * 3.5
         score += qualityWeight
 
-        // తాజా వార్తలకు ప్రాధాన్యత (Recency Decay) - 30 hours half-life
+        // తాజా వార్తలకు ప్రాధాన్యత (Recency Decay) - 28 hours half-life
         val hoursOld = maxOf(0.0, (System.currentTimeMillis() - post.timestamp) / (1000.0 * 60 * 60))
-        val recencyMultiplier = Math.exp(-hoursOld / 30.0)
+        val recencyMultiplier = Math.exp(-hoursOld / 28.0)
 
         // సమయ ఆధారిత ప్రాధాన్యత (Time of Day Multiplier)
         val timeMultiplier = getTimeOfDayMultiplier(post)
 
         return if (score >= 0) {
-            (score * recencyMultiplier) * timeMultiplier
+            ((score * (0.4 + 0.6 * recencyMultiplier)) + (8.0 * recencyMultiplier)) * timeMultiplier
         } else {
             // నెగెటివ్ స్కోర్ ఉన్నప్పుడు స్థిరమైన పెనాల్టీ ఉండాలి
-            score * (2.0 - recencyMultiplier)
+            score * (1.8 - 0.8 * recencyMultiplier)
         }
     }
 
@@ -937,14 +992,9 @@ object AnalyticsService {
         loadMap(KEY_ORGANIZATION_SCORES, organizationScores)
         loadMap(KEY_LOCATION_SCORES, locationScores)
 
-        // Seed default baseline category priorities if empty (new install/guest)
-        if (categoryScores.isEmpty()) {
-            categoryScores["రాజకీయం"] = 45
-            categoryScores["సినిమా"] = 28
-            categoryScores["వినోదం"] = 28
-            categoryScores["politics"] = 45
-            categoryScores["cinema"] = 28
-        }
+        // Keep categoryScores clean for new installs/guests so cold-start editorial diversity
+        // works naturally and real reading interests personalize the feed immediately without
+        // having to overcome artificial baseline scores.
 
         if (prefs.contains(KEY_LAST_NOTIF_PERMISSION)) {
             lastNotifPermissionStatus = prefs.getBoolean(KEY_LAST_NOTIF_PERMISSION, false)

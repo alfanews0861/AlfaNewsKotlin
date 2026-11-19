@@ -315,96 +315,6 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         return true
     }
 
-    /**
-     * 🏷️ CATEGORY NORMALIZATION FOR ANTI-CLUSTERING:
-     * Maps diverse raw category strings (both Telugu & English) into standardized keys.
-     */
-    private fun normalizeCategoryKey(raw: String?): String {
-        if (raw.isNullOrBlank()) return "general"
-        val s = raw.trim().lowercase()
-        return when {
-            s.contains("క్రీడలు") || s.contains("స్పోర్ట్స్") || s.contains("sports") || s.contains("cricket") || s.contains("క్రికెట్") -> "sports"
-            s.contains("సినిమా") || s.contains("వినోదం") || s.contains("cinema") || s.contains("entertainment") || s.contains("movies") || s.contains("ఓటీటీ") || s.contains("ott") || s.contains("చిత్రసీమ") || s.contains("టాలీవుడ్") || s.contains("tollywood") -> "cinema"
-            s.contains("రాజకీయం") || s.contains("రాజకీయాలు") || s.contains("రాజకీయ") || s.contains("politics") || s.contains("political") -> "politics"
-            s.contains("క్రైమ్") || s.contains("నేరాలు") || s.contains("crime") || s.contains("పోలీస్") || s.contains("police") -> "crime"
-            s.contains("వ్యాపారం") || s.contains("బిజినెస్") || s.contains("business") || s.contains("మార్కెట్") || s.contains("బంగారం") -> "business"
-            s.contains("టెక్నాలజీ") || s.contains("technology") || s.contains("tech") -> "technology"
-            s.contains("ఆరోగ్యం") || s.contains("health") -> "health"
-            s.contains("విద్య") || s.contains("education") || s.contains("ఉద్యోగాలు") || s.contains("jobs") -> "education"
-            s.contains("భక్తి") || s.contains("ఆధ్యాత్మికం") || s.contains("devotional") -> "devotional"
-            s.contains("వ్యవసాయం") || s.contains("agriculture") -> "agriculture"
-            s.contains("జాతీయం") || s.contains("national") || s.contains("భారతదేశం") -> "national"
-            s.contains("అంతర్జాతీయం") || s.contains("international") || s.contains("ప్రపంచం") || s.contains("world") -> "international"
-            s.contains("జీవనశైలి") || s.contains("లైఫ్‌స్టైల్") || s.contains("lifestyle") -> "lifestyle"
-            s.contains("జిల్లా") || s.contains("స్థానిక") || s.contains("local") -> "local"
-            else -> s
-        }
-    }
-
-    private fun getPostCategoryTag(post: NewsPost): String {
-        if (post.type == "greeting" || post.type == "history" || post.type == "cartoon" || post.type == "survey") {
-            return post.type ?: "special"
-        }
-        val postDist = post.district?.trim()
-        val hasLocalCategory = post.category?.trim() == "జిల్లా వార్త" || 
-                               post.category?.trim() == "స్థానిక" || 
-                               post.categories.any { it.trim() == "జిల్లా వార్త" || it.trim() == "Local" || it.trim() == "స్థానిక" }
-        val isSpecificDistrict = !postDist.isNullOrBlank() && Constants.isSpecificDistrict(postDist)
-        if (hasLocalCategory || isSpecificDistrict) {
-            return "local_district"
-        }
-        val allCats = (post.categories + listOfNotNull(post.category) + post.tags).map { it.trim().lowercase() }
-        if (allCats.any { it.contains("రాజకీయం") || it.contains("రాజకీయాలు") || it.contains("రాజకీయ") || it.contains("politics") || it.contains("political") }) {
-            return "politics"
-        }
-        if (allCats.any { it.contains("సినిమా") || it.contains("వినోదం") || it.contains("cinema") || it.contains("entertainment") || it.contains("movies") || it.contains("ఓటీటీ") || it.contains("ott") || it.contains("చిత్రసీమ") || it.contains("టాలీవుడ్") || it.contains("tollywood") }) {
-            return "cinema"
-        }
-        val rawCategory = AnalyticsService.extractPrimaryCategory(post)
-        return normalizeCategoryKey(rawCategory)
-    }
-
-    /**
-     * 🛡️ IN-MEMORY CATEGORY DIVERSITY / ANTI-CLUSTERING (< 0.1ms):
-     * Re-orders posts in memory so that no single category appears more than
-     * [maxConsecutive] times back-to-back. If the limit is reached, it looks ahead for the
-     * next post with a different category to interleave it, ensuring a rich, diverse reading experience.
-     */
-    private fun applyCategoryDiversity(posts: List<NewsPost>, maxConsecutive: Int = 1): List<NewsPost> {
-        if (posts.size <= 2) return posts
-
-        val remaining = posts.toMutableList()
-        val result = ArrayList<NewsPost>(posts.size)
-        var lastCategory = ""
-        var consecutiveCount = 0
-
-        while (remaining.isNotEmpty()) {
-            var candidateIdx = -1
-            for (i in 0 until remaining.size) {
-                val cat = getPostCategoryTag(remaining[i])
-                if (cat.isBlank() || cat != lastCategory || consecutiveCount < maxConsecutive) {
-                    candidateIdx = i
-                    break
-                }
-            }
-
-            if (candidateIdx == -1) {
-                candidateIdx = 0
-            }
-
-            val chosen = remaining.removeAt(candidateIdx)
-            val chosenCat = getPostCategoryTag(chosen)
-            if (chosenCat.isNotBlank() && chosenCat == lastCategory) {
-                consecutiveCount++
-            } else {
-                lastCategory = chosenCat
-                consecutiveCount = 1
-            }
-            result.add(chosen)
-        }
-
-        return result
-    } 
 
     fun loadNews(
         language: Language,
@@ -444,7 +354,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         _userDistrict.value = district
         val userState = Constants.mapDistrictToState(district)
 
-        val preferredCats = try { AnalyticsService.getUserPreferredCategories().take(10) } catch (e: Exception) { emptyList<String>() }
+        val preferredCats = try {
+            AnalyticsService.getExpandedPreferredCategoriesForQuery(10)
+        } catch (e: Exception) {
+            emptyList<String>()
+        }
 
         // Non-blocking background loader for local ads
         loadLocalAds(district)
@@ -481,40 +395,21 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 } else null
 
                 val newsRef = FirebaseService.db.collection("news")
+                val shouldRunFastPath = _news.value.isEmpty() || forceRefresh
 
-                // ⚡ SERVER FAST PATH (< 300ms direct query): Top 3 fresh approved news on screen instantly without cache
-                // Runs on cold start (_news empty) AND on stale resume/forceRefresh so fresh news hits screen in < 300ms
-                if (_news.value.isEmpty() || forceRefresh) {
-                    try {
-                        val fastSnap = withTimeoutOrNull(3500L) {
-                            newsRef.whereEqualTo("approved", true)
-                                .orderBy("timestamp", Query.Direction.DESCENDING)
-                                .limit(10)
-                                .get().await()
-                        }
-                        if (fastSnap != null && !fastSnap.isEmpty) {
-                            val fastPosts = withContext(Dispatchers.Default) {
-                                val allowed = fastSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
-                                    .filter { isPostAllowedForHomeFeed(it, district, userState) }
-                                    .sortedWith(compareByDescending<NewsPost> { try { AnalyticsService.calculateRelevanceScore(it) } catch (e: Exception) { it.qualityScore } }.thenByDescending { it.timestamp })
-                                applyCategoryDiversity(allowed, maxConsecutive = 1)
+                // 🚀 LAUNCH ALL QUERIES IN PARALLEL AT T=0ms (Zero serial waterfall lag!):
+                // Fast Path resolves first (< 250ms) and paints Top 3 immediately while main/district/pref are already in flight!
+                val fastDeferred = async(Dispatchers.IO) {
+                    if (shouldRunFastPath) {
+                        try {
+                            withTimeoutOrNull(3000L) {
+                                newsRef.whereEqualTo("approved", true)
+                                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                                    .limit(10)
+                                    .get().await()
                             }
-                            if (fastPosts.isNotEmpty()) {
-                                val pin = pinnedPost ?: initialTargetPost
-                                val targetAndFast = (listOfNotNull(pin) + fastPosts.take(3)).distinctBy { it.id }
-                                val currentTopId = _news.value.firstOrNull()?.id
-                                val newTopId = targetAndFast.firstOrNull()?.id
-                                if (_news.value.isEmpty() || currentTopId != newTopId) {
-                                    val olderRemaining = _news.value.filter { cur -> targetAndFast.none { it.id == cur.id } }
-                                    _news.value = (targetAndFast + olderRemaining).distinctBy { it.id }
-                                    _loading.value = false
-                                    lastRefreshTimeLong = System.currentTimeMillis()
-                                    _lastRefreshTime.value = lastRefreshTimeLong
-                                    Log.d("NewsFeedVM", "⚡ Server Fast Path: ${targetAndFast.size} fresh posts on screen in < 300ms")
-                                }
-                            }
-                        }
-                    } catch (_: Exception) {}
+                        } catch (_: Exception) { null }
+                    } else null
                 }
 
                 val primaryQuery = newsRef.whereEqualTo("approved", true)
@@ -567,7 +462,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                 newsRef.whereEqualTo("approved", true)
                                     .whereArrayContainsAny("categories", preferredCats)
                                     .orderBy("timestamp", Query.Direction.DESCENDING)
-                                    .limit(15)
+                                    .limit(20)
                                     .get().await()
                             }
                         } catch (_: Exception) { null }
@@ -590,6 +485,41 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                             fetchActiveSurvey()
                         } catch (_: Exception) { null }
                     } else null
+                }
+
+                // ⚡ SERVER FAST PATH (< 300ms): Await lightweight 10-doc query FIRST & display Top 3 immediately
+                // Anchoring these exact 3 posts prevents UI flicker and keeps Fast Path 3 intact while 40/30/30 blends from index 3+
+                var fastPathAnchors: List<NewsPost> = emptyList()
+                val fastSnap = fastDeferred.await()
+                if (fastSnap != null && !fastSnap.isEmpty) {
+                    val fastTop3 = withContext(Dispatchers.Default) {
+                        val allowed = fastSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
+                            .filter {
+                                it.type != "greeting" && it.type != "history" && it.type != "cartoon" && it.type != "survey" &&
+                                    isPostAllowedForHomeFeed(it, district, userState)
+                            }
+                        com.alfanews.telugu.utils.NewsFeedBlender.pickFastPathTop3(
+                            candidates = allowed,
+                            userDistrict = district,
+                            relevanceScorer = { post -> try { AnalyticsService.calculateRelevanceScore(post) } catch (_: Exception) { post.qualityScore } },
+                            count = 3
+                        )
+                    }
+                    if (fastTop3.isNotEmpty()) {
+                        fastPathAnchors = fastTop3
+                        val pin = pinnedPost ?: initialTargetPost
+                        val targetAndFast = (listOfNotNull(pin) + fastTop3).distinctBy { it.id }
+                        val currentTopId = _news.value.firstOrNull()?.id
+                        val newTopId = targetAndFast.firstOrNull()?.id
+                        if (_news.value.isEmpty() || currentTopId != newTopId) {
+                            val olderRemaining = _news.value.filter { cur -> targetAndFast.none { it.id == cur.id } }
+                            _news.value = (targetAndFast + olderRemaining).distinctBy { it.id }
+                            _loading.value = false
+                            lastRefreshTimeLong = System.currentTimeMillis()
+                            _lastRefreshTime.value = lastRefreshTimeLong
+                            Log.d("NewsFeedVM", "⚡ Server Fast Path: ${targetAndFast.size} fresh posts on screen in < 300ms")
+                        }
+                    }
                 }
 
                 val mainSnap = mainDeferred.await()
@@ -623,7 +553,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     prefCursor = prefSnap.documents.lastOrNull()
                 }
 
-                // 4. 🎯 STRICT DISTRICT FILTERING & 40/30/30 BLENDING
+                // 4. 🎯 STRICT DISTRICT FILTERING & TRUE 40/30/30 USER-INTEREST BLENDING (After Fast Path 3!)
                 val filteredMain = freshPosts.filter { isPostAllowedForHomeFeed(it, district, userState) }
                 val filteredDistrict = districtPosts.filter { isPostAllowedForHomeFeed(it, district, userState) }
                 val filteredPref = prefPosts.filter { isPostAllowedForHomeFeed(it, district, userState) }
@@ -637,7 +567,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                             isFirstPage = true,
                             userDistrict = district,
                             userState = userState,
-                            activeSurvey = initialSurvey
+                            activeSurvey = initialSurvey,
+                            fastPathAnchors = fastPathAnchors
                         )
                     }
 
@@ -692,7 +623,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             try {
                 val district = _userDistrict.value
                 val userState = Constants.mapDistrictToState(district)
-                val preferredCats = try { AnalyticsService.getUserPreferredCategories().take(10) } catch (e: Exception) { emptyList<String>() }
+                val preferredCats = try {
+                    AnalyticsService.getExpandedPreferredCategoriesForQuery(10)
+                } catch (e: Exception) {
+                    emptyList<String>()
+                }
                 val shouldFetchPref = preferredCats.isNotEmpty() && (prefCursor != null)
                 val shouldFetchLocal = localCursor != null && !district.isNullOrBlank()
                 val shouldFetchMain = mainCursor != null
@@ -705,7 +640,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                 .whereArrayContainsAny("categories", preferredCats)
                                 .orderBy("timestamp", Query.Direction.DESCENDING)
                                 .startAfter(prefCursor!!)
-                                .limit(10)
+                                .limit(12)
                             kotlinx.coroutines.withTimeoutOrNull(5000L) { q.get().await() }
                         } catch (_: Exception) { null }
                     } else null
@@ -770,6 +705,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 val filteredPref = prefBatch.filter { isPostAllowedForHomeFeed(it, district, userState) }
                 val filteredLocal = localBatch.filter { isPostAllowedForHomeFeed(it, district, userState) }
                 val filteredMain = mainBatch.filter { isPostAllowedForHomeFeed(it, district, userState) }
+                val previousTail = _news.value.takeLast(6)
 
                 val newPosts = withContext(Dispatchers.Default) {
                     rankAndBlendPosts(
@@ -778,7 +714,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         local = filteredLocal,
                         isFirstPage = false,
                         userDistrict = district,
-                        userState = userState
+                        userState = userState,
+                        tailPrefix = previousTail
                     )
                 }
 
@@ -820,7 +757,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         isFirstPage: Boolean = false,
         userDistrict: String? = null,
         userState: String? = null,
-        activeSurvey: NewsPost? = null
+        activeSurvey: NewsPost? = null,
+        fastPathAnchors: List<NewsPost> = emptyList(),
+        tailPrefix: List<NewsPost> = emptyList()
     ): List<NewsPost> = withContext(Dispatchers.Default) {
         val allRaw = (pref + main + local).distinctBy { it.id }
         var filteredPref = pref.filter { prefs.getPostViewCount(it.id) < 2 }
@@ -865,69 +804,42 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             return@withContext emptyList<NewsPost>()
         }
 
-        val totalToRank = normalNews.size
-        val freshCount = if (totalToRank > 0) maxOf(1, (totalToRank * 0.4).toInt()) else 0
-        val personalizedCount = if (totalToRank > 0) maxOf(1, (totalToRank * 0.3).toInt()) else 0
-        val discoveryCount = if (totalToRank > 0) maxOf(1, (totalToRank * 0.3).toInt()) else 0
-
-        val preferredCategories = try { AnalyticsService.getUserPreferredCategories().toSet() } catch (e: Exception) { emptySet() }
-
-        // 1. Separate Local District News and General Fresh News
-        val localDistrictNews = normalNews.filter { post ->
-            post.categories.contains("జిల్లా వార్త") || post.category == "జిల్లా వార్త"
-        }.sortedWith(compareByDescending<NewsPost> { it.qualityScore }.thenByDescending { it.timestamp })
-
-        val generalNews = normalNews.filter { it !in localDistrictNews }
-
-        // 2. 🎯 TOP FRESH GENERAL NEWS (Prioritizing Politics #1, Cinema #2, Quality and User Preferences)
-        val sortedGeneral = generalNews.sortedWith(
-            compareByDescending<NewsPost> { try { AnalyticsService.calculateRelevanceScore(it) } catch (e: Exception) { 0.0 } }
-                .thenByDescending { it.timestamp }
-        )
-        val top3Fresh = applyCategoryDiversity(sortedGeneral, maxConsecutive = 1).take(3)
-        val top3Ids = top3Fresh.map { it.id }.toSet()
-
-        // 3. 🎯 PERSONALIZED & PRIORITY NEWS (Scored based on category priorities #1 Politics, #2 Cinema, engagement & qualityScore)
-        val remainingGeneral = sortedGeneral.filter { it.id !in top3Ids }
-        val scoredNews = remainingGeneral // Already sorted by calculateRelevanceScore (Politics #1, Cinema #2)!
-        val scoredIds = scoredNews.map { it.id }.toSet()
-
-        // 4. Remaining Fresh & Discovery news
-        val freshRemaining = remainingGeneral.filter { it.id !in scoredIds }
-            .sortedByDescending { it.timestamp }
-        val discoveryNews = remainingGeneral.filter { post -> post.categories.none { it in preferredCategories } }
-            .sortedByDescending { it.timestamp }
-
-        // 5. Dynamic 40/30/30 Interleaving (Never cluster all fresh news in a single block!)
-        val interleaved = mutableListOf<NewsPost>()
-        val freshPool = (top3Fresh + freshRemaining).toMutableList()
-        val prefPool = scoredNews.toMutableList()
-        val localPool = localDistrictNews.toMutableList()
-        val discPool = discoveryNews.toMutableList()
-
-        val maxIter = maxOf(freshPool.size, prefPool.size, localPool.size, discPool.size)
-        for (i in 0 until maxIter) {
-            // Fresh General News (40%)
-            if (freshPool.isNotEmpty()) interleaved.add(freshPool.removeAt(0))
-            // Personalized User Interest News (30%)
-            if (prefPool.isNotEmpty()) interleaved.add(prefPool.removeAt(0))
-            // Local District News (30%)
-            if (localPool.isNotEmpty()) interleaved.add(localPool.removeAt(0))
-            // Alternate Fresh or Discovery
-            if (freshPool.isNotEmpty()) interleaved.add(freshPool.removeAt(0))
-            if (discPool.isNotEmpty()) interleaved.add(discPool.removeAt(0))
+        val interestProfile = try {
+            AnalyticsService.getInterestProfile()
+        } catch (_: Exception) {
+            com.alfanews.telugu.utils.NewsFeedBlender.InterestProfile()
         }
-        interleaved.addAll(freshPool)
-        interleaved.addAll(prefPool)
-        interleaved.addAll(localPool)
-        interleaved.addAll(discPool)
 
-        val rawBlended = interleaved.distinctBy { it.id }
-        val blendedNews = applyCategoryDiversity(rawBlended, maxConsecutive = 1).toMutableList()
+        // Keep Fast Path 3 anchored on page 1; if fastPathAnchors was empty (e.g. non-forceRefresh),
+        // pick 3 diverse ultra-fresh posts as the top 3 anchors so blending starts cleanly at index 3!
+        val effectiveAnchors = if (isFirstPage) {
+            if (fastPathAnchors.isNotEmpty()) {
+                fastPathAnchors.filter { isPostAllowedForHomeFeed(it, userDistrict, userState) }.take(3)
+            } else {
+                com.alfanews.telugu.utils.NewsFeedBlender.pickFastPathTop3(
+                    candidates = normalNews.sortedByDescending { it.timestamp }.take(10),
+                    userDistrict = userDistrict,
+                    relevanceScorer = { post -> try { AnalyticsService.calculateRelevanceScore(post) } catch (_: Exception) { post.qualityScore } },
+                    count = 3
+                )
+            }
+        } else {
+            emptyList()
+        }
+
+        val blendedNews = com.alfanews.telugu.utils.NewsFeedBlender.blendNormalNews(
+            normalNews = normalNews,
+            fastPathAnchors = effectiveAnchors,
+            tailPrefix = tailPrefix,
+            userDistrict = userDistrict,
+            interestProfile = interestProfile,
+            relevanceScorer = { post -> try { AnalyticsService.calculateRelevanceScore(post) } catch (_: Exception) { post.qualityScore } },
+            userInterestScorer = { post -> try { AnalyticsService.calculateUserInterestScore(post) } catch (_: Exception) { 0.0 } }
+        ).toMutableList()
 
         if (isFirstPage) {
-            // 🚀 PARALLEL ACTIVE SURVEY: Provided via parameter from parallel deferred query (zero serial lag)
-            activeSurvey?.let { insertSafely(blendedNews, it, 2) }
+            // 🚀 PARALLEL ACTIVE SURVEY: Placed right after Fast Path 3 (index 3) so Fast Path 0..2 stays undisturbed
+            activeSurvey?.let { insertSafely(blendedNews, it, 3) }
 
             if (quoteGreetings.isNotEmpty()) { insertSafely(blendedNews, quoteGreetings.first(), 7) }
 
@@ -1300,22 +1212,27 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 val fastSnap = withTimeoutOrNull(3000L) {
                     newsRef.whereEqualTo("approved", true)
                         .orderBy("timestamp", Query.Direction.DESCENDING)
-                        .limit(5)
+                        .limit(8)
                         .get().await()
                 }
 
                 if (fastSnap != null && !fastSnap.isEmpty) {
-                    val freshAllowed = withContext(Dispatchers.Default) {
-                        fastSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
-                            .filter { isPostAllowedForHomeFeed(it, district, userState) }
-                    }
                     val existingIds = _news.value.map { it.id }.toSet()
-                    val brandNew = freshAllowed.filter { it.id !in existingIds }
+                    val brandNewDiverse = withContext(Dispatchers.Default) {
+                        val brandNew = fastSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
+                            .filter { it.id !in existingIds && isPostAllowedForHomeFeed(it, district, userState) }
+                        com.alfanews.telugu.utils.NewsFeedBlender.pickFastPathTop3(
+                            candidates = brandNew,
+                            userDistrict = district,
+                            relevanceScorer = { post -> try { AnalyticsService.calculateRelevanceScore(post) } catch (_: Exception) { post.qualityScore } },
+                            count = 3
+                        )
+                    }
 
-                    if (brandNew.isNotEmpty()) {
-                        Log.d("NewsFeedVM", "⚡ Delta refresh: prepending ${brandNew.size} fresh posts to feed")
+                    if (brandNewDiverse.isNotEmpty()) {
+                        Log.d("NewsFeedVM", "⚡ Delta refresh: prepending ${brandNewDiverse.size} diverse fresh posts to feed")
                         val currentList = _news.value
-                        _news.value = (brandNew + currentList).distinctBy { it.id }
+                        _news.value = (brandNewDiverse + currentList).distinctBy { it.id }
                     } else {
                         Log.d("NewsFeedVM", "⚡ Delta refresh: feed is already up-to-date (0 new posts)")
                     }

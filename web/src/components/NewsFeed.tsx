@@ -5,47 +5,27 @@ import AdMobCard from './AdMobCard';
 import AppDownloadPopup from './AppDownloadPopup';
 import SwipeHintOverlay from './SwipeHintOverlay';
 import { preloadImages } from '../utils/imageHelper';
-import { NewsPost, Language, User, UserInterest } from '../types';
+import { NewsPost, Language, User } from '../types';
 import { db } from '../services/firebase';
-import { getUserPreferredCategory } from '../services/analyticsService';
+import {
+  getUserCategoryScores,
+  getUserKeywordScores,
+  getUserPreferredCategories,
+  getUserReporterScores,
+} from '../services/analyticsService';
+import { getDistrictAliases } from '../utils/newsFilter';
+import {
+  blendHomeFeed,
+  buildUserInterestProfileFromStorage,
+  expandCategoriesForFirestoreQuery,
+  isPostAllowedForHomeFeed,
+  pickFastPathTop3,
+} from '../utils/newsFeedBlender';
 import * as _firestore from 'firebase/firestore';
 import { Settings2 } from 'lucide-react';
 import PreferencesModal from './PreferencesModal';
 
 const { collection, query, where, orderBy, limit, getDocs, Timestamp, startAfter, doc, getDoc } = _firestore as any;
-
-const rankPosts = (posts: NewsPost[], interests: UserInterest | undefined) => {
-    // 1 point of interest equals +4 hours of effective "freshness"
-    const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
-
-    return [...posts].sort((a, b) => {
-        const getScore = (post: NewsPost) => {
-            let score = 0;
-            const features = [...(post.categories || []), ...(post.tags || []), ...(post.keywords || [])];
-            if (interests) {
-                features.forEach(feature => {
-                    score += (interests[feature.toLowerCase()] || 0);
-                });
-            }
-            // 🎯 Category Priority: Politics #1 (+10 pts = +40 hrs), Cinema #2 (+6 pts = +24 hrs)
-            const allText = [post.category, ...(post.categories || []), ...(post.tags || [])].join(' ').toLowerCase();
-            if (allText.includes('రాజకీయం') || allText.includes('రాజకీయాలు') || allText.includes('రాజకీయ') || allText.includes('politics') || allText.includes('political')) {
-                score += 10;
-            } else if (allText.includes('సినిమా') || allText.includes('వినోదం') || allText.includes('cinema') || allText.includes('entertainment') || allText.includes('movies') || allText.includes('ఓటీటీ') || allText.includes('ott') || allText.includes('చిత్రసీమ') || allText.includes('టాలీవుడ్')) {
-                score += 6;
-            }
-            return score;
-        };
-        
-        const scoreA = getScore(a);
-        const scoreB = getScore(b);
-        
-        const effectiveTsA = a.timestamp + (scoreA * FOUR_HOURS_MS);
-        const effectiveTsB = b.timestamp + (scoreB * FOUR_HOURS_MS);
-        
-        return effectiveTsB - effectiveTsA;
-    });
-};
 
 interface NewsFeedProps {
   language: Language;
@@ -55,30 +35,9 @@ interface NewsFeedProps {
   onReporterClick?: (id: string) => void;
   initialPostId?: string | null;
   hideHeader?: boolean;
+  selectedDistrict?: string | null;
+  refreshVersion?: number;
 }
-
-const strictlyGlobalKeywords = [
-  "సినిమా", "స్పోర్ట్స్", "జాతీయం", "అంతర్జాతీయం", "వ్యాపారం", 
-  "ఆరోగ్యం", "విద్య", "టెక్నాలజీ", "వ్యవసాయం", "భక్తి", 
-  "వినోదం", "ప్రపంచం", "క్రైమ్", "లైఫ్ స్టైల్", "జనరల్", "రాష్ట్రం",
-  "రాష్ట్ర వార్తలు", "ముఖ్యాంశాలు", "బ్రేకింగ్", "వైరల్", "తాజా వార్తలు",
-  "ఆంధ్రప్రదేశ్", "తెలంగాణ", "భారతదేశం", "రాజకీయం", "సినిమా వార్తలు"
-];
-
-const globalDistrictsList = [
-  "General", "State", "Sports", "Health", "Technology", "Business", 
-  "Entertainment", "Cinema", "National", "International", "Politics", 
-  "Crime", "Education", "Agriculture", "Devotional", "Lifestyle", 
-  "AndhraPradesh", "Telangana", "ఆంధ్రప్రదేశ్", "తెలంగాణ", "జనరల్", "భారతదేశం", "ప్రపంచం"
-];
-
-const isGlobalPost = (post: NewsPost): boolean => {
-  if (post.isGlobal) return true;
-  if (!post.district || globalDistrictsList.some(d => d.toLowerCase() === post.district?.toLowerCase())) return true;
-  if (post.category && strictlyGlobalKeywords.some(kw => post.category?.toLowerCase().includes(kw.toLowerCase()))) return true;
-  if (post.categories && post.categories.some(c => strictlyGlobalKeywords.some(kw => c.toLowerCase().includes(kw.toLowerCase())))) return true;
-  return false;
-};
 
 const NewsFeed: React.FC<NewsFeedProps> = ({
   language,
@@ -88,6 +47,8 @@ const NewsFeed: React.FC<NewsFeedProps> = ({
   onReporterClick,
   initialPostId,
   hideHeader = false,
+  selectedDistrict,
+  refreshVersion = 0,
 }) => {
   const hasMoreRef = useRef(true);
   
@@ -97,8 +58,13 @@ const NewsFeed: React.FC<NewsFeedProps> = ({
   const [showPreferences, setShowPreferences] = useState(false);
   const [showDownloadPopup, setShowDownloadPopup] = useState(false);
   const seenPostsCountRef = useRef<Set<string>>(new Set());
+  const newsRefState = useRef<NewsPost[]>([]);
 
-  // 🎯 3-News Dismissible App Download Popup Trigger:
+  useEffect(() => {
+    newsRefState.current = news;
+  }, [news]);
+
+  // 🎯 Preload images for the top cards for instant vertical swiping
   useEffect(() => {
     if (!news || news.length === 0) return;
     const mediaUrls = news.slice(0, 8).map(p => p.mediaUrl);
@@ -131,124 +97,230 @@ const NewsFeed: React.FC<NewsFeedProps> = ({
     hasMoreRef.current = hasMore;
   }, [hasMore]);
   
+  // DocumentSnapshot cursors for clean, zero-gap Firestore pagination
   const prefCursor = useRef<any>(null);
   const localCursor = useRef<any>(null);
-  const globalCursor = useRef<any>(null);
-  const greetingCursor = useRef<any>(null);
+  const mainCursor = useRef<any>(null);
   
   const feedRef = useRef<HTMLDivElement>(null);
   const fetchingRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const loadSeqRef = useRef(0);
 
   const getTs = (data: any) => {
       if (!data.timestamp) return Date.now();
       if (data.timestamp instanceof Timestamp) return data.timestamp.toMillis();
+      if (typeof data.timestamp?.toMillis === 'function') return data.timestamp.toMillis();
       return typeof data.timestamp === 'number' ? data.timestamp : Date.now();
   };
 
-  const fetchStream = async (constraints: any[], cursorTs: number | null, count: number) => {
+  const fetchStream = async (
+      constraints: any[],
+      cursorDoc: any,
+      count: number
+  ): Promise<{ posts: NewsPost[]; cursor: any; count: number }> => {
       try {
           const newsRef = collection(db, 'news');
-          let q = query(newsRef, ...constraints, orderBy('timestamp', 'desc'), limit(count));
-          if (cursorTs) {
-              const ts = Timestamp.fromMillis(cursorTs);
-              q = query(newsRef, ...constraints, orderBy('timestamp', 'desc'), startAfter(ts), limit(count));
-          }
+          const q = cursorDoc
+            ? query(newsRef, ...constraints, orderBy('timestamp', 'desc'), startAfter(cursorDoc), limit(count))
+            : query(newsRef, ...constraints, orderBy('timestamp', 'desc'), limit(count));
           const snap = await getDocs(q);
           return {
               posts: snap.docs.map((d: any) => ({ id: d.id, ...d.data(), timestamp: getTs(d.data()) } as NewsPost)),
-              cursor: snap.docs.length > 0 ? getTs(snap.docs[snap.docs.length - 1].data()) : cursorTs,
+              cursor: snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : cursorDoc,
               count: snap.docs.length
           };
       } catch (e) {
           console.error("Fetch Stream Error:", e);
-          return { posts: [], cursor: cursorTs, count: 0 };
+          return { posts: [] as NewsPost[], cursor: cursorDoc, count: 0 };
+      }
+  };
+
+  const getExplicitLocalPrefs = (): string[] | null => {
+      try {
+          const raw = localStorage.getItem('alfa_explicit_prefs');
+          if (!raw) return null;
+          const parsed = JSON.parse(raw);
+          return Array.isArray(parsed) ? parsed : null;
+      } catch {
+          return null;
       }
   };
 
   const userPrefs = React.useMemo(() => ({
       preferredCategories: currentUser?.preferredCategories,
+      categoryScores: currentUser?.categoryScores,
       interests: currentUser?.interests
-  }), [currentUser?.preferredCategories, currentUser?.interests]);
+  }), [currentUser?.preferredCategories, currentUser?.categoryScores, currentUser?.interests]);
+
+  const effectiveDistrict = selectedDistrict !== undefined
+      ? selectedDistrict
+      : (currentUser?.district || localStorage.getItem('user_local_district'));
 
   const loadMixedFeed = useCallback(async (isInitial = false) => {
     if (fetchingRef.current || (!isInitial && !hasMoreRef.current)) return;
     fetchingRef.current = true;
+    const seq = isInitial ? ++loadSeqRef.current : loadSeqRef.current;
 
-    const implicitCategory = getUserPreferredCategory();
-    const explicitCategories = userPrefs.preferredCategories || 
-        (localStorage.getItem('alfa_explicit_prefs') ? JSON.parse(localStorage.getItem('alfa_explicit_prefs')!) : null);
-    
-    const userDistrict = currentUser?.district || localStorage.getItem('user_local_district');
-    const cacheKey = `alfa_news_cache_${userDistrict || 'global'}_${implicitCategory || 'none'}`;
+    const explicitLocalPrefs = getExplicitLocalPrefs();
+    const localScores = getUserCategoryScores();
+    const localKeywords = getUserKeywordScores();
+    const localReporters = getUserReporterScores();
+
+    const interestProfile = buildUserInterestProfileFromStorage(
+        currentUser,
+        localScores,
+        localKeywords,
+        localReporters,
+        explicitLocalPrefs
+    );
+
+    const rawPreferredForQuery = [
+        ...(userPrefs.preferredCategories || []),
+        ...(explicitLocalPrefs || []),
+        ...getUserPreferredCategories(6),
+        ...interestProfile.preferredCanonicalKeys.slice(0, 4),
+    ];
+    const expandedPrefCats = expandCategoriesForFirestoreQuery(rawPreferredForQuery, 10);
 
     try {
         // Direct server news: Zero disk cache
+        const districtAliases = effectiveDistrict
+            ? Array.from(new Set([effectiveDistrict, ...getDistrictAliases(effectiveDistrict)])).slice(0, 10)
+            : [];
 
-        // 40/30/30 MIXING LOGIC:
-        let prefPromise = Promise.resolve({posts:[], cursor:null, count:0});
-        
-        if (explicitCategories && explicitCategories.length > 0) {
-            const catsToFetch = explicitCategories.slice(0, 10);
-            prefPromise = fetchStream([where('categories', 'array-contains-any', catsToFetch)], prefCursor.current, 4);
-        } else if (implicitCategory) {
-            prefPromise = fetchStream([where('categories', 'array-contains', implicitCategory)], prefCursor.current, 4);
+        const localPromise = effectiveDistrict
+            ? (districtAliases.length > 1
+                ? fetchStream([where('approved', '==', true), where('district', 'in', districtAliases)], localCursor.current, isInitial ? 15 : 10)
+                : fetchStream([where('approved', '==', true), where('district', '==', effectiveDistrict)], localCursor.current, isInitial ? 15 : 10))
+            : Promise.resolve({ posts: [] as NewsPost[], cursor: null, count: 0 });
+
+        const prefPromise = expandedPrefCats.length > 0
+            ? fetchStream([where('approved', '==', true), where('categories', 'array-contains-any', expandedPrefCats)], prefCursor.current, isInitial ? 20 : 12)
+            : Promise.resolve({ posts: [] as NewsPost[], cursor: null, count: 0 });
+
+        // Primary general stream uses (approved == true, timestamp desc) — NEVER uses broken where('district', 'in', [...18])!
+        const mainPromise = fetchStream(
+            [where('approved', '==', true)],
+            mainCursor.current,
+            isInitial ? 45 : 30
+        );
+
+        const greetingPromise = isInitial && !initialPostId
+            ? fetchStream([where('approved', '==', true), where('type', '==', 'greeting')], null, 1)
+            : Promise.resolve({ posts: [] as NewsPost[], cursor: null, count: 0 });
+
+        // ⚡ PARALLEL SERVER FAST PATH (< 250ms): Launched at T=0ms alongside main/local/pref!
+        // Immediately renders Top 3 diverse fresh posts while full 40/30/30 queries are already in flight.
+        let fastPathAnchors: NewsPost[] = [];
+        if (isInitial) {
+            const fastPromise = fetchStream([where('approved', '==', true)], null, 10);
+            const fastRes = await fastPromise;
+            if (seq !== loadSeqRef.current) return;
+
+            const fastAllowed = fastRes.posts.filter(
+                p => p.type !== 'greeting' && p.type !== 'survey' && isPostAllowedForHomeFeed(p, effectiveDistrict)
+            );
+            const fastTop3 = pickFastPathTop3(fastAllowed, interestProfile, effectiveDistrict, 3);
+            if (fastTop3.length > 0) {
+                fastPathAnchors = fastTop3;
+                setNews(prev => {
+                    const initialInPrev = initialPostId ? prev.find(p => p.id === initialPostId) : null;
+                    if (initialInPrev) {
+                        return [initialInPrev, ...fastTop3.filter(p => p.id !== initialPostId)];
+                    }
+                    return fastTop3;
+                });
+                setLoading(false);
+                if (onLoadComplete) onLoadComplete();
+            }
         }
 
-        const [prefRes, localRes, globalRes, greetingRes] = await Promise.all([
+        // Await full parallel blending streams (already in flight since T=0ms!)
+        const [prefRes, localRes, mainRes, greetingRes] = await Promise.all([
             prefPromise,
-            userDistrict ? fetchStream([where('district', '==', userDistrict)], localCursor.current, 6) : Promise.resolve({posts:[], cursor:null, count:0}),
-            fetchStream([where('district', 'in', ["General", "State", "Sports", "Health", "Technology", "Business", "Entertainment", "Cinema", "National", "International", "Politics", "Crime", "Education", "Agriculture", "Devotional", "Lifestyle", "AndhraPradesh", "Telangana"])], globalCursor.current, 10),
-            fetchStream([where('categories', 'array-contains', 'Greetings')], greetingCursor.current, 1)
+            localPromise,
+            mainPromise,
+            greetingPromise,
         ]);
+
+        if (seq !== loadSeqRef.current) return;
 
         prefCursor.current = prefRes.cursor;
         localCursor.current = localRes.cursor;
-        globalCursor.current = globalRes.cursor;
-        greetingCursor.current = greetingRes.cursor;
+        mainCursor.current = mainRes.cursor;
 
-        const combinedRaw = [...prefRes.posts, ...localRes.posts, ...globalRes.posts, ...greetingRes.posts];
+        const combinedRaw = [
+            ...prefRes.posts,
+            ...localRes.posts,
+            ...mainRes.posts,
+            ...greetingRes.posts,
+        ];
 
-        // Filter out posts: allow if global OR if district matches user's district
-        const filteredRaw = combinedRaw.filter(p => {
-            if (isGlobalPost(p)) return true;
-            if (userDistrict && p.district?.toLowerCase() === userDistrict.toLowerCase()) return true;
-            return false;
-        });
+        const filteredRaw = combinedRaw.filter(p => isPostAllowedForHomeFeed(p, effectiveDistrict));
 
-        // Ensure the combined array is globally sorted by timestamp FIRST before any ranked processing
-        filteredRaw.sort((a, b) => b.timestamp - a.timestamp);
+        if (isInitial) {
+            // If Fast Path returned empty (e.g. network hiccup), pick 3 anchors from main stream
+            const effectiveAnchors = fastPathAnchors.length > 0
+                ? fastPathAnchors
+                : pickFastPathTop3(
+                    filteredRaw
+                        .filter(p => p.type !== 'greeting' && p.type !== 'survey')
+                        .sort((a, b) => b.timestamp - a.timestamp)
+                        .slice(0, 10),
+                    interestProfile,
+                    effectiveDistrict,
+                    3
+                );
 
-        setNews(prev => {
-            const seen = new Set(prev.map(p => p.id));
-            const uniqueInBatch = filteredRaw.filter(p => !seen.has(p.id));
-            const uniqueMap = new Map();
-            uniqueInBatch.forEach(p => uniqueMap.set(p.id, p));
-            
-            const newPosts = Array.from(uniqueMap.values());
-            const rankedNewPosts = rankPosts(newPosts, userPrefs.interests);
-            
-            // 🎯 Ensure shared post (initialPostId) stays at index 0 on home feed
-            const initialInPrev = initialPostId ? prev.find(p => p.id === initialPostId) : null;
-            if (initialInPrev) {
-                return [initialInPrev, ...rankedNewPosts.filter(p => p.id !== initialPostId)];
+            const blended = blendHomeFeed({
+                posts: filteredRaw,
+                fastPathAnchors: effectiveAnchors,
+                userDistrict: effectiveDistrict,
+                profile: interestProfile,
+            });
+
+            setNews(prev => {
+                const initialInPrev = initialPostId ? prev.find(p => p.id === initialPostId) : null;
+                if (initialInPrev) {
+                    return [initialInPrev, ...blended.filter(p => p.id !== initialPostId)];
+                }
+                return blended;
+            });
+        } else {
+            const existingPosts = newsRefState.current;
+            const seenIds = new Set(existingPosts.map(p => p.id));
+            const unseenNew = filteredRaw.filter(p => !seenIds.has(p.id));
+            const blendedNext = blendHomeFeed({
+                posts: unseenNew,
+                fastPathAnchors: [],
+                tailPrefix: existingPosts.slice(-6),
+                userDistrict: effectiveDistrict,
+                profile: interestProfile,
+            });
+
+            if (blendedNext.length > 0) {
+                setNews(prev => {
+                    const prevIds = new Set(prev.map(p => p.id));
+                    const uniqueAppend = blendedNext.filter(p => !prevIds.has(p.id));
+                    return uniqueAppend.length > 0 ? [...prev, ...uniqueAppend] : prev;
+                });
             }
+        }
 
-            const finalNews = isInitial ? rankedNewPosts : [...prev, ...rankedNewPosts];
-            return finalNews;
-        });
-
-        if (prefRes.count === 0 && localRes.count === 0 && globalRes.count === 0) {
+        if (prefRes.count === 0 && localRes.count === 0 && mainRes.count === 0) {
             setHasMore(false);
         }
     } catch (e) {
         console.error("Mixed Feed Error:", e);
     } finally {
-        setLoading(false);
-        fetchingRef.current = false;
-        if (isInitial && onLoadComplete) onLoadComplete();
+        if (seq === loadSeqRef.current) {
+            setLoading(false);
+            fetchingRef.current = false;
+            if (isInitial && onLoadComplete) onLoadComplete();
+        }
     }
-  }, [userPrefs, currentUser?.district, onLoadComplete, initialPostId]);
+  }, [currentUser, userPrefs, effectiveDistrict, onLoadComplete, initialPostId]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -258,8 +330,8 @@ const NewsFeed: React.FC<NewsFeedProps> = ({
         setNews([]);
         prefCursor.current = null;
         localCursor.current = null;
-        globalCursor.current = null;
-        greetingCursor.current = null;
+        mainCursor.current = null;
+        fetchingRef.current = false;
         setHasMore(true);
 
         // ⚡ Fast-path for shared link: fetch shared article immediately so it opens instantly on home page
@@ -288,7 +360,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({
         isCancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialPostId]); // Intentionally omitting loadMixedFeed to prevent feed reset on interest updates
+  }, [initialPostId, effectiveDistrict, refreshVersion]); // Reloads cleanly on shared link, district switch, or preference save
 
   useEffect(() => {
     if (loading || !hasMore) return;
@@ -386,7 +458,8 @@ const NewsFeed: React.FC<NewsFeedProps> = ({
                   setNews([]);
                   prefCursor.current = null;
                   localCursor.current = null;
-                  globalCursor.current = null;
+                  mainCursor.current = null;
+                  fetchingRef.current = false;
                   setHasMore(true);
                   loadMixedFeed(true);
               }} 

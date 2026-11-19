@@ -87,7 +87,7 @@ const GENERIC_IMAGE_PATTERNS = [
     'greatandhra_logo', 'gulte_logo', 'thehindu_logo', 'deccanchronicle_logo', 'watermark', 'banner_logo',
     'static.toiimg.com/photo/108381831', 'static.toiimg.com/photo/4752938',
     'scorecardresearch.com', 'google-analytics', 'facebook.com/tr',
-    'assets/_images/logos/', 'e-paper.webp', 'bell-icon.webp', 'gg-pref.gif',
+    'assets/_images/logos/', 'assets/_images/banners/', '_site.webp', 'e-paper.webp', 'bell-icon.webp', 'gg-pref.gif',
     'andhra-pradesh-logo.webp', 'telangana-logo.webp', 'eenadu.webp',
     'assets/images/logos/', 'assets/images/logo.webp', 'assets/avif_logos/'
 ];
@@ -118,8 +118,8 @@ function isGenericImage(url) {
         return true;
     }
 
-    // Directory-level logo assets
-    if (/\/(?:logos|branding|placeholders|watermarks|brand_assets|avif_logos|site_logos)\//i.test(lowerUrl)) {
+    // Directory-level logo/banner assets
+    if (/\/(?:logos|branding|placeholders|watermarks|brand_assets|avif_logos|site_logos|_images\/banners)\//i.test(lowerUrl)) {
         return true;
     }
 
@@ -134,11 +134,15 @@ function isGenericImage(url) {
         }
     }
 
-    // Eenadu specifics: reject known header/brand assets, but accept all article media
+    // Eenadu specifics: reject known header/brand/ad-banner assets, accept all real article media
     if (lowerUrl.includes('eenadu.net')) {
-        if (lowerUrl.includes('_assets/_images/logos') || 
+        if (lowerUrl.includes('_assets/_images/logos') ||
+            lowerUrl.includes('_assets/_images/banners') ||
+            lowerUrl.includes('/_assets/') ||
+            lowerUrl.includes('_site.webp') ||
             lowerUrl.includes('e-paper.webp') || 
             lowerUrl.includes('bell-icon.webp') || 
+            lowerUrl.includes('gg-pref') ||
             lowerUrl.includes('eenadu.webp') || 
             lowerUrl.includes('andhra-pradesh-logo') || 
             lowerUrl.includes('telangana-logo') ||
@@ -148,9 +152,10 @@ function isGenericImage(url) {
             return true;
         }
         // Genuine article media across Eenadu CDN paths
-        const isActualArticleImage = lowerUrl.includes('/featureimages/') ||
+        const isActualArticleImage = lowerUrl.includes('/article_img/') ||
                                      lowerUrl.includes('/article_multiple_images/') ||
                                      lowerUrl.includes('/article_images/') ||
+                                     lowerUrl.includes('/featureimages/') ||
                                      lowerUrl.includes('/video_images/') ||
                                      lowerUrl.includes('/metaimages/') ||
                                      lowerUrl.includes('/districts/') || 
@@ -159,15 +164,15 @@ function isGenericImage(url) {
                                      lowerUrl.includes('/stories/') || 
                                      lowerUrl.includes('/news/') || 
                                      lowerUrl.includes('_1.jpg') || 
-                                     lowerUrl.includes('_1.webp') ||
-                                     /\d{6,}/.test(lowerUrl);
+                                     lowerUrl.includes('_1.webp');
         if (isActualArticleImage) return false;
     }
 
     // Check generic blacklist patterns
     if (GENERIC_IMAGE_PATTERNS.some(p => lowerUrl.includes(p))) {
         // Exception: actual article image with specific folder paths
-        if (lowerUrl.includes('article_images/') || 
+        if (lowerUrl.includes('/article_img/') ||
+            lowerUrl.includes('article_images/') || 
             lowerUrl.includes('article_multiple_images/') || 
             lowerUrl.includes('/uploads/') || 
             lowerUrl.includes('/featureimages/') ||
@@ -182,41 +187,40 @@ function isGenericImage(url) {
 }
 
 /**
- * Sanitizes Telugu text by converting any bled Kannada Unicode characters (0x0C80-0x0CFF)
- * and Devanagari/Hindi Unicode characters (0x0900-0x097F) to Telugu, removing orphaned matras,
- * broken placeholder glyphs, and zero-width spaces, ensuring 100% pure Telugu script purity.
+ * Robustly sanitizes Telugu text to guarantee 100% pure Telugu script purity (Unicode U+0C00-U+0C7F).
+ * Cleanly strips non-Telugu Indic/Arabic scripts without character corruption and preserves genuine Telugu words.
  */
 function sanitizeTeluguText(text) {
     if (!text) return "";
     return text
-        // 1. Map any bled Kannada Unicode characters (0x0C80-0x0CFF) to Telugu Unicode (0x0C00-0x0C7F)
-        .replace(/[\u0C80-\u0CFF]/g, (char) => {
-            const code = char.charCodeAt(0) - 0x0080;
-            return (code >= 0x0C00 && code <= 0x0C7F) ? String.fromCharCode(code) : '';
-        })
-        // 2. Map any bled Devanagari / Hindi Unicode characters (0x0900-0x097F) to Telugu Unicode (0x0C00-0x0C7F)
-        .replace(/[\u0900-\u097F]/g, (char) => {
-            const code = char.charCodeAt(0) + 0x0300;
-            return (code >= 0x0C00 && code <= 0x0C7F) ? String.fromCharCode(code) : '';
-        })
-        // 3. Strip any residual unmapped Kannada or Hindi characters to guarantee 0% Kannada/Hindi
-        .replace(/[\u0900-\u097F\u0C80-\u0CFF]/g, '')
-        // 4. Remove dotted circle characters used as fallback for broken combining marks
-        .replace(/\u25CC/g, '')
-        // 5. Remove invisible zero-width spaces that break Telugu word joining
+        .replace(/&zwnj;/gi, '')
+        .replace(/&zwj;/gi, '')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;|&apos;/gi, "'")
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&#\d+;/g, '')
+        .replace(/&#x[0-9a-fA-F]+;/gi, '')
+        .replace(/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\u0590-\u05FF]/g, '')
+        .replace(/[\u0900-\u0BFF\u0C80-\u0DFF\u0E00-\u109F]/g, '')
+        .replace(/[\u25CC\uFFFD]/g, '')
         .replace(/[\u200B-\u200D\uFEFF]/g, '')
-        // 6. Fix spaces before Telugu combining vowel marks / virama
+        .replace(/(?:^|[\s.,;:!?'"“”‘’\(\)\[\]\{\}\-\/])[\u0C01-\u0C03\u0C3E-\u0C4D\u0C55\u0C56\u0C62\u0C63]+/g, ' ')
         .replace(/\s+([\u0C01-\u0C03\u0C3E-\u0C4D\u0C55\u0C56\u0C62\u0C63])/g, '$1')
-        // 7. Fix compound English words that lost spacing/virama (e.g. క్లాస్రూమ్ -> క్లాస్ రూమ్)
-        .replace(/క్లాస్రూ/g, 'క్లాస్ రూ')
-        .replace(/బెడ్రూ/g, 'బెడ్ రూ')
-        .replace(/లివింగ్రూ/g, 'లివింగ్ రూ')
-        .replace(/షోరూ/g, 'షో రూ')
-        .replace(/బంజారాహిల్స్/g, 'బంజారా హిల్స్')
-        .replace(/జూబ్లీహిల్స్/g, 'జూబ్లీ హిల్స్')
-        // 8. Fix English loanwords ending in virama (్) glued directly to postpositions (లో, పై, తో, కు, కి, వద్ద, నుండి, లోని, తోని)
-        // e.g. న్పై -> న్ పై (స్క్రీన్ పై), ల్స్లో -> ల్స్ లో (హిల్స్ లో), మ్లో -> మ్ లో (రూమ్ లో), డ్పై -> డ్ పై (రోడ్ పై)
-        .replace(/([\u0C15-\u0C39]\u0C4D)(లో|పై|తో|కు|కి|వద్ద|నుండి|లోని|తోని)(?=[\s.,:;!?\n\"\'”’)]|$)/g, '$1 $2')
+        .replace(/క్లాస్రూమ్/gu, 'క్లాస్ రూమ్')
+        .replace(/బెడ్రూమ్/gu, 'బెడ్ రూమ్')
+        .replace(/లివింగ్రూమ్/gu, 'లివింగ్ రూమ్')
+        .replace(/షోరూమ్/gu, 'షో రూమ్')
+        .replace(/బంజారాహిల్స్/gu, 'బంజారా హిల్స్')
+        .replace(/జూబ్లీహిల్స్/gu, 'జూబ్లీ హిల్స్')
+        .replace(/ల్\s+లో(?=[\s\p{P}]|$)/gu, 'ల్లో')
+        .replace(/(ఇం|కం|నో|ఒం|గొం|పుం|తుం|పెం|చో|చె|కో)ట్\s+లో(?=[\s\p{P}]|$)/gu, '$1ట్లో')
+        .replace(/(రూ\.|రూ)(?=\d)/gu, 'రూ. ')
+        .replace(/(\d+)(కోట్లు|కోట్ల|లక్షలు|లక్షల|వేలు|వేల|మంది|శాతం|శాతానికి|కిలోమీటర్ల?|గంటల?|రోజుల?|నెలల?|సంవత్సరాల?|ఏళ్ల|మందికి|మందితో)(?=[\s\p{P}]|$)/gu, '$1 $2')
+        .replace(/([\u0C00-\u0C7F])([.,:;!?])([\u0C00-\u0C7F])/gu, '$1$2 $3')
+        .replace(/[ \t]+/g, ' ')
         .trim();
 }
 
@@ -230,6 +234,18 @@ function sanitizeTeluguText(text) {
 function cleanTeluguHeadline(headline) {
     if (!headline || typeof headline !== 'string') return "";
     let clean = headline.trim();
+
+    clean = clean
+        .replace(/&zwnj;/gi, '')
+        .replace(/&zwj;/gi, '')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&quot;/gi, '')
+        .replace(/&#39;|&apos;/gi, '')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&#\d+;/g, '')
+        .replace(/&#x[0-9a-fA-F]+;/gi, '');
 
     // 1. Strip all quotation marks (single, double, smart/curly quotes, backticks, backslashes)
     clean = clean.replace(/['"“‘”’`\\/]/g, '');
@@ -404,7 +420,7 @@ const MODERN_BODY_SELECTORS = [
     // News18 Telugu
     '._article_body', '.articleBody', '.content-wrapper',
     // Eenadu
-    '.story-full-text', '.full-story', '.story-details',
+    '.text-justify', '.story-full-text', '.full-story', '.story-details',
     // General CMS standard selectors
     'article .story-content', 'article .entry-content', 'article .post-content',
     '[itemprop="articleBody"]', 'div[data-articlebody]', '._3WlLe',
@@ -461,9 +477,9 @@ function extractArticleData(html, articleUrl) {
         } catch (e) {}
     });
 
-    // 2. Strip noise elements, tickers, related stories, and logo tags from DOM
+    // 2. Strip noise elements, tickers, related stories, and logo/banner tags from DOM (NEVER strip genuine Eenadu/Sakshi/ETV article photos!)
     $('nav, header, footer, script, style, .ads, .sidebar, .comments, aside, #sidebar, .related, .trending, .popular, .latest-news, .logo, .site-logo, .brand, .header-logo, .menu, .navigation, .social-share, .footer-tags, .tags, .widget, .promo, .about-us, .author-bio, [role="complementary"], .breadcrumb, .taboola, .outbrain, .google_ads_wrap_in_image, .next-article, .infinite-scroll, .related-stories, .side-bar, .more-news, .also-read, .trending-news, .other-news, .story-related, .news-ticker, .ticker, .scroll-news, .news-strip, .breaking-strip').remove();
-    $('img[src*="logo" i], img[class*="logo" i], img[id*="logo" i], img[alt*="logo" i], img[alt*="ETV" i], img[alt*="Sakshi" i], img[alt*="Eenadu" i], img[src*="etvbharat" i], img[src*="etv-bharat" i]').remove();
+    $('img[src*="logo" i], img[class*="logo" i], img[id*="logo" i], img[alt="logo" i], img[alt*="site logo" i], img[src*="_assets/_images/logos" i], img[src*="_assets/_images/banners" i], figure#dist-logo2, figure.nd-logo, figure.thumb').remove();
 
     // 3. Extract DOM Article Body
     let domBody = '';
@@ -523,57 +539,103 @@ function extractArticleData(html, articleUrl) {
     }
     finalHeadline = finalHeadline.replace(/\s+/g, ' ').trim();
 
-    // 5. Image Extraction
-    let candidateImage = null;
-    if (jsonLdImage && !isGenericImage(jsonLdImage)) {
-        candidateImage = jsonLdImage;
-    }
+    // 5. Multi-Candidate Image Extraction (Clean in-article photos FIRST, social og:image as fallback)
+    const candidateImages = [];
+    const seenImgUrls = new Set();
 
-    if (!candidateImage) {
-        const metaImg = $('meta[property="og:image"]').attr('content') || 
-                       $('meta[property="og:image:secure_url"]').attr('content') ||
-                       $('meta[property="og:image:url"]').attr('content') ||
-                       $('meta[name="twitter:image"]').attr('content') ||
-                       $('meta[name="twitter:image:src"]').attr('content') ||
-                       $('meta[property="twitter:image"]').attr('content') ||
-                       $('meta[itemprop="image"]').attr('content') ||
-                       $('link[rel="image_src"]').attr('href');
-        if (metaImg && !isGenericImage(metaImg)) {
-            candidateImage = metaImg;
+    const addCandidateImage = (rawUrl) => {
+        if (!rawUrl || typeof rawUrl !== 'string') return;
+        let clean = rawUrl.trim();
+        if (!clean || clean.startsWith('data:image') || clean.startsWith('blob:')) return;
+        try {
+            const resolved = clean.startsWith('http') ? clean : new URL(clean, articleUrl).href;
+            if (!resolved || !resolved.startsWith('http')) return;
+            if (isGenericImage(resolved)) return;
+            if (/(?:\/avatars?\/|\/icons?\/|\/emojis?\/|\/sprites?\/|\/banners?\/|\/badges?\/|play[-_]?btn|share[-_]?(?:icon|btn)|(?:whatsapp|telegram|facebook|twitter|youtube)[-_]?(?:icon|logo|share|btn)|(?:loading|loader|spinner|blank|spacer|1x1|pixel)\.(?:png|jpg|jpeg|webp|gif)|gg-pref)/i.test(resolved)) return;
+            if (!seenImgUrls.has(resolved)) {
+                seenImgUrls.add(resolved);
+                candidateImages.push(resolved);
+            }
+        } catch (e) {}
+    };
+
+    const pickBestSrcsetUrl = (srcsetStr) => {
+        if (!srcsetStr || typeof srcsetStr !== 'string') return '';
+        const entries = srcsetStr.trim().split(/,\s+(?=https?:|\/)/);
+        let bestUrl = '';
+        let bestScore = -1;
+        for (const entry of entries) {
+            const parts = entry.trim().split(/\s+/);
+            const u = parts[0];
+            if (!u) continue;
+            const descriptor = parts[1] || '';
+            const score = descriptor.endsWith('w') ? parseInt(descriptor, 10) || 0
+                        : descriptor.endsWith('x') ? Math.round((parseFloat(descriptor) || 1) * 1000)
+                        : 1;
+            if (score >= bestScore) {
+                bestScore = score;
+                bestUrl = u;
+            }
         }
-    }
+        return bestUrl || srcsetStr.trim().split(/\s+/)[0];
+    };
 
-    if (!candidateImage) {
-        $('article img, main img, figure img, picture source, picture img, .news-story-body img, .detailBody img, .category_desc img, .ArticleBodyCont img, ._article_body img, .story-details img, .article-image img, .article-page__img-cmpnt, .story-image img').each((_, el) => {
-            const raw = $(el).attr('src') || $(el).attr('data-src') || $(el).attr('data-original') || $(el).attr('data-lazy-src') || $(el).attr('data-hi-res-src') || $(el).attr('data-url') || $(el).attr('srcset');
-            if (raw && typeof raw === 'string') {
-                let clean = raw.trim();
-                if (clean.includes(',')) {
-                    // Extract highest resolution or first URL from srcset
-                    const sources = clean.split(',').map(s => s.trim().split(/\s+/)[0]).filter(Boolean);
-                    clean = sources[sources.length - 1] || sources[0];
+    const collectDomImages = (selectorStr, maxCount = 4) => {
+        $(selectorStr).each((_, el) => {
+            if (candidateImages.length >= maxCount) return false;
+            const w = parseInt($(el).attr('width') || '0', 10);
+            const h = parseInt($(el).attr('height') || '0', 10);
+            if ((w > 0 && w < 200) || (h > 0 && h < 120)) return;
+            const cls = `${$(el).attr('class') || ''} ${$(el).attr('alt') || ''}`.toLowerCase();
+            if (/(?:author|avatar|logo|icon|badge|emoji|ad-banner|promo)/.test(cls)) return;
+
+            const lazyCandidates = [
+                $(el).attr('data-hi-res-src'),
+                $(el).attr('data-original'),
+                $(el).attr('data-lazy-src'),
+                $(el).attr('data-src'),
+                $(el).attr('data-url'),
+                $(el).attr('data-srcset') ? pickBestSrcsetUrl($(el).attr('data-srcset')) : null,
+                $(el).attr('srcset') ? pickBestSrcsetUrl($(el).attr('srcset')) : null,
+                $(el).attr('src')
+            ];
+            for (const c of lazyCandidates) {
+                if (c && typeof c === 'string' && !c.trim().startsWith('data:image')) {
+                    if (/eenadu\.net\/featureimages\/365x255\//i.test(c)) continue;
+                    const beforeLen = candidateImages.length;
+                    addCandidateImage(c);
+                    if (candidateImages.length > beforeLen) break;
                 }
-                if (clean.startsWith('data:image')) return; // Skip inline base64 placeholders
-
-                try {
-                    const resolved = clean.startsWith('http') ? clean : new URL(clean, articleUrl).href;
-                    if (resolved && resolved.startsWith('http') && !isGenericImage(resolved)) {
-                        candidateImage = resolved;
-                        return false;
-                    }
-                } catch (e) {}
             }
         });
+    };
+
+    // Priority 1A: Exact editorial body photos first
+    collectDomImages('.text-justify img, img.image-editor, img[src*="/article_img/"], img[src*="/article_multiple_images/"], .news-story-body img, .detailBody img, .category_desc img, .ArticleBodyCont img, ._article_body img, .story-details img, .article-image img, .article-page__img-cmpnt, .story-image img, .featured-image img, .post-thumbnail img', 3);
+
+    // Priority 1B: Broader article/figure/picture/main images
+    if (candidateImages.length < 3) {
+        collectDomImages('article img, figure:not(.thumb) img, picture source, picture img, main img', 4);
     }
 
-    // Resolve relative image URLs if candidateImage wasn't already absolute
-    if (candidateImage && !candidateImage.startsWith('http')) {
-        try {
-            candidateImage = new URL(candidateImage, articleUrl).href;
-        } catch (e) {
-            candidateImage = null;
-        }
+    // Priority 2: JSON-LD and OpenGraph / Twitter meta images as fallback candidates
+    addCandidateImage(jsonLdImage);
+    const metaSelectors = [
+        'meta[property="og:image"]',
+        'meta[property="og:image:secure_url"]',
+        'meta[property="og:image:url"]',
+        'meta[name="twitter:image"]',
+        'meta[name="twitter:image:src"]',
+        'meta[property="twitter:image"]',
+        'meta[itemprop="image"]'
+    ];
+    for (const sel of metaSelectors) {
+        if (candidateImages.length >= 5) break;
+        addCandidateImage($(sel).attr('content'));
     }
+    addCandidateImage($('link[rel="image_src"]').attr('href'));
+
+    const candidateImage = candidateImages[0] || null;
 
     // 6. Date Extraction
     let finalDate = jsonLdDate;
@@ -604,6 +666,7 @@ function extractArticleData(html, articleUrl) {
         headline: finalHeadline,
         body: finalBody,
         image: candidateImage,
+        images: candidateImages,
         date: finalDate
     };
 }
@@ -878,122 +941,6 @@ function calculateTextSimilarity(text1, text2) {
     }
     const union = new Set([...tokens1, ...tokens2]).size;
     return union > 0 ? (intersection / union) : 0;
-}
-
-/**
- * Extracts thread marker info like 1/4, (1/4), [1/4], 1/4:, 1/1, 1/2, 1/3, (1/n) from tweet text.
- * @param {string} text 
- * @returns {{part: number, total: number|null, raw: string}|null}
- */
-function extractThreadMarker(text) {
-    if (!text) return null;
-    const match = text.match(/(?:^|[\s\(\[\{])(\d+)\s*[/／]\s*(\d+|n)(?:[\s\)\]\}.,:]|$)/i);
-    if (match) {
-        const part = parseInt(match[1], 10);
-        const total = match[2].toLowerCase() === 'n' ? null : parseInt(match[2], 10);
-        return { part, total, raw: match[0].trim() };
-    }
-    return null;
-}
-
-/**
- * Removes thread markers (e.g. 1/4, 2/4, [3/4]) from tweet text for clean news presentation.
- * @param {string} text 
- * @returns {string}
- */
-function cleanThreadMarker(text) {
-    if (!text) return '';
-    return text.replace(/(?:^|[\s\(\[\{])\d+\s*[/／]\s*(?:\d+|n)(?:[\s\)\]\}.,:]|$)/gi, ' ')
-               .replace(/\s+/g, ' ')
-               .trim();
-}
-
-/**
- * Groups multi-part tweets (e.g. 1/4, 2/4, 3/4, 4/4 or 1/1, 1/2, 1/3, 1/4) from the same author
- * posted within 45 minutes into a single unified news story.
- * Gathers all URLs into `allUrls` so all constituent tweets get marked as processed.
- * @param {Array<Object>} tweets 
- * @returns {Array<Object>}
- */
-function groupTweetsIntoThreads(tweets) {
-    if (!tweets || tweets.length === 0) return [];
-
-    // Sort chronologically (oldest first: 1/4 -> 2/4 -> 3/4 -> 4/4)
-    const sorted = [...tweets].sort((a, b) => a.date.getTime() - b.date.getTime());
-
-    const result = [];
-    const usedIndices = new Set();
-
-    for (let i = 0; i < sorted.length; i++) {
-        if (usedIndices.has(i)) continue;
-
-        const current = sorted[i];
-        const marker = extractThreadMarker(current.text);
-
-        if (marker) {
-            const threadGroup = [current];
-            usedIndices.add(i);
-
-            let lastTime = current.date.getTime();
-            let lastPart = marker.part;
-
-            for (let j = i + 1; j < sorted.length; j++) {
-                if (usedIndices.has(j)) continue;
-                const candidate = sorted[j];
-                const cMarker = extractThreadMarker(candidate.text);
-                const timeDiff = candidate.date.getTime() - lastTime;
-
-                // Belong to same thread if:
-                // 1. Candidate is within 45 minutes of previous part
-                // 2. Candidate has a thread marker
-                // 3. Candidate part number is greater (or next in sequence) OR same total
-                if (timeDiff >= 0 && timeDiff <= 45 * 60 * 1000 && cMarker) {
-                    const isSequential = cMarker.part > lastPart || (marker.total && cMarker.total === marker.total);
-                    if (isSequential) {
-                        threadGroup.push(candidate);
-                        usedIndices.add(j);
-                        lastTime = candidate.date.getTime();
-                        lastPart = cMarker.part;
-                    }
-                }
-            }
-
-            if (threadGroup.length > 1) {
-                // Multi-part thread detected! Combine all parts into single story
-                const allUrls = threadGroup.map(t => t.url);
-                const combinedText = threadGroup.map(t => cleanThreadMarker(t.text)).filter(Boolean).join('\n\n');
-                
-                // Pick best media across the thread (first image or video)
-                const mediaItem = threadGroup.find(t => t.mediaUrl && t.mediaUrl.startsWith('http'));
-
-                result.push({
-                    id: current.id,
-                    url: current.url, // Primary URL is part 1
-                    allUrls: allUrls, // All constituent URLs to mark as processed
-                    text: combinedText,
-                    mediaUrl: mediaItem ? mediaItem.mediaUrl : current.mediaUrl,
-                    mediaType: mediaItem ? mediaItem.mediaType : current.mediaType,
-                    avatarUrl: current.avatarUrl,
-                    date: current.date,
-                    isThread: true,
-                    threadCount: threadGroup.length
-                });
-                continue;
-            }
-        }
-
-        // Single stand-alone tweet
-        usedIndices.add(i);
-        result.push({
-            ...current,
-            allUrls: [current.url],
-            isThread: false,
-            threadCount: 1
-        });
-    }
-
-    // Return in reverse chronological order (newest first)
-    return result.sort((a, b) => b.date.getTime() - a.date.getTime());
 }
 
 module.exports = {

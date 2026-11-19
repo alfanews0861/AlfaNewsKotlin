@@ -34,7 +34,7 @@ async function callGeminiAPI(prompt: string, schema: any) {
         return {};
     }
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -42,6 +42,7 @@ async function callGeminiAPI(prompt: string, schema: any) {
         body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: {
+                temperature: 0.3,
                 responseMimeType: "application/json",
                 responseSchema: schema
             }
@@ -107,10 +108,10 @@ export interface NewsMetadata {
 
 export async function analyzeNewsMetadata(headline: string, content: string): Promise<NewsMetadata> {
     try {
-        const prompt = `Analyze the following news headline and content. 
+        const prompt = `Analyze the following news headline and content objectively. 
         1. Categorize it into EXACTLY ONE of these categories: ${Object.keys(CATEGORIES_MAP).join(', ')}.
         2. Extract 5-8 relevant keywords (in Telugu) that describe the subjects, people, or places in the news.
-        3. Identify the 'tone' or 'slant' of the news (in Telugu). For example, if it's political, mention if it's "జగన్ వ్యతిరేక వార్త", "కెసిఆర్ అనుకూల వార్త", "ప్రభుత్వ వ్యతిరేక వార్త", "తటస్థ వార్త" (neutral), etc.
+        3. Identify the editorial tone of the news in Telugu using neutral journalistic terms (e.g. "తటస్థ వార్త", "బ్రేకింగ్ వార్త", "అభివృద్ధి వార్త", "ప్రజా సమస్య", "విమర్శనాత్మక వార్త").
         4. Identify People (వ్యక్తులు), Organizations (సంస్థలు), and Locations (ప్రాంతాలు) mentioned in the news.
         
         Headline: ${headline}
