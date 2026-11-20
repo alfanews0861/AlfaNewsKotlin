@@ -1,6 +1,6 @@
 import * as admin from "firebase-admin";
 import { onSchedule } from "firebase-functions/v2/scheduler";
-import { onRequest } from "firebase-functions/v2/https";
+import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { Type } from "@google/genai";
 import {
     runWithAIFallback,
@@ -13,6 +13,17 @@ import {
     formatIntoParagraphs,
     REGION
 } from "./utils";
+import {
+    CartoonDraft,
+    CartoonState,
+    RawNewsItem,
+    buildCaricatureImagePrompt,
+    buildCartoonConceptPrompt,
+    getGuaranteedSafeCaricaturePrompt,
+    selectFreshStateNewsForCartoon,
+    validateCartoonDraft
+} from "./cartoon_engine";
+import { UserRole } from "./types";
 
 const db = admin.firestore();
 
@@ -195,137 +206,321 @@ export const scheduleHistoryOfTheDay = onSchedule({ schedule: "30 4 * * *", time
 });
 
 /**
- * 5. Daily Cartoon Function
+ * 5. Daily Political Satire Cartoon Engine (Fresh 48h News + Ruling-Government Watchdog Satire + Caricature Art)
  */
-export const generateDailyCartoon = onSchedule({ schedule: "0 6 * * *", timeZone: "Asia/Kolkata", memory: "1GiB", timeoutSeconds: 540 }, async (event) => {
-    const states = ["Andhra Pradesh", "Telangana"];
+function extractTimestampMs(ts: any): number {
+    if (!ts) return 0;
+    if (typeof ts.toMillis === "function") return ts.toMillis();
+    if (typeof ts._seconds === "number") return ts._seconds * 1000;
+    if (typeof ts.seconds === "number") return ts.seconds * 1000;
+    if (typeof ts === "number") return ts;
+    const parsed = Date.parse(String(ts));
+    return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+async function fetchLiveNewsPoolForCartoons(): Promise<{
+    rawNews: RawNewsItem[];
+    recentCartoonHeadlines: Record<CartoonState, string[]>;
+}> {
+    const recentCartoonHeadlines: Record<CartoonState, string[]> = {
+        "Andhra Pradesh": [],
+        "Telangana": []
+    };
+
+    const [generalRes, politicalRes, cartoonsRes] = await Promise.allSettled([
+        db.collection("news")
+            .where("approved", "==", true)
+            .orderBy("timestamp", "desc")
+            .limit(70)
+            .get(),
+        db.collection("news")
+            .where("approved", "==", true)
+            .where("categories", "array-contains", "రాజకీయం")
+            .orderBy("timestamp", "desc")
+            .limit(20)
+            .get(),
+        db.collection("news")
+            .where("approved", "==", true)
+            .where("type", "==", "cartoon")
+            .orderBy("timestamp", "desc")
+            .limit(6)
+            .get()
+    ]);
+
+    const seenIds = new Set<string>();
+    const rawNews: RawNewsItem[] = [];
+
+    const ingestSnapshot = (snap: admin.firestore.QuerySnapshot) => {
+        for (const doc of snap.docs) {
+            if (seenIds.has(doc.id)) continue;
+            seenIds.add(doc.id);
+            const data = doc.data();
+            rawNews.push({
+                id: doc.id,
+                type: data.type,
+                category: data.category,
+                categories: Array.isArray(data.categories) ? data.categories : [],
+                location: data.location,
+                district: data.district,
+                state: data.state,
+                headline: data.headline,
+                content: data.content,
+                timestampMs: extractTimestampMs(data.timestamp)
+            });
+        }
+    };
+
+    if (politicalRes.status === "fulfilled") {
+        ingestSnapshot(politicalRes.value);
+    } else {
+        console.warn("[CARTOON] Political category query failed:", politicalRes.reason?.message || politicalRes.reason);
+    }
+
+    if (generalRes.status === "fulfilled") {
+        ingestSnapshot(generalRes.value);
+    } else {
+        console.warn("[CARTOON] General news query failed:", generalRes.reason?.message || generalRes.reason);
+    }
+
+    if (cartoonsRes.status === "fulfilled") {
+        for (const doc of cartoonsRes.value.docs) {
+            const data = doc.data();
+            const headline = String(data.headline?.telugu || "").trim();
+            if (!headline) continue;
+            const st = String(data.state || data.location || "").toLowerCase();
+            if (st.includes("telangana") || st.includes("తెలంగాణ")) {
+                recentCartoonHeadlines["Telangana"].push(headline);
+            } else if (st.includes("andhra") || st.includes("ఆంధ్ర")) {
+                recentCartoonHeadlines["Andhra Pradesh"].push(headline);
+            }
+        }
+    }
+
+    return { rawNews, recentCartoonHeadlines };
+}
+
+async function generateAndPublishCartoonForState(
+    state: CartoonState,
+    todayStr: string,
+    rawNews: RawNewsItem[],
+    recentCartoonHeadlines: string[]
+): Promise<{ success: boolean; state: CartoonState; postId?: string; headline?: string; mediaUrl?: string; error?: string }> {
+    const freshNews = selectFreshStateNewsForCartoon(rawNews, state, Date.now(), 8);
+    console.log(`[CARTOON] Selected ${freshNews.length} fresh (<=72h) live news stories for ${state}.`);
+
+    const schema = {
+        type: Type.OBJECT,
+        properties: {
+            topic: { type: Type.STRING, description: "Short Telugu topic name based on today's live news" },
+            basedOnNewsHeadline: { type: Type.STRING, description: "Exact live news headline from the provided list that inspired this cartoon" },
+            targetEntity: { type: Type.STRING, description: "Must be 'ruling_government' or 'public_issue_governance'. NEVER 'opposition'." },
+            visualPrompt: { type: Type.STRING, description: "Detailed Indian newspaper caricature scene description using fictional archetypes & metaphors; zero real politician names, zero text/speech bubbles" },
+            safeFallbackVisualPrompt: { type: Type.STRING, description: "Simpler whimsical 100% policy-safe Indian comic caricature scene of Common Man and cartoon official with symbolic prop; zero text/names" },
+            teluguPunchline: { type: Type.STRING, description: "Sharp, witty 1-2 line Telugu dialogue from the common citizen's perspective holding the ruling administration accountable" },
+            teluguHeadline: { type: Type.STRING, description: "Catchy pure Telugu headline (max 45 chars, no colons)" }
+        },
+        required: [
+            "topic",
+            "basedOnNewsHeadline",
+            "targetEntity",
+            "visualPrompt",
+            "safeFallbackVisualPrompt",
+            "teluguPunchline",
+            "teluguHeadline"
+        ]
+    };
+
+    return await runWithAIFallback(async (ai, modelName) => {
+        let cartoonData: CartoonDraft = {};
+        let correctionFeedback: string | undefined;
+
+        // Up to 2 attempts to guarantee the satire targets the ruling government/current issue (NEVER the opposition)
+        for (let attempt = 1; attempt <= 2; attempt++) {
+            const promptText = buildCartoonConceptPrompt({
+                state,
+                todayStr,
+                freshNews,
+                recentCartoonHeadlines,
+                correctionFeedback
+            });
+
+            const topicRes = await ai.models.generateContent({
+                model: modelName,
+                contents: [{ role: "user", parts: [{ text: promptText }] }],
+                config: {
+                    temperature: attempt === 1 ? 0.75 : 0.55,
+                    responseMimeType: "application/json",
+                    responseSchema: schema
+                }
+            } as any);
+
+            cartoonData = parseAIJson(topicRes.text || "{}");
+            const check = validateCartoonDraft(cartoonData, state);
+            if (check.valid) {
+                break;
+            }
+
+            console.warn(`[CARTOON] Draft validation rejected on attempt ${attempt} for ${state}: ${check.reason}`);
+            correctionFeedback = `${check.reason} Rewrite completely so the cartoon strictly questions the CURRENT RULING GOVERNMENT in ${state} based ONLY on today's live news list, without attacking or mocking the opposition.`;
+        }
+
+        const finalCheck = validateCartoonDraft(cartoonData, state);
+        if (!finalCheck.valid) {
+            throw new Error(`Cartoon editorial guardrail rejected draft for ${state}: ${finalCheck.reason}`);
+        }
+
+        // Build 3-tier policy-safe CARICATURE prompts so image generation never fails on civic/person safety filters
+        const primaryCaricaturePrompt = buildCaricatureImagePrompt(cartoonData.visualPrompt || "", "primary");
+        const fallbackCaricaturePrompt = buildCaricatureImagePrompt(
+            cartoonData.safeFallbackVisualPrompt || cartoonData.visualPrompt || "",
+            "ultra_safe"
+        );
+        const guaranteedCaricaturePrompt = getGuaranteedSafeCaricaturePrompt(state);
+
+        const buffer = await generateImageWithRetry(
+            ai,
+            primaryCaricaturePrompt,
+            "9:16",
+            3,
+            [fallbackCaricaturePrompt, guaranteedCaricaturePrompt]
+        );
+
+        if (!buffer) {
+            console.error(`[CARTOON] All caricature image generation tiers failed for ${state}. Skipping empty/image-less cartoon post.`);
+            return {
+                success: false,
+                state,
+                error: "Caricature image generation returned no image buffer."
+            };
+        }
+
+        const mediaUrl = await saveBufferToStorage(buffer, `CARTOON_${state.replace(/\s+/g, "")}`) || "";
+        if (!mediaUrl) {
+            console.error(`[CARTOON] Failed to upload generated caricature buffer to storage for ${state}.`);
+            return {
+                success: false,
+                state,
+                error: "Failed to save cartoon image to storage."
+            };
+        }
+
+        const punchline = (cartoonData.teluguPunchline || cartoonData.teluguHeadline || "నేటి రాజకీయ కార్టూన్").trim();
+        const headlineTe = `${state === "Andhra Pradesh" ? "ఆంధ్రప్రదేశ్" : "తెలంగాణ"} కార్టూన్: ${(cartoonData.teluguHeadline || cartoonData.topic || "నేటి వ్యంగ్యం").trim()}`;
+
+        const docRef = await db.collection("news").add({
+            type: "cartoon",
+            postFormat: "VERTICAL",
+            likes: 0,
+            comments: 0,
+            shares: 0,
+            headline: {
+                telugu: headlineTe,
+                english: `${state} Daily Cartoon`
+            },
+            content: {
+                telugu: punchline,
+                english: cartoonData.topic || "Daily Political Satire"
+            },
+            mediaUrl,
+            mediaUrls: [mediaUrl],
+            category: "కార్టూన్",
+            location: state,
+            district: state,
+            state,
+            basedOnHeadline: cartoonData.basedOnNewsHeadline || "",
+            targetEntity: cartoonData.targetEntity || "ruling_government",
+            cartoonStyle: "caricature",
+            reporter: { id: "BOT_Cartoonist", name: "Alfa Cartoonist" },
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            status: "published",
+            approved: true,
+            aiProcessed: true
+        });
+
+        console.log(`[CARTOON] Successfully published caricature cartoon for ${state} (postId=${docRef.id}, basedOn="${(cartoonData.basedOnNewsHeadline || "").slice(0, 60)}").`);
+        return {
+            success: true,
+            state,
+            postId: docRef.id,
+            headline: headlineTe,
+            mediaUrl
+        };
+    });
+}
+
+export const generateDailyCartoon = onSchedule({ schedule: "0 6 * * *", timeZone: "Asia/Kolkata", memory: "1GiB", timeoutSeconds: 540 }, async (_event) => {
+    const states: CartoonState[] = ["Andhra Pradesh", "Telangana"];
     const todayStr = getISTDateString();
+
+    const { rawNews, recentCartoonHeadlines } = await fetchLiveNewsPoolForCartoons();
+    console.log(`[CARTOON] Daily run for ${todayStr} loaded ${rawNews.length} recent approved articles.`);
+
     for (const state of states) {
         try {
-            await runWithAIFallback(async (ai, modelName) => {
-                // 1. Fetch recent approved headlines for state context
-                let recentNewsSummary = "";
-                try {
-                    const snap = await db.collection('news')
-                        .where('approved', '==', true)
-                        .orderBy('timestamp', 'desc')
-                        .limit(20)
-                        .get();
-
-                    const headlines = snap.docs
-                        .map(d => {
-                            const data = d.data();
-                            const loc = ((data.location || "") + " " + (data.district || "") + " " + (data.state || "")).toLowerCase();
-                            const isAP = loc.includes("andhra") || loc.includes("ap") || loc.includes("ఆంధ్ర");
-                            const isTS = loc.includes("telangana") || loc.includes("ts") || loc.includes("తెలంగాణ") || loc.includes("hyderabad") || loc.includes("హైదరాబాద్");
-                            if ((state === "Andhra Pradesh" && (isAP || !isTS)) || (state === "Telangana" && (isTS || !isAP))) {
-                                return data.headline?.telugu || "";
-                            }
-                            return "";
-                        })
-                        .filter(Boolean)
-                        .slice(0, 5);
-
-                    if (headlines.length > 0) {
-                        recentNewsSummary = headlines.join("\n- ");
-                    }
-                } catch (e) {
-                    console.warn(`[CARTOON] Could not fetch recent headlines for ${state}:`, e);
-                }
-
-                const stateContext = state === 'Andhra Pradesh'
-                    ? `Government: NDA (TDP, Jana Sena, BJP). CM: Chandrababu Naidu, Deputy CM: Pawan Kalyan. Opposition: YSRCP (YS Jagan Mohan Reddy).
-Key Ongoing Topics: Super Six welfare schemes, Amaravati capital construction, Polavaram project, Deepam free gas cylinders, Sand policy, welfare pensions distribution, assembly debates, central assistance.`
-                    : `Government: Congress. CM: Revanth Reddy. Opposition: BRS (KCR, KTR, Harish Rao), BJP (Kishan Reddy, Bandi Sanjay).
-Key Ongoing Topics: HYDRAA demolitions & lake rejuvenation, Musi riverfront project, Rythu Bharosa / farmer loan waivers, free RTC bus travel for women, 200 units free power (Gruha Jyothi), job notifications.`;
-
-                const schema = {
-                    type: Type.OBJECT,
-                    properties: {
-                        topic: { type: Type.STRING, description: "Short topic in Telugu" },
-                        visualPrompt: { type: Type.STRING, description: "Detailed visual caricature scene description without politician names, words, or speech bubbles" },
-                        teluguPunchline: { type: Type.STRING, description: "Sharp, witty 1-2 line Telugu dialogue with natural humor" },
-                        teluguHeadline: { type: Type.STRING, description: "Catchy Telugu headline (max 50 chars)" }
-                    },
-                    required: ["topic", "visualPrompt", "teluguPunchline", "teluguHeadline"]
-                };
-
-                const topicRes = await ai.models.generateContent({
-                    model: modelName,
-                    contents: [{ role: "user", parts: [{ text: `You are a renowned master Telugu political cartoonist (in the style of legendary cartoonists Sridhar and Shankar).
-State: ${state}
-Today's Date: ${todayStr}
-
-Political Context & Issues:
-${stateContext}
-${recentNewsSummary ? `\nRecent Trending News in ${state}:\n- ${recentNewsSummary}` : ''}
-
-Task:
-1. Identify a current hot topic or public mood in ${state} and create a clever, humorous satirical cartoon scenario.
-2. "visualPrompt": Describe a funny caricature visual scene using symbolic metaphors (e.g. weighing scales, promises umbrella, empty pockets, giant magnifying glass, race track, tug of war, bridge, files pile).
-   CRITICAL SAFETY & ART INSTRUCTION: DO NOT name specific real politicians. Describe figures by caricature traits and attire (e.g. 'a smiling politician in white kurta with yellow scarf', 'a leader wearing pink scarf looking puzzled', 'an expressive Indian common man in spectacles scratching his head while holding a grocery bag').
-   DO NOT include any text, dialogue, letters, signs, or speech bubbles in the visual description.
-3. "teluguPunchline": Write a sharp, witty, humorous Telugu punchline (1-2 lines) reflecting common people's perspective with authentic Telugu humor.
-4. "teluguHeadline": A short, catchy Telugu title.
-
-Output strict JSON.` }] }],
-                    config: {
-                        temperature: 0.85,
-                        responseMimeType: "application/json",
-                        responseSchema: schema
-                    }
-                } as any);
-
-                const cartoonData = parseAIJson(topicRes.text || "{}");
-                const visual = cartoonData.visualPrompt || "Indian common man observing humorous political promises";
-                const punchline = cartoonData.teluguPunchline || cartoonData.teluguHeadline || "నేటి రాజకీయ కార్టూన్";
-
-                // Pure caricature art prompt without text/speech bubbles to prevent garbled letters
-                const cartoonPrompt = `A masterpiece colorful 2D Indian political newspaper editorial cartoon illustration.
-Scene: ${visual}.
-Art Style: Hand-drawn classic Indian newspaper editorial cartoon caricature, vibrant watercolor and ink wash, bold expressive character expressions, clean linework, humorous satirical situation.
-Framing: Clean vertical 9:16 composition with focused characters in an Indian city or village backdrop.
-CRITICAL MANDATORY RULE: Pure visual illustration only. STRICTLY NO TEXT, NO WORDS, NO SPEECH BUBBLES, NO LETTERS, NO SIGNBOARDS, NO TYPOGRAPHY anywhere in the image.`;
-
-                const buffer = await generateImageWithRetry(ai, cartoonPrompt, '9:16');
-
-                let mediaUrl = "";
-                if (buffer) {
-                    mediaUrl = await saveBufferToStorage(buffer, `CARTOON_${state.replace(" ", "")}`) || "";
-                } else {
-                    console.warn(`[CARTOON] Image generation failed for ${state}. Posting text-only cartoon status.`);
-                }
-
-                await db.collection('news').add({
-                    type: 'cartoon',
-                    postFormat: 'VERTICAL',
-                    likes: 0,
-                    comments: 0,
-                    shares: 0,
-                    headline: { 
-                        telugu: `${state === 'Andhra Pradesh' ? 'ఆంధ్రప్రదేశ్' : 'తెలంగాణ'} కార్టూన్: ${cartoonData.teluguHeadline || cartoonData.topic || 'నేటి వ్యంగ్యం'}`, 
-                        english: `${state} Daily Cartoon` 
-                    },
-                    content: { 
-                        telugu: punchline, 
-                        english: cartoonData.topic || 'Daily Political Satire' 
-                    },
-                    mediaUrl, // Might be empty if buffer is null
-                    category: 'కార్టూన్',
-                    location: state,
-                    district: state,
-                    state: state,
-                    reporter: { id: 'BOT_Cartoonist', name: 'Alfa Cartoonist' },
-                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                    status: "published",
-                    approved: true,
-                    aiProcessed: true
-                });
-
-                console.log(`[CARTOON] Successfully created cartoon post for ${state}.`);
-            });
-        } catch (e: any) { console.error(`[CARTOON] Error for ${state}:`, e.message); }
+            await generateAndPublishCartoonForState(
+                state,
+                todayStr,
+                rawNews,
+                recentCartoonHeadlines[state] || []
+            );
+        } catch (e: any) {
+            console.error(`[CARTOON] Error for ${state}:`, e?.message || e);
+        }
     }
+});
+
+/**
+ * Manual Admin Callable to generate today's fresh caricature cartoon on demand.
+ */
+export const triggerDailyCartoon = onCall({ memory: "1GiB", timeoutSeconds: 540 }, async (request) => {
+    const auth = request.auth;
+    if (!auth || !auth.uid) {
+        throw new HttpsError("unauthenticated", "మీరు లాగిన్ అవ్వాలి.");
+    }
+
+    const senderDoc = await db.collection("users").doc(auth.uid).get();
+    const senderRole = String(senderDoc.data()?.role || "").toUpperCase();
+    const userEmail = String(auth.token?.email || "").toLowerCase();
+    const isSuperAdmin = userEmail === "alfanews0861@gmail.com";
+    const isAdmin = isSuperAdmin ||
+        ["ADMIN", "EDITOR", "NEWS_DESK", "SUPER_ADMIN", "4", "4.0", "5", "5.0", "6", "6.0", "7", "7.0"].includes(senderRole) ||
+        senderDoc.data()?.role === UserRole.ADMIN ||
+        senderDoc.data()?.role === UserRole.EDITOR;
+
+    if (!isAdmin) {
+        throw new HttpsError("permission-denied", "కార్టూన్ రూపొందించే అనుమతి కేవలం అడ్మిన్/ఎడిటర్లకు మాత్రమే ఉంది.");
+    }
+
+    const requestedState = request.data?.state;
+    const states: CartoonState[] =
+        requestedState === "Andhra Pradesh" || requestedState === "Telangana"
+            ? [requestedState]
+            : ["Andhra Pradesh", "Telangana"];
+
+    const todayStr = getISTDateString();
+    const { rawNews, recentCartoonHeadlines } = await fetchLiveNewsPoolForCartoons();
+    const results = [];
+
+    for (const state of states) {
+        try {
+            const res = await generateAndPublishCartoonForState(
+                state,
+                todayStr,
+                rawNews,
+                recentCartoonHeadlines[state] || []
+            );
+            results.push(res);
+        } catch (e: any) {
+            console.error(`[CARTOON_MANUAL] Error for ${state}:`, e?.message || e);
+            results.push({ success: false, state, error: e?.message || "Unknown error" });
+        }
+    }
+
+    return {
+        success: results.some(r => r.success),
+        date: todayStr,
+        results
+    };
 });
 
 // ==========================================

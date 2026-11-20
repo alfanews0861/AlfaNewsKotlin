@@ -7,14 +7,65 @@ const PRIMARY_MODEL = PRO_MODEL;
  * Canonical Single Source of Truth for Telugu Headline Generation.
  * Concise, principle-driven editorial brief — lets Gemini write natural, sharp Telugu journalism.
  */
-export const CANONICAL_HEADLINE_RULE = `మీరు ఆల్ఫా న్యూస్ (Alfa News) చీఫ్ హెడ్‌లైన్ ఎడిటర్. మొబైల్ పాఠకుడు 2 సెకన్లలో ఆగి చదివేలా, ప్రముఖ తెలుగు దినపత్రికల స్థాయిలో స్పష్టమైన, ఆకర్షణీయమైన శీర్షిక రాయాలి.
-- సూటిదనం & నిర్దిష్టత: అసలు సంఘటన, ప్రాంతం, అంకె లేదా ప్రజలపై ప్రభావాన్ని సూటిగా చెప్పండి (ఉదా: "విజయవాడ హైవేపై లారీ ఢీకొని ముగ్గురు మృతి", "రైతుల ఖాతాల్లోకి నేడే రూ. 5 వేలు జమ చేయనున్న ప్రభుత్వం").
-- అస్పష్టత & క్లిక్‌బైట్ వద్దు: "కీలక వ్యాఖ్యలు", "పలు పనులపై సమీక్ష", "ఘనంగా జరిగింది" వంటి పొడి/అస్పష్ట శీర్షికలు గానీ, "తీపి కబురు:", "షాకింగ్:" వంటి క్లీషేలు గానీ వద్దు.
-- పరిమాణం & శుద్ధి: 6 నుండి 10 పదాలు, ఒకే సరళమైన తెలుగు వాక్యం. కోలన్ (:), కొటేషన్లు ('...', "..."), అదనపు డాష్‌లు (-) వాడకండి. 100% స్వచ్ఛమైన తెలుగు లిపి (Unicode U+0C00–U+0C7F).`;
+export const CANONICAL_HEADLINE_RULE = `మీరు ఆల్ఫా న్యూస్ (Alfa News) చీఫ్ హెడ్‌లైన్ ఎడిటర్. మొబైల్ పాఠకుడు 2 సెకన్లలో ఆగి చదివేలా, ప్రముఖ తెలుగు దినపత్రికల ఫ్రంట్-పేజీ స్థాయిలో పదునైన, పంచ్ స్టైల్ తెలుగు శీర్షిక రాయాలి.
+- పంచ్ స్టైల్ & భావ రక్షణ (PUNCH WITHOUT DISTORTION): శీర్షిక చప్పగా, పొడి ప్రభుత్వ నోట్‌లా ఉండకూడదు — సూటిగా, బలమైన తెలుగు క్రియా పదాలతో పాఠకుడి మనసును తాకేలా పంచ్ ఇవ్వండి. అయితే వార్తలో అసలు భావం, వాస్తవం ఏమాత్రం దెబ్బతినకూడదు; లేని తీవ్రతను లేదా అవాస్తవాలను ఎప్పుడూ కల్పించకండి.
+- వార్త స్వభావానికి తగిన పంచ్ (TONE-MATCHED PUNCH):
+  1. ప్రశ్నించే & ప్రజా సమస్యల వార్తలు (నిర్లక్ష్యం, రోడ్లు, నీరు, అన్యాయం, హామీల వైఫల్యం): అధికారులను/వ్యవస్థను సూటిగా నిలదీసే పదునైన ప్రశ్నార్థక పంచ్ రాయండి (సహజంగా '?' తో ముగించవచ్చు — ఉదా: "గుంతల రోడ్లపై ప్రాణాలు పోతేనే అధికారులు కళ్లు తెరుస్తారా?", "నెలలుగా తాగునీరు లేకున్నా పాలకులకు కనిపించడం లేదా?", "పంట నష్టపోయిన అన్నదాతలను ఆదుకునే దిక్కెవరు?").
+  2. బాధ, ఆవేదన & విషాద వార్తలు (ప్రమాదాలు, రైతుల కష్టం, బాధితుల వేదన, పేదల కన్నీళ్లు): కృతకమైన నాటకీయత లేకుండా గుండెను హత్తుకునే ఆర్ద్రమైన, పదునైన తెలుగు పంచ్ రాయండి (ఉదా: "సకాలంలో వైద్యం అందక కళ్లెదుటే ఆరిపోయిన పసిప్రాణం", "ఆరుగాలం శ్రమ నీళ్లపాలై కన్నీరుమున్నీరవుతున్న అన్నదాతలు", "అప్పుల భారం మోయలేక ఆగిపోయిన అన్నదాత గుండె").
+  3. ఇతర వార్తలు (పథకాలు, నేరాలు, రాజకీయాలు, అభివృద్ధి): పొడిగా కాకుండా అసలు సంఘటన, ప్రాంతం, అంకె లేదా ప్రజలపై ప్రభావాన్ని చురుకైన పంచ్‌తో చెప్పండి (ఉదా: "రైతుల ఖాతాల్లోకి నేడే రూ. 5 వేలు జమ", "అక్రమ మద్యం దందాపై పోలీసుల మెరుపు దాడి").
+- అస్పష్టత & క్లిక్‌బైట్ వద్దు: "కీలక వ్యాఖ్యలు", "పలు పనులపై సమీక్ష", "ఘనంగా జరిగింది", "ప్రజలు ఇబ్బంది పడుతున్నారు" వంటి చప్పని/అస్పష్ట శీర్షికలు గానీ, "తీపి కబురు:", "షాకింగ్:", "వణుకు పుట్టించే" వంటి చౌకబారు క్లిక్‌బైట్ క్లీషేలు గానీ వద్దు.
+- పరిమాణం & శుద్ధి: 5 నుండి 10 పదాలు, ఒకే సరళమైన తెలుగు వాక్యం. కోలన్ (:), కొటేషన్లు ('...', "..."), అదనపు డాష్‌లు (-) వాడకండి (ప్రశ్నించే శీర్షిక చివర '?' మాత్రమే అనుమతి). 100% స్వచ్ఛమైన తెలుగు లిపి (Unicode U+0C00–U+0C7F).`;
+
+export const REPORTER_PUNCH_HEADLINE_RULE = `రిపోర్టర్ ప్రత్యేక హెడ్‌లైన్ సూచన (REPORTER PUNCH MODE):
+- ఇది క్షేత్రస్థాయి రిపోర్టర్ పంపిన అసలు వార్త. చప్పని సాధారణ వాక్యాన్ని ("...జరిగింది", "...ఇబ్బంది పడుతున్నారు", "...విజ్ఞప్తి చేశారు") పదునైన తెలుగు దినపత్రిక ఫ్రంట్-పేజీ పంచ్ శీర్షికగా మార్చండి.
+- వార్తలో రిపోర్టర్ చెప్పదలచిన అసలు భావం, ప్రాంతం, వాస్తవాలు 100% చెక్కుచెదరకుండా కాపాడండి — అర్థం మార్చవద్దు, కల్పిత ఆరోపణలు చేర్చవద్దు.
+- ప్రశ్నించే వార్త అయితే అధికారులను/వ్యవస్థను నిలదీసేలా పదునైన ప్రశ్న ('?' తో) వేయండి; బాధ/ఆవేదన/విషాద వార్త అయితే పాఠకుడి మనసును కదిలించే ఆర్ద్రమైన పంచ్ ఇవ్వండి.`;
 
 const PREMIUM_HEADLINE_SYSTEM_INSTRUCTION = `${CANONICAL_HEADLINE_RULE}
 
 Output JSON only: {"headline": "...", "headlineEn": "..."}`;
+
+export interface HeadlineRefinementOptions {
+    isReporter?: boolean;
+    originalHeadline?: string;
+}
+
+/**
+ * Pure helper that builds the system instruction, user prompt, and temperature
+ * for headline refinement. Supports dedicated punch-style emphasis for reporter news.
+ */
+export function buildHeadlineRefinementPrompt(
+    teluguContent: string,
+    authorName?: string,
+    richContext?: string,
+    options?: HeadlineRefinementOptions
+): { systemInstruction: string; userPrompt: string; temperature: number } {
+    const isReporter = options?.isReporter === true;
+    const originalHeadline = (options?.originalHeadline || "").trim();
+
+    const systemInstruction = isReporter
+        ? `${CANONICAL_HEADLINE_RULE}\n\n${REPORTER_PUNCH_HEADLINE_RULE}\n\nOutput JSON only: {"headline": "...", "headlineEn": "..."}`
+        : PREMIUM_HEADLINE_SYSTEM_INSTRUCTION;
+
+    const authorHint = authorName ? `మూలం/వక్త: ${authorName}\n` : "";
+    const originalHeadlineHint = originalHeadline
+        ? `రిపోర్టర్ పంపిన అసలు శీర్షిక: ${originalHeadline}\n`
+        : "";
+    const contextSnippet = richContext && richContext !== teluguContent
+        ? `వివరాలు:\n${richContext.substring(0, 900)}\n\n`
+        : "";
+    const taskInstruction = isReporter
+        ? `పై రిపోర్టర్ వార్తలో అసలు భావం ఏమాత్రం దెబ్బతినకుండా, చప్పగా కాకుండా పదునైన పంచ్ స్టైల్‌లో (ప్రశ్నించే వార్త అయితే నిలదీసే ప్రశ్నతో, బాధ/ఆవేదన వార్త అయితే హృదయాన్ని తాకేలా) తెలుగు శీర్షిక మరియు దాని ఇంగ్లీష్ అనువాదం ఇవ్వండి.`
+        : `పై వార్తకు సహజమైన, పదునైన పంచ్ స్టైల్ తెలుగు శీర్షిక మరియు దాని ఇంగ్లీష్ అనువాదం ఇవ్వండి.`;
+
+    const userPrompt = `${authorHint}${originalHeadlineHint}${contextSnippet}వార్తా సారాంశం:\n${teluguContent}\n\n${taskInstruction}`;
+
+    return {
+        systemInstruction,
+        userPrompt,
+        temperature: isReporter ? 0.5 : 0.4
+    };
+}
 
 /**
  * Generates a polished journalistic headline using PAID_GEMINI_API_KEY and Gemini Flash.
@@ -25,7 +76,8 @@ export async function refineHeadlineWithPaidAI(
     fallbackHeadline: string,
     fallbackHeadlineEn?: string,
     authorName?: string,
-    richContext?: string
+    richContext?: string,
+    options?: HeadlineRefinementOptions
 ): Promise<{ headline: string; headlineEn: string }> {
     const paidKey = (process.env.PAID_GEMINI_API_KEY || '').replace(/^["']|["']$/g, '').trim();
 
@@ -47,7 +99,7 @@ export async function refineHeadlineWithPaidAI(
             properties: {
                 headline: {
                     type: Type.STRING,
-                    description: "Natural, crisp Telugu journalistic headline (6-10 words), single flowing sentence without quotes or colons."
+                    description: "Punchy, impactful Telugu journalistic headline (5-10 words) preserving exact meaning; sharp questioning punch (ending with '?' where natural) for accountability/civic issues and poignant punch for grief/pain stories; single flowing sentence without colons or quotes."
                 },
                 headlineEn: {
                     type: Type.STRING,
@@ -57,11 +109,12 @@ export async function refineHeadlineWithPaidAI(
             required: ["headline", "headlineEn"]
         };
 
-        const authorHint = authorName ? `మూలం/వక్త: ${authorName}\n` : "";
-        const contextSnippet = richContext && richContext !== teluguContent
-            ? `వివరాలు:\n${richContext.substring(0, 900)}\n\n`
-            : "";
-        const userPrompt = `${authorHint}${contextSnippet}వార్తా సారాంశం:\n${teluguContent}\n\nపై వార్తకు సహజమైన, పదునైన తెలుగు శీర్షిక మరియు దాని ఇంగ్లీష్ అనువాదం ఇవ్వండి.`;
+        const { systemInstruction, userPrompt, temperature } = buildHeadlineRefinementPrompt(
+            teluguContent,
+            authorName,
+            richContext,
+            options
+        );
 
         const models = [
             "gemini-3.8-flash",
@@ -74,8 +127,8 @@ export async function refineHeadlineWithPaidAI(
                     model: modelName,
                     contents: [{ role: "user", parts: [{ text: userPrompt }] }],
                     config: {
-                        systemInstruction: PREMIUM_HEADLINE_SYSTEM_INSTRUCTION,
-                        temperature: 0.35,
+                        systemInstruction,
+                        temperature,
                         maxOutputTokens: 512,
                         responseMimeType: "application/json",
                         responseSchema: headlineSchema

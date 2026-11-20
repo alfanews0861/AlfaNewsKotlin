@@ -23,7 +23,7 @@ import {
     detectTopTeluguLeader
 } from "./utils";
 import { normalizeCategory, normalizeCategories, getCategorySystemInstruction } from './categories';
-import { refineHeadlineWithPaidAI, refineVocalScriptWithPaidAI } from "./geminiService";
+import { refineHeadlineWithPaidAI, refineVocalScriptWithPaidAI, REPORTER_PUNCH_HEADLINE_RULE } from "./geminiService";
 import { notifyReporter, awardPointsToReporter, getAssignedReporter } from "./reporter_handler";
 import { areMandalsMatching } from "./location_data";
 import { dispatchBreakingNotification } from "./notification_engine";
@@ -738,7 +738,7 @@ export async function performAIProcessing(
     const singleStorySchema = {
         type: Type.OBJECT,
         properties: {
-            headline: { type: Type.STRING, description: "Natural, dignified Telugu headline (6-10 words), one clear sentence without colons or quotes." },
+            headline: { type: Type.STRING, description: "Punchy, impactful Telugu journalistic headline (5-10 words) preserving exact meaning without blandness; sharp questioning punch (ending with '?' where natural) for civic issues/neglect and heartfelt poignant punch for grief/pain stories; single flowing sentence without colons or quotes." },
             content: { type: Type.STRING, description: "Pure Telugu news summary (50-65 words), single paragraph." },
             fullStoryTe: { type: Type.STRING, description: "3-4 paragraph Telugu full story separated by \\n\\n when substantial info is available, otherwise empty string \"\"." },
             headlineEn: { type: Type.STRING, description: "English headline translated from Telugu headline (6-10 words)." },
@@ -813,13 +813,17 @@ export async function performAIProcessing(
           `- Otherwise set isDuplicate = false, duplicateOfPostId = null, and leave rejectionReason = "".\n`
         : `\nDUPLICATE DETECTION: No recent stories in this mandal (past 6h). Set isDuplicate = false, duplicateOfPostId = null.\n`;
 
+    const isReporterSubmission = actualPostData?.isReporter === true || actualPostData?.processingType === 'REPORTER_SUBMISSION';
+
     const metadataPrompt = `
 SUBMISSION METADATA:
-- type: ${actualPostData?.isReporter ? 'REPORTER_SUBMISSION' : 'CITIZEN_SUBMISSION'}
+- type: ${isReporterSubmission ? 'REPORTER_SUBMISSION' : 'CITIZEN_SUBMISSION'}
 - district: ${actualPostData?.district || 'Unknown'}
 - location: ${actualPostData?.location || 'Unknown'}${actualPostData?.socialPlatform ? `
 - socialPlatform: ${actualPostData.socialPlatform}` : ''}${actualPostData?.socialAuthorName ? `
-- Post Author (mandatory attribution): ${actualPostData.socialAuthorName} — attribute all claims/opinions to this author; never state them as Alfa News verdicts.` : ''}${videoSpeechContext ? `
+- Post Author (mandatory attribution): ${actualPostData.socialAuthorName} — attribute all claims/opinions to this author; never state them as Alfa News verdicts.` : ''}${isReporterSubmission ? `
+
+${REPORTER_PUNCH_HEADLINE_RULE}` : ''}${videoSpeechContext ? `
 
 [వీడియోలో మాట్లాడిన అసలు మాటలు / Spoken Speech in Video]:
 ${videoSpeechContext}
@@ -909,14 +913,18 @@ NOTIFICATION & PRIORITY RULES:
                 const authorName = story.reporter?.name || actualPostData?.socialAuthorName || actualPostData?.reporter?.name;
                 const richContext = story.fullStory?.telugu || actualPostData?.content?.telugu || actualPostData?.content || content || "";
 
-                // 1. Heading Refinement: Uses PAID_GEMINI_API_KEY with Gemini 3.8 Flash (6-9 words power punch headline)
+                // 1. Heading Refinement: Uses PAID_GEMINI_API_KEY with Gemini 3.8 Flash (5-10 words punch-style headline)
                 try {
                     const refined = await refineHeadlineWithPaidAI(
                         story.content.telugu,
                         story.headline.telugu,
                         story.headline.english,
                         authorName,
-                        richContext
+                        richContext,
+                        {
+                            isReporter: isReporterSubmission,
+                            originalHeadline: headline
+                        }
                     );
                     if (refined && refined.headline) {
                         story.headline.telugu = refined.headline;

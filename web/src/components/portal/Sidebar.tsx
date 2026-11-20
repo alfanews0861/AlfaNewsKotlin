@@ -3,6 +3,7 @@ import { NewsPost } from '../../types';
 import { CloudSun, Wind, Droplets, Image as ImageIcon, Flame, Smartphone, Share2, ThumbsUp, CheckCircle, ExternalLink, HelpCircle } from 'lucide-react';
 import { formatRelativeTimeTelugu } from './portalUtils';
 import { getPreferredPlayStoreUrl, openNativePlayStore } from '../../utils/playStoreHelper';
+import { getOptimizedImageUrl } from '../../utils/imageHelper';
 import PortalAdBanner from './PortalAdBanner';
 
 interface SidebarProps {
@@ -82,9 +83,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ posts, onSelectPost }) => {
     return () => { isMounted = false; };
   }, [selectedCity]);
 
-  // Find cartoon post from Firestore news items or fallback
-  const cartoonPost = posts.find((p) => p.type === 'cartoon' || p.category === 'కార్టూన్' || p.categories?.includes('కార్టూన్'));
-  const cartoonImg = cartoonPost?.mediaUrl || cartoonPost?.mediaUrls?.[0] || 'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?w=800&auto=format&fit=crop&q=60';
+  // Find latest cartoon post with a real generated image first (fall back to any cartoon post)
+  const isCartoonPost = (p: NewsPost) => p.type === 'cartoon' || p.category === 'కార్టూన్' || p.categories?.includes('కార్టూన్');
+  const cartoonPost =
+    posts.find((p) => isCartoonPost(p) && Boolean((p.mediaUrl || p.mediaUrls?.[0] || '').trim())) ||
+    posts.find(isCartoonPost);
+  const rawCartoonImg = (cartoonPost?.mediaUrl || cartoonPost?.mediaUrls?.[0] || '').trim();
+  const cartoonImg = rawCartoonImg
+    ? getOptimizedImageUrl(rawCartoonImg, 720)
+    : 'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?w=800&auto=format&fit=crop&q=60';
   const cartoonHeadline = cartoonPost?.headline?.telugu || 'నేటి రాజకీయ కార్టూన్';
   const cartoonPunchline = cartoonPost?.fullStory?.telugu || cartoonPost?.content?.telugu || 'ప్రజల నాడిని పట్టే వ్యంగ్యాస్త్రం!';
 

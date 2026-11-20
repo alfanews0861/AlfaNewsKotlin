@@ -28,6 +28,7 @@ export {
     scheduleQuoteOfTheDay,
     scheduleHistoryOfTheDay,
     generateDailyCartoon,
+    triggerDailyCartoon,
     checkSevereWeatherAlerts,
     cleanupOldNews
 } from "./auto_content_handler";

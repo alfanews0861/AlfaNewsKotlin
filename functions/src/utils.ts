@@ -147,7 +147,7 @@ export async function runWithAIFallback<T>(
         const currentKey = keysToTry[k];
         const isPaidKey = !!paidKeyClean && currentKey === paidKeyClean;
 
-        if (isPaidKey && !isPaidFallbackEnabled() && !preferPaidKey) {
+        if (isPaidKey && !isPaidFallbackEnabled() && !preferPaidKey && !isImageOperation) {
             console.warn(`[AI-SKIP] Paid key detected but PAID_FALLBACK_ENABLED is false. Skipping.`);
             continue;
         }
@@ -389,10 +389,16 @@ export function cleanTeluguHeadline(headline: string): string {
     clean = clean.replace(/\s*[:：;]\s*/g, ' ');
     clean = clean.replace(/\s+[-—]\s+/g, ' ');
 
-    // 4. Remove leading or trailing hyphens, dashes, commas, dots, colons, or spaces
-    clean = clean.replace(/^[\s.,:;!?'"“”‘’\-\—]+|[\s.,:;!?'"“”‘’\-\—]+$/g, '');
+    // 4. Remove leading unwanted punctuation (including leading '?' or '!')
+    clean = clean.replace(/^[\s.,:;!?'"“”‘’\-\—]+/, '');
 
-    // 5. Normalize multiple whitespace and trim
+    // 5. Remove trailing unwanted punctuation (dots, commas, colons, exclamation marks, quotes, dashes)
+    //    while preserving a single trailing '?' for punchy questioning headlines (e.g. "అధికారులు స్పందిస్తారా?")
+    clean = clean.replace(/[\s.,:;!'"“”‘’\-\—]+$/, '');
+    clean = clean.replace(/\s*\?+$/, '?');
+    if (clean === '?') clean = '';
+
+    // 6. Normalize multiple whitespace and trim
     clean = clean.replace(/\s+/g, ' ').trim();
 
     return sanitizeTeluguText(clean);
@@ -1505,40 +1511,84 @@ export async function generateImageWithRetry(
     aiUnused: any, // Keeping signature for compatibility
     prompt: string,
     aspectRatio: '1:1' | '9:16' | '16:9' | '3:4' | '4:3' = '9:16',
-    retriesUnused = 3
+    retriesUnused = 3,
+    fallbackPrompts: string[] = []
 ): Promise<Buffer | null> {
-    // Primary & sole image model: gemini-3.1-flash-lite-image (No fallback)
+    // Active Gemini image generation models (primary + fallbacks)
     const modelsToTry = [
-        "gemini-3.1-flash-lite-image"
+        "gemini-3.1-flash-lite-image",
+        "gemini-nano-banana-2.1",
+        "gemini-3-pro-image"
     ];
 
-    try {
-        return await runWithAIFallback(async (ai, modelName) => {
-            const finalPrompt = `${prompt} [Aspect Ratio: ${aspectRatio}]`;
+    const promptsToTry = [prompt, ...fallbackPrompts]
+        .map(p => (p || "").trim())
+        .filter(p => p.length > 0);
 
-            const genConfig: any = {
-                temperature: 0.9,
-                responseModalities: ["TEXT", "IMAGE"]
-            };
+    for (let pIdx = 0; pIdx < promptsToTry.length; pIdx++) {
+        const currentPrompt = promptsToTry[pIdx];
+        const tierLabel = pIdx === 0 ? "PRIMARY" : `FALLBACK_${pIdx}`;
 
-            const response = await ai.models.generateContent({
-                model: modelName,
-                contents: [{ role: "user", parts: [{ text: finalPrompt }] }],
-                config: genConfig
-            });
+        try {
+            const buffer = await runWithAIFallback(async (ai, modelName) => {
+                const callModel = async (useImageConfig: boolean) => {
+                    const genConfig: any = {
+                        responseModalities: ["IMAGE", "TEXT"]
+                    };
+                    if (useImageConfig) {
+                        genConfig.imageConfig = { aspectRatio };
+                    }
+                    const textInput = useImageConfig
+                        ? currentPrompt
+                        : `${currentPrompt}\nAspect Ratio: ${aspectRatio}`;
 
-            if (response.candidates && response.candidates.length > 0) {
-                const parts = response.candidates[0].content.parts;
-                const imagePart = parts.find((p: any) => p.inlineData);
-                if (imagePart && imagePart.inlineData) {
-                    return Buffer.from(imagePart.inlineData.data, 'base64');
+                    return await ai.models.generateContent({
+                        model: modelName,
+                        contents: { parts: [{ text: textInput }] },
+                        config: genConfig
+                    });
+                };
+
+                let response: any;
+                try {
+                    response = await callModel(true);
+                } catch (cfgErr: any) {
+                    const msg = String(cfgErr?.message || "").toLowerCase();
+                    // If a model/SDK endpoint rejects imageConfig with 400, retry cleanly without imageConfig
+                    if (msg.includes("imageconfig") || msg.includes("aspectratio") || msg.includes("unknown name")) {
+                        console.warn(`[IMAGE_GEN] ${modelName} rejected imageConfig (${tierLabel}), retrying without imageConfig...`);
+                        response = await callModel(false);
+                    } else {
+                        throw cfgErr;
+                    }
                 }
-            }
 
-            throw new Error(`Model ${modelName} returned no image data`);
-        }, modelsToTry);
-    } catch (e: any) {
-        console.error("[IMAGE_GEN_ERROR] Image generation failed:", e.message);
-        return null;
+                const candidate = response?.candidates?.[0];
+                const parts: any[] = candidate?.content?.parts ?? [];
+                for (const part of parts) {
+                    if (part?.inlineData?.data) {
+                        return Buffer.from(part.inlineData.data, 'base64');
+                    }
+                }
+
+                const finishReason = candidate?.finishReason || "UNKNOWN";
+                const blockReason = response?.promptFeedback?.blockReason || "NONE";
+                throw new Error(
+                    `Model ${modelName} returned no image data (${tierLabel}, finishReason=${finishReason}, blockReason=${blockReason})`
+                );
+            }, modelsToTry, true);
+
+            if (buffer) {
+                if (pIdx > 0) {
+                    console.log(`[IMAGE_GEN] Succeeded using ${tierLabel} prompt.`);
+                }
+                return buffer;
+            }
+        } catch (e: any) {
+            console.warn(`[IMAGE_GEN_WARN] ${tierLabel} prompt failed: ${e?.message || e}`);
+        }
     }
+
+    console.error(`[IMAGE_GEN_ERROR] Image generation failed after trying ${promptsToTry.length} prompt tier(s).`);
+    return null;
 }
