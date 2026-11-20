@@ -7,7 +7,7 @@ import test, { before } from "node:test";
 import assert from "node:assert/strict";
 import Module from "node:module";
 
-// Stub optional native 'sharp' binary if absent in lightweight test environments
+// Stub optional native/runtime packages if absent in lightweight test environments
 const originalLoad = (Module as any)._load;
 (Module as any)._load = function (request: string, parent: any, isMain: boolean) {
     if (request === "sharp") {
@@ -17,15 +17,37 @@ const originalLoad = (Module as any)._load;
             return () => ({});
         }
     }
+    if (request === "firebase-admin") {
+        try {
+            return originalLoad.call(this, request, parent, isMain);
+        } catch {
+            return { apps: [], initializeApp: () => ({}), firestore: () => ({}), storage: () => ({}) };
+        }
+    }
+    if (request === "@google/genai") {
+        try {
+            return originalLoad.call(this, request, parent, isMain);
+        } catch {
+            return {
+                GoogleGenAI: class {},
+                Type: { OBJECT: "OBJECT", STRING: "STRING", BOOLEAN: "BOOLEAN", ARRAY: "ARRAY", INTEGER: "INTEGER" },
+                ThinkingLevel: { MINIMAL: "MINIMAL", LOW: "LOW", MEDIUM: "MEDIUM", HIGH: "HIGH" }
+            };
+        }
+    }
     return originalLoad.call(this, request, parent, isMain);
 };
 
 let cleanTeluguHeadline: typeof import("./utils").cleanTeluguHeadline;
 let isEditorialVerdictOrFlattery: typeof import("./utils").isEditorialVerdictOrFlattery;
 let isTeluguScript: typeof import("./utils").isTeluguScript;
+let SAFETY_SCAN_MAX_OUTPUT_TOKENS: typeof import("./utils").SAFETY_SCAN_MAX_OUTPUT_TOKENS;
 let CANONICAL_HEADLINE_RULE: typeof import("./geminiService").CANONICAL_HEADLINE_RULE;
 let REPORTER_PUNCH_HEADLINE_RULE: typeof import("./geminiService").REPORTER_PUNCH_HEADLINE_RULE;
 let buildHeadlineRefinementPrompt: typeof import("./geminiService").buildHeadlineRefinementPrompt;
+let buildPaidHeadlineConfig: typeof import("./geminiService").buildPaidHeadlineConfig;
+let buildPaidVocalConfig: typeof import("./geminiService").buildPaidVocalConfig;
+let PAID_REFINEMENT_MAX_OUTPUT_TOKENS: typeof import("./geminiService").PAID_REFINEMENT_MAX_OUTPUT_TOKENS;
 let getCategorySystemInstruction: typeof import("./categories").getCategorySystemInstruction;
 
 before(async () => {
@@ -36,9 +58,13 @@ before(async () => {
     cleanTeluguHeadline = utils.cleanTeluguHeadline;
     isEditorialVerdictOrFlattery = utils.isEditorialVerdictOrFlattery;
     isTeluguScript = utils.isTeluguScript;
+    SAFETY_SCAN_MAX_OUTPUT_TOKENS = utils.SAFETY_SCAN_MAX_OUTPUT_TOKENS;
     CANONICAL_HEADLINE_RULE = gemini.CANONICAL_HEADLINE_RULE;
     REPORTER_PUNCH_HEADLINE_RULE = gemini.REPORTER_PUNCH_HEADLINE_RULE;
     buildHeadlineRefinementPrompt = gemini.buildHeadlineRefinementPrompt;
+    buildPaidHeadlineConfig = gemini.buildPaidHeadlineConfig;
+    buildPaidVocalConfig = gemini.buildPaidVocalConfig;
+    PAID_REFINEMENT_MAX_OUTPUT_TOKENS = gemini.PAID_REFINEMENT_MAX_OUTPUT_TOKENS;
     getCategorySystemInstruction = categories.getCategorySystemInstruction;
 });
 
@@ -151,4 +177,24 @@ test("valid punch headlines pass script, word-count, and flattery safeguards wit
 
     // Zero regression: actual unattributed flattery slogans are still rejected
     assert.equal(isEditorialVerdictOrFlattery("పేదల పెన్నిధిగా నిలిచిన స్థానిక నాయకుడు"), true);
+});
+
+test("paid headline and vocal configs use 2048 maxOutputTokens and Gemini 3+ thinkingLevel LOW (never thinkingBudget)", () => {
+    assert.equal(PAID_REFINEMENT_MAX_OUTPUT_TOKENS, 2048);
+    assert.equal(SAFETY_SCAN_MAX_OUTPUT_TOKENS, 2048);
+
+    const dummySchema = { type: "OBJECT", properties: {} };
+    const headlineConfig = buildPaidHeadlineConfig("sys", 0.5, dummySchema);
+    assert.equal(headlineConfig.maxOutputTokens, 2048);
+    assert.equal(headlineConfig.temperature, 0.5);
+    assert.equal(headlineConfig.responseMimeType, "application/json");
+    assert.equal(headlineConfig.thinkingConfig.thinkingLevel, "LOW");
+    assert.equal("thinkingBudget" in headlineConfig.thinkingConfig, false);
+
+    const vocalConfig = buildPaidVocalConfig(dummySchema);
+    assert.equal(vocalConfig.maxOutputTokens, 2048);
+    assert.equal(vocalConfig.temperature, 0.3);
+    assert.equal(vocalConfig.responseMimeType, "application/json");
+    assert.equal(vocalConfig.thinkingConfig.thinkingLevel, "LOW");
+    assert.equal("thinkingBudget" in vocalConfig.thinkingConfig, false);
 });

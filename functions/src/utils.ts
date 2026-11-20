@@ -12,6 +12,7 @@ export const PRO_MODEL = "gemini-3.5-flash-lite";
 export const FLASH_MODEL = "gemini-3.5-flash-lite";
 export const IMAGEN_MODEL = "gemini-3.1-flash-lite-image";
 export const IMAGEN_FAST_MODEL = "gemini-3.1-flash-lite-image";
+export const SAFETY_SCAN_MAX_OUTPUT_TOKENS = 2048;
 
 /**
  * Converts any string into a safe FCM topic name.
@@ -991,7 +992,7 @@ EVALUATION RULES:
                     responseMimeType: "application/json",
                     responseSchema: schema,
                     temperature: 0.1,
-                    maxOutputTokens: 512
+                    maxOutputTokens: SAFETY_SCAN_MAX_OUTPUT_TOKENS
                 }
             } as any);
 
@@ -1261,7 +1262,7 @@ EVALUATION RULES:
                         responseMimeType: "application/json",
                         responseSchema: schema,
                         temperature: 0.1,
-                        maxOutputTokens: 512
+                        maxOutputTokens: SAFETY_SCAN_MAX_OUTPUT_TOKENS
                     }
                 } as any);
 

@@ -1,7 +1,38 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import { runWithAIFallback, parseAIJson, PRO_MODEL, sanitizeTeluguText, cleanTeluguHeadline, formatIntoParagraphs, isEditorialVerdictOrFlattery, isTeluguScript } from "./utils";
 
 const PRIMARY_MODEL = PRO_MODEL;
+export const PAID_REFINEMENT_MAX_OUTPUT_TOKENS = 2048;
+const LOW_THINKING_LEVEL = ThinkingLevel?.LOW ?? ("LOW" as ThinkingLevel);
+
+export function buildPaidHeadlineConfig(
+    systemInstruction: string,
+    temperature: number,
+    responseSchema: Record<string, any>
+) {
+    return {
+        systemInstruction,
+        temperature,
+        maxOutputTokens: PAID_REFINEMENT_MAX_OUTPUT_TOKENS,
+        thinkingConfig: {
+            thinkingLevel: LOW_THINKING_LEVEL
+        },
+        responseMimeType: "application/json",
+        responseSchema
+    };
+}
+
+export function buildPaidVocalConfig(responseSchema: Record<string, any>) {
+    return {
+        maxOutputTokens: PAID_REFINEMENT_MAX_OUTPUT_TOKENS,
+        temperature: 0.3,
+        thinkingConfig: {
+            thinkingLevel: LOW_THINKING_LEVEL
+        },
+        responseMimeType: "application/json",
+        responseSchema
+    };
+}
 
 /**
  * Canonical Single Source of Truth for Telugu Headline Generation.
@@ -126,13 +157,7 @@ export async function refineHeadlineWithPaidAI(
                 const response = await ai.models.generateContent({
                     model: modelName,
                     contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-                    config: {
-                        systemInstruction,
-                        temperature,
-                        maxOutputTokens: 512,
-                        responseMimeType: "application/json",
-                        responseSchema: headlineSchema
-                    }
+                    config: buildPaidHeadlineConfig(systemInstruction, temperature, headlineSchema)
                 } as any);
 
                 const text = response.text || response.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -215,12 +240,7 @@ export async function refineVocalScriptWithPaidAI(
         const response = await ai.models.generateContent({
             model: "gemini-3.8-flash",
             contents: [{ role: "user", parts: [{ text: prompt }] }],
-            config: {
-                maxOutputTokens: 512,
-                temperature: 0.3,
-                responseMimeType: "application/json",
-                responseSchema: vocalSchema
-            } as any
+            config: buildPaidVocalConfig(vocalSchema) as any
         });
 
         const text = response.text || response.candidates?.[0]?.content?.parts?.[0]?.text;

@@ -913,9 +913,10 @@ NOTIFICATION & PRIORITY RULES:
                 const authorName = story.reporter?.name || actualPostData?.socialAuthorName || actualPostData?.reporter?.name;
                 const richContext = story.fullStory?.telugu || actualPostData?.content?.telugu || actualPostData?.content || content || "";
 
-                // 1. Heading Refinement: Uses PAID_GEMINI_API_KEY with Gemini 3.8 Flash (5-10 words punch-style headline)
-                try {
-                    const refined = await refineHeadlineWithPaidAI(
+                // Run Heading Refinement and Voiceover Script Refinement in parallel to cut processing latency
+                const [refined, paidVocal] = await Promise.all([
+                    // 1. Heading Refinement: Uses PAID_GEMINI_API_KEY with Gemini 3.8 Flash (5-10 words punch-style headline)
+                    refineHeadlineWithPaidAI(
                         story.content.telugu,
                         story.headline.telugu,
                         story.headline.english,
@@ -925,29 +926,29 @@ NOTIFICATION & PRIORITY RULES:
                             isReporter: isReporterSubmission,
                             originalHeadline: headline
                         }
-                    );
-                    if (refined && refined.headline) {
-                        story.headline.telugu = refined.headline;
-                        if (refined.headlineEn) {
-                            story.headline.english = refined.headlineEn;
-                        }
-                    }
-                } catch (e: any) {
-                    console.warn(`[PAID_HEADLINE_WARN] Failed to refine headline for story: ${e?.message || e}`);
-                }
-
-                // 2. Voiceover Script Refinement: Uses PAID_GEMINI_API_KEY with Gemini 3.8 Flash (ONLY the 60-90 words spoken anchor text)
-                try {
-                    const paidVocal = await refineVocalScriptWithPaidAI(
+                    ).catch((e: any) => {
+                        console.warn(`[PAID_HEADLINE_WARN] Failed to refine headline for story: ${e?.message || e}`);
+                        return null;
+                    }),
+                    // 2. Voiceover Script Refinement: Uses PAID_GEMINI_API_KEY with Gemini 3.8 Flash (ONLY the 60-90 words spoken anchor text)
+                    refineVocalScriptWithPaidAI(
                         story.headline.telugu,
                         story.content.telugu,
                         story.vocalContent
-                    );
-                    if (paidVocal) {
-                        story.vocalContent = paidVocal;
+                    ).catch((e: any) => {
+                        console.warn(`[PAID_VOCAL_WARN] Failed to refine vocal script: ${e?.message || e}`);
+                        return null;
+                    })
+                ]);
+
+                if (refined && refined.headline) {
+                    story.headline.telugu = refined.headline;
+                    if (refined.headlineEn) {
+                        story.headline.english = refined.headlineEn;
                     }
-                } catch (e: any) {
-                    console.warn(`[PAID_VOCAL_WARN] Failed to refine vocal script: ${e?.message || e}`);
+                }
+                if (paidVocal) {
+                    story.vocalContent = paidVocal;
                 }
             }
         }
