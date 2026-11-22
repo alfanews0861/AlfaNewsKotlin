@@ -533,17 +533,25 @@ fun MainScreen(
                             scope.launch {
                                 var post: NewsPost? = null
                                 try {
-                                    val doc = try {
-                                        kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                                            com.alfanews.telugu.services.FirebaseService.db.collection("news").document(targetPostId).get().await()
-                                        } ?: com.alfanews.telugu.services.FirebaseService.db.collection("news").document(targetPostId).get(com.google.firebase.firestore.Source.CACHE).await()
-                                    } catch (_: Exception) {
-                                        try {
-                                            com.alfanews.telugu.services.FirebaseService.db.collection("news").document(targetPostId).get(com.google.firebase.firestore.Source.CACHE).await()
-                                        } catch (_: Exception) { null }
-                                    }
-                                    if (doc != null && doc.exists()) {
-                                        post = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, doc.data ?: emptyMap(), language)
+                                    val activeCol = com.alfanews.telugu.utils.EditionRegistry.getCollectionForEdition(
+                                        com.alfanews.telugu.utils.PreferenceManager.getInstance(context).getEffectiveStateCode(),
+                                        language
+                                    )
+                                    val candidateCollections = (listOf(activeCol, "news") + com.alfanews.telugu.utils.EditionRegistry.ALL_COLLECTIONS).distinct()
+                                    for (colName in candidateCollections) {
+                                        val doc = try {
+                                            kotlinx.coroutines.withTimeoutOrNull(3500L) {
+                                                com.alfanews.telugu.services.FirebaseService.db.collection(colName).document(targetPostId).get().await()
+                                            } ?: com.alfanews.telugu.services.FirebaseService.db.collection(colName).document(targetPostId).get(com.google.firebase.firestore.Source.CACHE).await()
+                                        } catch (_: Exception) {
+                                            try {
+                                                com.alfanews.telugu.services.FirebaseService.db.collection(colName).document(targetPostId).get(com.google.firebase.firestore.Source.CACHE).await()
+                                            } catch (_: Exception) { null }
+                                        }
+                                        if (doc != null && doc.exists()) {
+                                            post = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, doc.data ?: emptyMap(), language)
+                                            break
+                                        }
                                     }
                                 } catch (e: Exception) {
                                     android.util.Log.e("MainScreen", "Error opening post by ID: ${e.message}")

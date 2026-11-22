@@ -103,6 +103,9 @@ import com.google.android.gms.ads.nativead.NativeAd
 import com.alfanews.telugu.ui.theme.Mallanna
 import com.alfanews.telugu.ui.theme.Poppins
 import com.alfanews.telugu.ui.theme.Ramabhadra
+import com.alfanews.telugu.ui.theme.getBodyFontFamily
+import com.alfanews.telugu.ui.theme.getHeadlineFontFamily
+import com.alfanews.telugu.utils.EditionRegistry
 import com.google.firebase.firestore.FieldValue
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
@@ -156,8 +159,12 @@ fun NewsCardView(
     var hasReadFinished by remember(post.id) { mutableStateOf(false) }
     var startTime by remember(post.id) { mutableStateOf<Long?>(null) }
 
-    val headlineText = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
-    val contentText = if (language == Language.TELUGU) post.content.telugu else post.content.english
+    val postCollection = remember(post.id, post.stateCode, post.state, post.district, post.language) {
+        EditionRegistry.getCollectionForPost(post)
+    }
+
+    val headlineText = post.headline.getForLanguage(language)
+    val contentText = post.content.getForLanguage(language)
 
     val isEnglish = language == Language.ENGLISH
     val headlineSize = if (isEnglish) 19.sp else 22.sp
@@ -165,18 +172,15 @@ fun NewsCardView(
     val contentSize = if (isEnglish) 16.sp else 19.sp
     val contentLineHeight = if (isEnglish) 23.sp else 26.sp
 
-    val englishRegex = remember { Regex("[a-zA-Z]") }
-
-    val headlineFontFamily = remember(language, headlineText) {
-        if (language == Language.ENGLISH || (headlineText != "" && headlineText.contains(englishRegex))) Poppins else Ramabhadra
+    val headlineFontFamily = remember(language) {
+        getHeadlineFontFamily(language)
     }
 
-    val headlineFontWeight = remember(language, headlineText) {
-        if (language == Language.ENGLISH || (headlineText != "" && headlineText.contains(englishRegex))) FontWeight.Bold else FontWeight.Normal
-    }
+    // Strict Zero-Bold Policy across all scripts (Ek Type rounded headline fonts are natively weighted)
+    val headlineFontWeight = FontWeight.Normal
 
-    val contentFontFamily = remember(language, contentText) {
-        if (language == Language.ENGLISH || (contentText != "" && contentText.contains(englishRegex))) Poppins else Mallanna
+    val contentFontFamily = remember(language) {
+        getBodyFontFamily(language)
     }
 
     val contentParagraphs = remember(contentText) {
@@ -186,8 +190,8 @@ fun NewsCardView(
     }
 
     val hasSubstantialFullStory = remember(language, post.fullStory, post.content) {
-        val storyText = if (language == Language.ENGLISH) post.fullStory.english else post.fullStory.telugu
-        val shortText = if (language == Language.ENGLISH) post.content.english else post.content.telugu
+        val storyText = post.fullStory.getForLanguage(language)
+        val shortText = post.content.getForLanguage(language)
         if (storyText.isBlank()) {
             false
         } else {
@@ -223,9 +227,11 @@ fun NewsCardView(
         if (isActive) {
             startTime = System.currentTimeMillis()
             // 🚀 Pre-warm news card image on Google Edge CDN while user reads the card
+            val prewarmCol = EditionRegistry.getCollectionForPost(post)
+            val prewarmSuffix = if (prewarmCol != "news") "?col=$prewarmCol" else ""
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                 try {
-                    val conn = (java.net.URL("https://alfanews.app/news-card/${post.id}.jpg").openConnection() as java.net.HttpURLConnection).apply {
+                    val conn = (java.net.URL("https://alfanews.app/news-card/${post.id}.jpg$prewarmSuffix").openConnection() as java.net.HttpURLConnection).apply {
                         requestMethod = "GET"
                         connectTimeout = 3000
                         readTimeout = 3000
@@ -377,9 +383,9 @@ fun NewsCardView(
                         text = contentText,
                         color = Color.White,
                         fontSize = if (isCartoonCard) 26.sp else 23.sp,
-                        fontFamily = Ramabhadra,
+                        fontFamily = headlineFontFamily,
                         lineHeight = if (isCartoonCard) 36.sp else 33.sp,
-                        fontWeight = if (isCartoonCard) FontWeight.Bold else FontWeight.Normal,
+                        fontWeight = FontWeight.Normal,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.align(Alignment.BottomCenter).padding(start = 24.dp, end = 80.dp, bottom = 48.dp)
                     )
@@ -405,7 +411,7 @@ fun NewsCardView(
                                     try {
                                         if (!wasLiked) {
                                             // Liking: High positive signal (weight = 3)
-                                            FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(1))
+                                            FirebaseService.db.collection(postCollection).document(post.id).update("likes", FieldValue.increment(1))
                                             AnalyticsService.logNewsLike(post, liked = true)
                                             AnalyticsService.logPostEngagement(post, weight = 3)
                                             val primaryCat = post.categories.firstOrNull { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
@@ -415,7 +421,7 @@ fun NewsCardView(
                                             }
                                         } else {
                                             // Unliking — only decrement if real likes > 0
-                                            FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(-1))
+                                            FirebaseService.db.collection(postCollection).document(post.id).update("likes", FieldValue.increment(-1))
                                             AnalyticsService.logNewsLike(post, liked = false)
                                         }
                                     } catch (_: Exception) {}
@@ -727,7 +733,7 @@ fun NewsCardView(
                                         try {
                                             if (!wasLiked) {
                                                 // Liking: High positive signal (weight = 3)
-                                                FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(1))
+                                                FirebaseService.db.collection(postCollection).document(post.id).update("likes", FieldValue.increment(1))
                                                 AnalyticsService.logNewsLike(post, liked = true)
                                                 AnalyticsService.logPostEngagement(post, weight = 3)
                                                 val primaryCat = post.categories.firstOrNull { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
@@ -736,7 +742,7 @@ fun NewsCardView(
                                                     try { PreferenceManager.getInstance(context).trackCategoryRead(primaryCat) } catch (e: Exception) { }
                                                 }
                                             } else {
-                                                FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(-1))
+                                                FirebaseService.db.collection(postCollection).document(post.id).update("likes", FieldValue.increment(-1))
                                                 AnalyticsService.logNewsLike(post, liked = false)
                                             }
                                         } catch (_: Exception) {}
@@ -1076,7 +1082,12 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
                 !post.reporter.id.isNullOrBlank() && !post.reporter.id.startsWith("BOT_") && !post.reporter.id.startsWith("SYSTEM_") && post.reporter.id != "ALFA_DESK" -> post.reporter.id
                 else -> null
             }
-            val refQuery = if (!reporterRefId.isNullOrEmpty()) "?ref=$reporterRefId" else ""
+            val postCol = EditionRegistry.getCollectionForPost(post)
+            val shareParams = buildList {
+                if (!reporterRefId.isNullOrEmpty()) add("ref=$reporterRefId")
+                if (postCol != "news") add("col=$postCol")
+            }
+            val refQuery = if (shareParams.isNotEmpty()) "?${shareParams.joinToString("&")}" else ""
             val shareUrl = "https://alfanews.app/news/${post.id}$refQuery"
             val shareText = customShareText ?: shareUrl
 
@@ -1096,7 +1107,7 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
             }
             context.startActivity(chooser)
 
-            FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1)).addOnSuccessListener { setShareCount(1) }
+            FirebaseService.db.collection(EditionRegistry.getCollectionForPost(post)).document(post.id).update("shares", FieldValue.increment(1)).addOnSuccessListener { setShareCount(1) }
             AnalyticsService.logNewsShare(post)
             AnalyticsService.logPostEngagement(post, weight = 4)
             val primaryCat = post.categories.firstOrNull { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
@@ -1615,6 +1626,10 @@ fun SurveyCardContent(
     var selectedAnswersTexts by remember(post.id) { mutableStateOf(mapOf<String, String>()) }
     var currentPageIndex by remember(post.id) { mutableIntStateOf(0) }
 
+    val surveyCollection = remember(post.id, post.stateCode, post.state, post.district, post.language) {
+        EditionRegistry.getCollectionForPost(post)
+    }
+
     // Check if user has voted (runs as a proper coroutine, not inside DisposableEffect)
     LaunchedEffect(post.id, currentUser?.id) {
         if (isExpired) {
@@ -1624,7 +1639,7 @@ fun SurveyCardContent(
         val userId = currentUser?.id
         if (userId != null) {
             try {
-                val doc = FirebaseService.db.collection("news").document(post.id)
+                val doc = FirebaseService.db.collection(surveyCollection).document(post.id)
                     .collection("voted_users").document(userId).get().await()
                 if (doc.exists()) {
                     hasVoted = true
@@ -1638,7 +1653,7 @@ fun SurveyCardContent(
 
     // Setup real-time listener for votes (DisposableEffect handles lifecycle properly)
     DisposableEffect(post.id) {
-        val listenerRegistration = FirebaseService.db.collection("news").document(post.id)
+        val listenerRegistration = FirebaseService.db.collection(surveyCollection).document(post.id)
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
 
@@ -1743,23 +1758,24 @@ fun SurveyCardContent(
                 }
 
                 // Survey Main Title (Headline)
-                val headlineText = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
+                val headlineText = post.headline.getForLanguage(language)
                 Text(
                     text = headlineText,
                     fontSize = 24.sp,
-                    fontFamily = Ramabhadra,
-                    fontWeight = FontWeight.Bold,
+                    fontFamily = getHeadlineFontFamily(language),
+                    fontWeight = FontWeight.Normal,
                     color = MaterialTheme.colorScheme.onSurface,
                     lineHeight = 32.sp
                 )
 
                 // Survey Details (Content)
-                val contentText = if (language == Language.TELUGU) post.content.telugu else post.content.english
+                val contentText = post.content.getForLanguage(language)
                 if (contentText.isNotEmpty()) {
                     Text(
                         text = contentText,
                         fontSize = 15.sp,
-                        fontFamily = Mallanna,
+                        fontFamily = getBodyFontFamily(language),
+                        fontWeight = FontWeight.Normal,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 22.sp
                     )
@@ -1854,6 +1870,7 @@ fun SurveyCardContent(
                                         if (!post.isMultiPage) {
                                             submitSurveyVotes(
                                                 postId = post.id,
+                                                collectionName = surveyCollection,
                                                 userId = currentUser?.id,
                                                 answers = mapOf(currentQuestion.id to option.id),
                                                 onSuccess = { hasVoted = true },
@@ -1876,6 +1893,7 @@ fun SurveyCardContent(
                                         if (!post.isMultiPage) {
                                             submitSurveyVotes(
                                                 postId = post.id,
+                                                collectionName = surveyCollection,
                                                 userId = currentUser?.id,
                                                 answers = mapOf(currentQuestion.id to option.id),
                                                 onSuccess = { hasVoted = true },
@@ -1924,6 +1942,7 @@ fun SurveyCardContent(
                                     if (nextQId == "END") {
                                         submitSurveyVotes(
                                             postId = post.id,
+                                            collectionName = surveyCollection,
                                             userId = currentUser?.id,
                                             answers = selectedAnswers,
                                             onSuccess = { hasVoted = true },
@@ -1951,6 +1970,7 @@ fun SurveyCardContent(
                                             else {
                                                 submitSurveyVotes(
                                                     postId = post.id,
+                                                    collectionName = surveyCollection,
                                                     userId = currentUser?.id,
                                                     answers = selectedAnswers,
                                                     onSuccess = { hasVoted = true },
@@ -1967,6 +1987,7 @@ fun SurveyCardContent(
                                         } else {
                                             submitSurveyVotes(
                                                 postId = post.id,
+                                                collectionName = surveyCollection,
                                                 userId = currentUser?.id,
                                                 answers = selectedAnswers,
                                                 onSuccess = { hasVoted = true },
@@ -2138,7 +2159,7 @@ fun SurveyCardContent(
 
                     // Format detailed survey results share text
                     val customShareText = remember(post, liveVotes, language, displayedVotesCount) {
-                        val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
+                        val headline = post.headline.getForLanguage(language)
                         val sb = java.lang.StringBuilder()
                         sb.append(headline).append("\n\n")
                         
@@ -2171,7 +2192,12 @@ fun SurveyCardContent(
                             !post.reporter.id.isNullOrBlank() && !post.reporter.id.startsWith("BOT_") && !post.reporter.id.startsWith("SYSTEM_") && post.reporter.id != "ALFA_DESK" -> post.reporter.id
                             else -> null
                         }
-                        val refQ = if (!repRef.isNullOrEmpty()) "?ref=$repRef" else ""
+                        val postCol = EditionRegistry.getCollectionForPost(post)
+                        val shareParams = buildList {
+                            if (!repRef.isNullOrEmpty()) add("ref=$repRef")
+                            if (postCol != "news") add("col=$postCol")
+                        }
+                        val refQ = if (shareParams.isNotEmpty()) "?${shareParams.joinToString("&")}" else ""
                         sb.append("https://alfanews.app/news/${post.id}$refQ")
                         sb.toString()
                     }
@@ -2219,6 +2245,7 @@ fun SurveyCardContent(
 
 private fun submitSurveyVotes(
     postId: String,
+    collectionName: String = "news",
     userId: String?,
     answers: Map<String, String>,
     onSuccess: () -> Unit,
@@ -2239,7 +2266,7 @@ private fun submitSurveyVotes(
             val batch = db.batch()
             
             // 1. Create voted_user receipt
-            val voteRecordRef = db.collection("news").document(postId)
+            val voteRecordRef = db.collection(collectionName).document(postId)
                 .collection("voted_users").document(userId)
             
             val recordData = mapOf(
@@ -2256,7 +2283,7 @@ private fun submitSurveyVotes(
             }
             updates["realVotesCount"] = FieldValue.increment(1)
             
-            val postRef = db.collection("news").document(postId)
+            val postRef = db.collection(collectionName).document(postId)
             batch.update(postRef, updates)
             
             batch.commit().await()
@@ -2286,6 +2313,9 @@ fun InlineMicroPoll(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val prefs = remember(post.id) { PreferenceManager.getInstance(context) }
+    val pollCollection = remember(post.id, post.stateCode, post.state, post.district, post.language) {
+        EditionRegistry.getCollectionForPost(post)
+    }
     
     val question = post.surveyQuestions.firstOrNull() ?: return
     val isExpired = post.isExpired
@@ -2298,7 +2328,7 @@ fun InlineMicroPoll(
         val userId = currentUser?.id
         if (userId != null && selectedOptionId == null) {
             try {
-                val doc = FirebaseService.db.collection("news").document(post.id)
+                val doc = FirebaseService.db.collection(pollCollection).document(post.id)
                     .collection("voted_users").document(userId).get().await()
                 if (doc.exists()) {
                     val ans = doc.get("answers") as? Map<*, *>
@@ -2313,7 +2343,7 @@ fun InlineMicroPoll(
     val hasVoted = selectedOptionId != null || isExpired
 
     DisposableEffect(post.id) {
-        val reg = FirebaseService.db.collection("news").document(post.id)
+        val reg = FirebaseService.db.collection(pollCollection).document(post.id)
             .addSnapshotListener { snap, err ->
                 if (err != null || snap == null || !snap.exists()) return@addSnapshotListener
                 val vRaw = snap.get("votes") as? Map<*, *>
@@ -2462,7 +2492,7 @@ fun InlineMicroPoll(
                                 try {
                                     val db = FirebaseService.db
                                     val batch = db.batch()
-                                    val postRef = db.collection("news").document(post.id)
+                                    val postRef = db.collection(pollCollection).document(post.id)
                                     batch.update(
                                         postRef,
                                         mapOf(
@@ -2528,25 +2558,11 @@ fun FullStoryBottomSheet(
     var isSharing by remember { mutableStateOf(false) }
     var fullscreenStoryImage by remember(post.id) { mutableStateOf<String?>(null) }
     val isEnglish = language == Language.ENGLISH
-    val headlineText = if (isEnglish) {
-        post.headline.english.ifBlank { post.headline.telugu }
-    } else {
-        post.headline.telugu.ifBlank { post.headline.english }
-    }
+    val headlineText = post.headline.getForLanguage(language)
+    val fullStoryRaw = post.fullStory.getForLanguage(language).ifBlank { post.content.getForLanguage(language) }
 
-    val fullStoryRaw = if (isEnglish) {
-        post.fullStory.english.ifBlank { post.content.english.ifBlank { post.fullStory.telugu } }
-    } else {
-        post.fullStory.telugu.ifBlank { post.content.telugu.ifBlank { post.fullStory.english } }
-    }
-
-    val englishRegex = remember { Regex("[a-zA-Z]") }
-    val headlineFontFamily = remember(isEnglish, headlineText) {
-        if (isEnglish || (headlineText.isNotBlank() && headlineText.contains(englishRegex))) Poppins else Ramabhadra
-    }
-    val contentFontFamily = remember(isEnglish, fullStoryRaw) {
-        if (isEnglish || (fullStoryRaw.isNotBlank() && fullStoryRaw.contains(englishRegex))) Poppins else Mallanna
-    }
+    val headlineFontFamily = remember(language) { getHeadlineFontFamily(language) }
+    val contentFontFamily = remember(language) { getBodyFontFamily(language) }
 
     val paragraphs = remember(fullStoryRaw) {
         val splitLines = fullStoryRaw.split(Regex("(?:\r?\n\\s*)+"))
@@ -2780,8 +2796,8 @@ fun FullStoryBottomSheet(
                         fontSize = if (isEnglish) 20.sp else 22.sp,
                         lineHeight = if (isEnglish) 28.sp else 30.sp,
                         fontFamily = headlineFontFamily,
-                        // Ramabhadra font is inherently bold — no extra FontWeight.Bold needed for Telugu
-                        fontWeight = if (isEnglish) FontWeight.Bold else FontWeight.Normal,
+                        // Strict Zero-Bold Policy across all scripts
+                        fontWeight = FontWeight.Normal,
                         platformStyle = PlatformTextStyle(includeFontPadding = false)
                     ),
                     color = MaterialTheme.colorScheme.onSurface
@@ -2802,7 +2818,7 @@ fun FullStoryBottomSheet(
                             text = reporterName,
                             style = TextStyle(
                                 fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
+                                fontWeight = FontWeight.Normal,
                                 color = MaterialTheme.colorScheme.primary
                             )
                         )
@@ -2847,6 +2863,7 @@ fun FullStoryBottomSheet(
                             fontSize = if (isEnglish) 16.sp else 18.sp,
                             lineHeight = if (isEnglish) 24.sp else 27.sp,
                             fontFamily = contentFontFamily,
+                            fontWeight = FontWeight.Normal,
                             platformStyle = PlatformTextStyle(includeFontPadding = false)
                         ),
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f)
@@ -2867,7 +2884,12 @@ fun FullStoryBottomSheet(
                                     !post.reporter.id.isNullOrBlank() && !post.reporter.id.startsWith("BOT_") && !post.reporter.id.startsWith("SYSTEM_") && post.reporter.id != "ALFA_DESK" -> post.reporter.id
                                     else -> null
                                 }
-                                val refQ = if (!repRef.isNullOrEmpty()) "?ref=$repRef" else ""
+                                val postCol = EditionRegistry.getCollectionForPost(post)
+                                val shareParams = buildList {
+                                    if (!repRef.isNullOrEmpty()) add("ref=$repRef")
+                                    if (postCol != "news") add("col=$postCol")
+                                }
+                                val refQ = if (shareParams.isNotEmpty()) "?${shareParams.joinToString("&")}" else ""
                                 val deepLinkUrl = "https://alfanews.app/news/${post.id}$refQ"
 
                                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
@@ -2888,7 +2910,7 @@ fun FullStoryBottomSheet(
                                 context.startActivity(chooser)
 
                                 try {
-                                    FirebaseService.db.collection("news").document(post.id)
+                                    FirebaseService.db.collection(EditionRegistry.getCollectionForPost(post)).document(post.id)
                                         .update("shares", FieldValue.increment(1))
                                     AnalyticsService.logNewsShare(post)
                                     AnalyticsService.logPostEngagement(post, weight = 4)
@@ -2920,9 +2942,9 @@ fun FullStoryBottomSheet(
                             text = if (isEnglish) "Preparing..." else "సిద్ధమవుతోంది...",
                             style = TextStyle(
                                 fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold,
+                                fontWeight = FontWeight.Normal,
                                 color = Color.White,
-                                fontFamily = if (isEnglish) Poppins else Ramabhadra
+                                fontFamily = headlineFontFamily
                             )
                         )
                     } else {
@@ -2937,9 +2959,9 @@ fun FullStoryBottomSheet(
                             text = if (isEnglish) "Share on WhatsApp" else "వాట్సాప్‌లో షేర్ చేయండి",
                             style = TextStyle(
                                 fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
+                                fontWeight = FontWeight.Normal,
                                 color = Color.White,
-                                fontFamily = if (isEnglish) Poppins else Ramabhadra
+                                fontFamily = headlineFontFamily
                             )
                         )
                     }

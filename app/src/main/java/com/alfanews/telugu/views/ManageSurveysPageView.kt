@@ -45,20 +45,28 @@ fun ManageSurveysPageView(
     var loading by remember { mutableStateOf(true) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val prefs = remember { com.alfanews.telugu.utils.PreferenceManager.getInstance(context) }
+    val isAdminOrDesk = currentUser?.role in listOf(UserRole.ADMIN, UserRole.EDITOR, UserRole.NEWS_DESK)
+    val defaultCollection = remember(currentUser?.state, currentUser?.district) {
+        val st = com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(currentUser?.state, currentUser?.district)
+            ?: prefs.getEffectiveStateCode()
+        com.alfanews.telugu.utils.EditionRegistry.getCollectionForEdition(st, null)
+    }
+    var selectedCollection by remember(defaultCollection) { mutableStateOf(defaultCollection) }
 
     var showDeleteDialog by remember { mutableStateOf<String?>(null) }
     var showResultsDialog by remember { mutableStateOf<NewsPost?>(null) }
     var showDetailPreviewDialog by remember { mutableStateOf<NewsPost?>(null) }
 
     // ✅ Fallback timeout so spinner never hangs
-    LaunchedEffect(currentUser) {
+    LaunchedEffect(currentUser, selectedCollection) {
         kotlinx.coroutines.delay(4000L)
         if (loading) loading = false
     }
 
     // ✅ REAL-TIME LISTENER for Surveys
-    DisposableEffect(currentUser) {
-        val query = FirebaseService.db.collection("news")
+    DisposableEffect(currentUser, selectedCollection) {
+        val query = FirebaseService.db.collection(selectedCollection)
             .whereEqualTo("type", "survey")
 
         val listener = query.limit(50).addSnapshotListener { snapshot, e ->
@@ -81,7 +89,7 @@ fun ManageSurveysPageView(
     fun approveSurvey(postId: String) {
         scope.launch {
             try {
-                FirebaseService.db.collection("news").document(postId)
+                FirebaseService.db.collection(selectedCollection).document(postId)
                     .update(mapOf(
                         "approved" to true,
                         "status" to "PUBLISHED"
@@ -102,7 +110,7 @@ fun ManageSurveysPageView(
     fun deleteSurvey(postId: String) {
         scope.launch {
             try {
-                FirebaseService.db.collection("news").document(postId).delete().await()
+                FirebaseService.db.collection(selectedCollection).document(postId).delete().await()
                 Toast.makeText(context, "సర్వే తొలగించబడింది", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
                 if (e !is kotlinx.coroutines.CancellationException) {
@@ -158,6 +166,36 @@ fun ManageSurveysPageView(
                         text = stringResource(R.string.post_survey),
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        if (isAdminOrDesk) {
+            val collectionOptions = listOf(
+                "news" to "AP/TS (TE)",
+                "news_hi" to "UP/UK/HP (HI)",
+                "news_pa" to "PB (PA)",
+                "news_gu" to "GJ (GU)",
+                "news_en" to "GA/MN (EN)"
+            )
+            androidx.compose.foundation.lazy.LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(collectionOptions) { (colKey, label) ->
+                    FilterChip(
+                        selected = selectedCollection == colKey,
+                        onClick = {
+                            if (selectedCollection != colKey) {
+                                selectedCollection = colKey
+                                surveys = emptyList()
+                                loading = true
+                            }
+                        },
+                        label = { Text(label, fontSize = 12.sp) }
                     )
                 }
             }

@@ -10,6 +10,7 @@ import { updatePageSeo } from '../../utils/seoManager';
 import { getNewsUrl, navigateTo, getTopicUrl } from '../../utils/router';
 import { ALL_DISTRICTS, isDistrictMatch } from '../../utils/newsFilter';
 import { getPreferredPlayStoreUrl, openNativePlayStore } from '../../utils/playStoreHelper';
+import { getLocalizedText, getBodyFontClass, getCollectionForEdition, resolveStateCode } from '../../data/editions';
 import PortalAdBanner from './PortalAdBanner';
 
 interface ArticleViewPageProps {
@@ -33,14 +34,13 @@ export const ArticleViewPage: React.FC<ArticleViewPageProps> = ({
   const [isLiked, setIsLiked] = useState(false);
   const [showComments, setShowComments] = useState(false);
 
-  // Full Story Priority
-  const fullStoryTelugu = post.fullStory?.telugu?.trim();
-  const fullStoryEnglish = post.fullStory?.english?.trim();
-  const shortContentTelugu = post.content?.telugu?.trim();
-  const shortContentEnglish = post.content?.english?.trim();
-
-  const finalHeadline = post.headline?.telugu || post.headline?.english || '';
-  const finalArticleBody = fullStoryTelugu || shortContentTelugu || fullStoryEnglish || shortContentEnglish || '';
+  // Full Story Priority across all 5 languages (te, hi, pa, gu, en)
+  const postLang = (post.language as any) || 'te';
+  const finalHeadline = getLocalizedText(post.headline, postLang);
+  const finalArticleBody =
+    getLocalizedText(post.fullStory, postLang) ||
+    getLocalizedText(post.content, postLang) ||
+    '';
   const image = post.mediaUrl || post.mediaUrls?.[0] || FALLBACK_NEWS_IMAGE;
   const youtubeId = extractYoutubeVideoId(post.youtubeUrl);
   const author = post.reporter?.name || 'ఆల్ఫా న్యూస్ డెస్క్';
@@ -226,7 +226,7 @@ export const ArticleViewPage: React.FC<ArticleViewPageProps> = ({
   };
 
   return (
-    <article className="w-full max-w-5xl mx-auto py-4 sm:py-6 px-2 sm:px-4 animate-fade-in font-mallanna" itemScope itemType="https://schema.org/NewsArticle">
+    <article className={`w-full max-w-5xl mx-auto py-4 sm:py-6 px-2 sm:px-4 animate-fade-in ${getBodyFontClass(postLang)}`} itemScope itemType="https://schema.org/NewsArticle">
       {/* 1. Breadcrumb and Navigation */}
       <nav className="flex items-center justify-between gap-3 bg-white p-3.5 sm:p-4 rounded-2xl border border-gray-200 shadow-sm mb-6">
         <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-500 overflow-x-auto no-scrollbar font-ramabhadra">
@@ -602,6 +602,7 @@ export const ArticleViewPage: React.FC<ArticleViewPageProps> = ({
         {showComments && (
           <CommentSection
             postId={post.id}
+            collectionName={getCollectionForEdition(resolveStateCode((post as any).stateCode || post.state, post.district) || 'AP', (post as any).language)}
             initialCommentCount={post.comments || 0}
             currentUser={currentUser}
             onClose={() => setShowComments(false)}

@@ -24,6 +24,16 @@ import {
 import * as _firestore from 'firebase/firestore';
 import { Settings2 } from 'lucide-react';
 import PreferencesModal from './PreferencesModal';
+import {
+  getBodyFontClass,
+  getCollectionForEdition,
+  getStateFirestoreAliases,
+  getStoredStateCode,
+  resolveStateCode,
+  type StateCode,
+} from '../data/editions';
+import { t } from '../utils/translations';
+import { fetchCachedHomeFeed } from '../services/feedCacheService';
 
 const { collection, query, where, orderBy, limit, getDocs, Timestamp, startAfter, doc, getDoc } = _firestore as any;
 
@@ -35,6 +45,7 @@ interface NewsFeedProps {
   onReporterClick?: (id: string) => void;
   initialPostId?: string | null;
   hideHeader?: boolean;
+  selectedState?: StateCode | null;
   selectedDistrict?: string | null;
   refreshVersion?: number;
 }
@@ -47,6 +58,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({
   onReporterClick,
   initialPostId,
   hideHeader = false,
+  selectedState,
   selectedDistrict,
   refreshVersion = 0,
 }) => {
@@ -100,12 +112,32 @@ const NewsFeed: React.FC<NewsFeedProps> = ({
   // DocumentSnapshot cursors for clean, zero-gap Firestore pagination
   const prefCursor = useRef<any>(null);
   const localCursor = useRef<any>(null);
+  const stateCursor = useRef<any>(null);
   const mainCursor = useRef<any>(null);
   
   const feedRef = useRef<HTMLDivElement>(null);
   const fetchingRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadSeqRef = useRef(0);
+
+  const effectiveDistrict = selectedDistrict !== undefined
+      ? selectedDistrict
+      : (currentUser?.district || localStorage.getItem('user_local_district'));
+
+  const effectiveState: StateCode = React.useMemo(() => {
+      return (
+          resolveStateCode(selectedState) ||
+          resolveStateCode(effectiveDistrict) ||
+          resolveStateCode(currentUser?.stateCode) ||
+          resolveStateCode(currentUser?.state) ||
+          getStoredStateCode()
+      );
+  }, [selectedState, effectiveDistrict, currentUser?.stateCode, currentUser?.state]);
+
+  const targetCollection = React.useMemo(
+      () => getCollectionForEdition(effectiveState, language),
+      [effectiveState, language]
+  );
 
   const getTs = (data: any) => {
       if (!data.timestamp) return Date.now();
@@ -120,7 +152,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({
       count: number
   ): Promise<{ posts: NewsPost[]; cursor: any; count: number }> => {
       try {
-          const newsRef = collection(db, 'news');
+          const newsRef = collection(db, targetCollection);
           const q = cursorDoc
             ? query(newsRef, ...constraints, orderBy('timestamp', 'desc'), startAfter(cursorDoc), limit(count))
             : query(newsRef, ...constraints, orderBy('timestamp', 'desc'), limit(count));
@@ -153,10 +185,6 @@ const NewsFeed: React.FC<NewsFeedProps> = ({
       interests: currentUser?.interests
   }), [currentUser?.preferredCategories, currentUser?.categoryScores, currentUser?.interests]);
 
-  const effectiveDistrict = selectedDistrict !== undefined
-      ? selectedDistrict
-      : (currentUser?.district || localStorage.getItem('user_local_district'));
-
   const loadMixedFeed = useCallback(async (isInitial = false) => {
     if (fetchingRef.current || (!isInitial && !hasMoreRef.current)) return;
     fetchingRef.current = true;
@@ -184,42 +212,123 @@ const NewsFeed: React.FC<NewsFeedProps> = ({
     const expandedPrefCats = expandCategoriesForFirestoreQuery(rawPreferredForQuery, 10);
 
     try {
-        // Direct server news: Zero disk cache
+        // 🌐 PHASE 2: Server-Side Edge Cache (/api/feed) on Page 1 — Zero Firestore Internet Egress & 0 device disk cache!
+        if (isInitial) {
+            const cachedFeed = await fetchCachedHomeFeed({
+                col: targetCollection,
+                state: effectiveState,
+                district: effectiveDistrict,
+                limit: 25,
+            });
+            if (seq !== loadSeqRef.current) return;
+
+            if (cachedFeed) {
+                const cachedMain = Array.isArray(cachedFeed.main) ? cachedFeed.main : [];
+                const cachedState = Array.isArray(cachedFeed.statePosts) ? cachedFeed.statePosts : [];
+                const cachedLocal = Array.isArray(cachedFeed.local) ? cachedFeed.local : [];
+                const cachedGreeting = cachedFeed.greeting && !initialPostId ? [cachedFeed.greeting] : [];
+
+                mainCursor.current = cachedFeed.cursors?.mainLastTs
+                    ? Timestamp.fromMillis(cachedFeed.cursors.mainLastTs)
+                    : null;
+                stateCursor.current = cachedFeed.cursors?.stateLastTs
+                    ? Timestamp.fromMillis(cachedFeed.cursors.stateLastTs)
+                    : null;
+                localCursor.current = cachedFeed.cursors?.localLastTs
+                    ? Timestamp.fromMillis(cachedFeed.cursors.localLastTs)
+                    : null;
+                prefCursor.current = mainCursor.current;
+
+                const combinedCached = [
+                    ...cachedState,
+                    ...cachedLocal,
+                    ...cachedMain,
+                    ...cachedGreeting,
+                ];
+                const filteredCached = combinedCached.filter(p =>
+                    isPostAllowedForHomeFeed(p, effectiveDistrict, effectiveState)
+                );
+
+                if (filteredCached.length > 0) {
+                    const effectiveAnchors = pickFastPathTop3(
+                        filteredCached
+                            .filter(p => p.type !== 'greeting' && p.type !== 'survey')
+                            .sort((a, b) => b.timestamp - a.timestamp)
+                            .slice(0, 10),
+                        interestProfile,
+                        effectiveDistrict,
+                        3
+                    );
+
+                    const blended = blendHomeFeed({
+                        posts: filteredCached,
+                        fastPathAnchors: effectiveAnchors,
+                        userDistrict: effectiveDistrict,
+                        userStateCode: effectiveState,
+                        profile: interestProfile,
+                    });
+
+                    setNews(prev => {
+                        const initialInPrev = initialPostId ? prev.find(p => p.id === initialPostId) : null;
+                        if (initialInPrev) {
+                            return [initialInPrev, ...blended.filter(p => p.id !== initialPostId)];
+                        }
+                        return blended;
+                    });
+                    setLoading(false);
+                    if (onLoadComplete) onLoadComplete();
+                    return;
+                }
+            }
+        }
+
+        // Direct server news fallback & pagination (Phase 1 bounded limits — Zero disk cache)
         const districtAliases = effectiveDistrict
             ? Array.from(new Set([effectiveDistrict, ...getDistrictAliases(effectiveDistrict)])).slice(0, 10)
             : [];
 
         const localPromise = effectiveDistrict
             ? (districtAliases.length > 1
-                ? fetchStream([where('approved', '==', true), where('district', 'in', districtAliases)], localCursor.current, isInitial ? 15 : 10)
-                : fetchStream([where('approved', '==', true), where('district', '==', effectiveDistrict)], localCursor.current, isInitial ? 15 : 10))
+                ? fetchStream([where('approved', '==', true), where('district', 'in', districtAliases)], localCursor.current, isInitial ? 10 : 10)
+                : fetchStream([where('approved', '==', true), where('district', '==', effectiveDistrict)], localCursor.current, isInitial ? 10 : 10))
             : Promise.resolve({ posts: [] as NewsPost[], cursor: null, count: 0 });
 
         const prefPromise = expandedPrefCats.length > 0
-            ? fetchStream([where('approved', '==', true), where('categories', 'array-contains-any', expandedPrefCats)], prefCursor.current, isInitial ? 20 : 12)
+            ? fetchStream([where('approved', '==', true), where('categories', 'array-contains-any', expandedPrefCats)], prefCursor.current, isInitial ? 10 : 10)
             : Promise.resolve({ posts: [] as NewsPost[], cursor: null, count: 0 });
 
-        // Primary general stream uses (approved == true, timestamp desc) — NEVER uses broken where('district', 'in', [...18])!
+        const stateAliases = getStateFirestoreAliases(effectiveState);
+        const statePromise = stateAliases.length > 0
+            ? fetchStream(
+                [where('approved', '==', true), where('state', 'in', stateAliases)],
+                stateCursor.current,
+                isInitial ? 10 : 10
+              )
+            : Promise.resolve({ posts: [] as NewsPost[], cursor: null, count: 0 });
+
+        // Primary general/national stream uses (approved == true, timestamp desc) — strictly filtered in memory!
         const mainPromise = fetchStream(
             [where('approved', '==', true)],
             mainCursor.current,
-            isInitial ? 45 : 30
+            isInitial ? 20 : 20
         );
 
         const greetingPromise = isInitial && !initialPostId
             ? fetchStream([where('approved', '==', true), where('type', '==', 'greeting')], null, 1)
             : Promise.resolve({ posts: [] as NewsPost[], cursor: null, count: 0 });
 
-        // ⚡ PARALLEL SERVER FAST PATH (< 250ms): Launched at T=0ms alongside main/local/pref!
-        // Immediately renders Top 3 diverse fresh posts while full 40/30/30 queries are already in flight.
+        // ⚡ PARALLEL SERVER FAST PATH (< 250ms): Launched at T=0ms alongside state/main/local/pref!
         let fastPathAnchors: NewsPost[] = [];
         if (isInitial) {
-            const fastPromise = fetchStream([where('approved', '==', true)], null, 10);
+            const fastPromise = fetchStream([where('approved', '==', true)], null, 6);
             const fastRes = await fastPromise;
             if (seq !== loadSeqRef.current) return;
 
             const fastAllowed = fastRes.posts.filter(
-                p => p.type !== 'greeting' && p.type !== 'survey' && isPostAllowedForHomeFeed(p, effectiveDistrict)
+                p =>
+                    p.type !== 'greeting' &&
+                    p.type !== 'survey' &&
+                    isPostAllowedForHomeFeed(p, effectiveDistrict, effectiveState)
             );
             const fastTop3 = pickFastPathTop3(fastAllowed, interestProfile, effectiveDistrict, 3);
             if (fastTop3.length > 0) {
@@ -237,9 +346,10 @@ const NewsFeed: React.FC<NewsFeedProps> = ({
         }
 
         // Await full parallel blending streams (already in flight since T=0ms!)
-        const [prefRes, localRes, mainRes, greetingRes] = await Promise.all([
+        const [prefRes, localRes, stateRes, mainRes, greetingRes] = await Promise.all([
             prefPromise,
             localPromise,
+            statePromise,
             mainPromise,
             greetingPromise,
         ]);
@@ -248,19 +358,22 @@ const NewsFeed: React.FC<NewsFeedProps> = ({
 
         prefCursor.current = prefRes.cursor;
         localCursor.current = localRes.cursor;
+        stateCursor.current = stateRes.cursor;
         mainCursor.current = mainRes.cursor;
 
         const combinedRaw = [
+            ...stateRes.posts,
             ...prefRes.posts,
             ...localRes.posts,
             ...mainRes.posts,
             ...greetingRes.posts,
         ];
 
-        const filteredRaw = combinedRaw.filter(p => isPostAllowedForHomeFeed(p, effectiveDistrict));
+        const filteredRaw = combinedRaw.filter(p =>
+            isPostAllowedForHomeFeed(p, effectiveDistrict, effectiveState)
+        );
 
         if (isInitial) {
-            // If Fast Path returned empty (e.g. network hiccup), pick 3 anchors from main stream
             const effectiveAnchors = fastPathAnchors.length > 0
                 ? fastPathAnchors
                 : pickFastPathTop3(
@@ -277,6 +390,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({
                 posts: filteredRaw,
                 fastPathAnchors: effectiveAnchors,
                 userDistrict: effectiveDistrict,
+                userStateCode: effectiveState,
                 profile: interestProfile,
             });
 
@@ -296,6 +410,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({
                 fastPathAnchors: [],
                 tailPrefix: existingPosts.slice(-6),
                 userDistrict: effectiveDistrict,
+                userStateCode: effectiveState,
                 profile: interestProfile,
             });
 
@@ -308,7 +423,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({
             }
         }
 
-        if (prefRes.count === 0 && localRes.count === 0 && mainRes.count === 0) {
+        if (prefRes.count === 0 && localRes.count === 0 && stateRes.count === 0 && mainRes.count === 0) {
             setHasMore(false);
         }
     } catch (e) {
@@ -320,7 +435,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({
             if (isInitial && onLoadComplete) onLoadComplete();
         }
     }
-  }, [currentUser, userPrefs, effectiveDistrict, onLoadComplete, initialPostId]);
+  }, [currentUser, userPrefs, effectiveDistrict, effectiveState, targetCollection, onLoadComplete, initialPostId]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -330,14 +445,18 @@ const NewsFeed: React.FC<NewsFeedProps> = ({
         setNews([]);
         prefCursor.current = null;
         localCursor.current = null;
+        stateCursor.current = null;
         mainCursor.current = null;
         fetchingRef.current = false;
         setHasMore(true);
 
-        // ⚡ Fast-path for shared link: fetch shared article immediately so it opens instantly on home page
+        // ⚡ Fast-path for shared link: check target collection (and fallback to `news`)
         if (initialPostId) {
             try {
-                const docSnap = await getDoc(doc(db, 'news', initialPostId));
+                let docSnap = await getDoc(doc(db, targetCollection, initialPostId));
+                if (!docSnap.exists() && targetCollection !== 'news') {
+                    docSnap = await getDoc(doc(db, 'news', initialPostId));
+                }
                 if (!isCancelled && docSnap.exists()) {
                     const deepPost = { id: docSnap.id, ...docSnap.data(), timestamp: getTs(docSnap.data()) } as NewsPost;
                     setNews([deepPost]);
@@ -360,7 +479,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({
         isCancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialPostId, effectiveDistrict, refreshVersion]); // Reloads cleanly on shared link, district switch, or preference save
+  }, [initialPostId, effectiveState, effectiveDistrict, targetCollection, refreshVersion]);
 
   useEffect(() => {
     if (loading || !hasMore) return;
@@ -394,7 +513,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({
       {loading && news.length === 0 && (
           <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black">
               <div className="w-10 h-10 border-4 border-red-600 border-t-transparent rounded-full animate-spin mb-4"></div>
-              <p className="text-white font-mallanna text-xl">వార్తలు సిద్ధమవుతున్నాయి...</p>
+              <p className={`text-white ${getBodyFontClass(language)} text-xl`}>{t(language, 'news_preparing')}</p>
           </div>
       )}
       <div ref={feedRef} className="flex-1 w-full overflow-y-auto snap-y snap-mandatory no-scrollbar relative z-10 bg-black overscroll-none scroll-smooth">
@@ -422,14 +541,14 @@ const NewsFeed: React.FC<NewsFeedProps> = ({
             }
             return elements;
         })}
-        <div ref={sentinelRef} className="h-60 flex flex-col items-center justify-center text-gray-700 font-mallanna bg-black">
+        <div ref={sentinelRef} className={`h-60 flex flex-col items-center justify-center text-gray-700 ${getBodyFontClass(language)} bg-black`}>
             {hasMore ? (
                 <div className="flex items-center gap-3">
                     <div className="w-6 h-6 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
-                    <span>మరిన్ని వార్తలు...</span>
+                    <span>{t(language, 'more_news')}</span>
                 </div>
             ) : news.length > 0 ? (
-                <div className="italic opacity-30 text-xs">ముగిసింది.</div>
+                <div className="italic opacity-30 text-xs">{t(language, 'end_of_feed')}</div>
             ) : null}
         </div>
       </div>

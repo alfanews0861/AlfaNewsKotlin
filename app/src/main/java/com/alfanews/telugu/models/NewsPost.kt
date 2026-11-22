@@ -17,24 +17,66 @@ enum class PostFormat(val ratio: String) {
  */
 data class Headline(
     val telugu: String = "",
-    val english: String = ""
-)
+    val english: String = "",
+    val local: String = "",
+    val hi: String = "",
+    val pa: String = "",
+    val gu: String = ""
+) {
+    fun getForLanguage(language: Language): String {
+        return when (language) {
+            Language.TELUGU -> telugu.ifBlank { local.ifBlank { english } }
+            Language.HINDI -> hi.ifBlank { local.ifBlank { english.ifBlank { telugu } } }
+            Language.PUNJABI -> pa.ifBlank { local.ifBlank { hi.ifBlank { english.ifBlank { telugu } } } }
+            Language.GUJARATI -> gu.ifBlank { local.ifBlank { english.ifBlank { telugu } } }
+            Language.ENGLISH -> english.ifBlank { local.ifBlank { telugu.ifBlank { hi.ifBlank { pa.ifBlank { gu } } } } }
+        }
+    }
+}
 
 /**
- * తెలుగు మరియు ఆంగ్ల భాషలలో వార్తల కంటెంట్‌ను కలిగి ఉంటుంది.
+ * 5 భాషలలో వార్తల కంటెంట్‌ను కలిగి ఉంటుంది.
  */
 data class Content(
     val telugu: String = "",
-    val english: String = ""
-)
+    val english: String = "",
+    val local: String = "",
+    val hi: String = "",
+    val pa: String = "",
+    val gu: String = ""
+) {
+    fun getForLanguage(language: Language): String {
+        return when (language) {
+            Language.TELUGU -> telugu.ifBlank { local.ifBlank { english } }
+            Language.HINDI -> hi.ifBlank { local.ifBlank { english.ifBlank { telugu } } }
+            Language.PUNJABI -> pa.ifBlank { local.ifBlank { hi.ifBlank { english.ifBlank { telugu } } } }
+            Language.GUJARATI -> gu.ifBlank { local.ifBlank { english.ifBlank { telugu } } }
+            Language.ENGLISH -> english.ifBlank { local.ifBlank { telugu.ifBlank { hi.ifBlank { pa.ifBlank { gu } } } } }
+        }
+    }
+}
 
 /**
- * తెలుగు మరియు ఆంగ్ల భాషలలో పూర్తి వార్తను (250 పదాల సమగ్ర వార్త) కలిగి ఉంటుంది.
+ * 5 భాషలలో పూర్తి వార్తను (250 పదాల సమగ్ర వార్త) కలిగి ఉంటుంది.
  */
 data class FullStory(
     val telugu: String = "",
-    val english: String = ""
-)
+    val english: String = "",
+    val local: String = "",
+    val hi: String = "",
+    val pa: String = "",
+    val gu: String = ""
+) {
+    fun getForLanguage(language: Language): String {
+        return when (language) {
+            Language.TELUGU -> telugu.ifBlank { local.ifBlank { english } }
+            Language.HINDI -> hi.ifBlank { local.ifBlank { english.ifBlank { telugu } } }
+            Language.PUNJABI -> pa.ifBlank { local.ifBlank { hi.ifBlank { english.ifBlank { telugu } } } }
+            Language.GUJARATI -> gu.ifBlank { local.ifBlank { english.ifBlank { telugu } } }
+            Language.ENGLISH -> english.ifBlank { local.ifBlank { telugu.ifBlank { hi.ifBlank { pa.ifBlank { gu } } } } }
+        }
+    }
+}
 
 /**
  * వార్తను నివేదించిన రిపోర్టర్ వివరాలు.
@@ -100,7 +142,11 @@ data class NewsPost(
     val isGlobal: Boolean = false,
     val category: String? = null,
     val district: String? = null,
+    val constituency: String? = null,
+    val mandal: String? = null,
     val state: String? = null,
+    val stateCode: String? = null,
+    val language: String? = null,
     val status: String? = null,
     val notificationTitle: String? = null,
     val rejectionReason: String? = null,
@@ -160,16 +206,28 @@ fun User.canPostSurvey(): Boolean {
 fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = Language.TELUGU): NewsPost {
     val headlineMap = data["headline"] as? Map<*, *>
     val headline = Headline(
-        telugu = headlineMap?.get("telugu")?.toString() ?: data["headline"]?.toString() ?: "",
-        english = headlineMap?.get("english")?.toString() ?: ""
+        telugu = headlineMap?.get("telugu")?.toString() ?: (if (headlineMap == null) data["headline"]?.toString() else null) ?: "",
+        english = headlineMap?.get("english")?.toString() ?: "",
+        local = headlineMap?.get("local")?.toString() ?: "",
+        hi = headlineMap?.get("hi")?.toString() ?: "",
+        pa = headlineMap?.get("pa")?.toString() ?: "",
+        gu = headlineMap?.get("gu")?.toString() ?: ""
     )
     val contentMap = data["content"] as? Map<*, *>
-    var rawTeluguContent = contentMap?.get("telugu")?.toString() ?: data["content"]?.toString() ?: ""
+    var rawTeluguContent = contentMap?.get("telugu")?.toString() ?: (if (contentMap == null) data["content"]?.toString() else null) ?: ""
     val englishContent = contentMap?.get("english")?.toString() ?: ""
+    val localContent = contentMap?.get("local")?.toString() ?: ""
+    val hiContent = contentMap?.get("hi")?.toString() ?: ""
+    val paContent = contentMap?.get("pa")?.toString() ?: ""
+    val guContent = contentMap?.get("gu")?.toString() ?: ""
 
     val fullStoryMap = data["fullStory"] as? Map<*, *>
-    val fullStoryTelugu = fullStoryMap?.get("telugu")?.toString() ?: data["fullStory"]?.toString() ?: rawTeluguContent
+    val fullStoryTelugu = fullStoryMap?.get("telugu")?.toString() ?: (if (fullStoryMap == null) data["fullStory"]?.toString() else null) ?: rawTeluguContent
     val fullStoryEnglish = fullStoryMap?.get("english")?.toString() ?: englishContent
+    val fullStoryLocal = fullStoryMap?.get("local")?.toString() ?: localContent
+    val fullStoryHi = fullStoryMap?.get("hi")?.toString() ?: hiContent
+    val fullStoryPa = fullStoryMap?.get("pa")?.toString() ?: paContent
+    val fullStoryGu = fullStoryMap?.get("gu")?.toString() ?: guContent
 
     // 🛡️ Guard: If rawTeluguContent accidentally contains English text, recover from fullStoryTelugu first paragraph
     if (fullStoryTelugu.isNotBlank()) {
@@ -185,11 +243,19 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = L
 
     val content = Content(
         telugu = rawTeluguContent,
-        english = englishContent
+        english = englishContent,
+        local = localContent,
+        hi = hiContent,
+        pa = paContent,
+        gu = guContent
     )
     val fullStory = FullStory(
         telugu = fullStoryTelugu,
-        english = fullStoryEnglish
+        english = fullStoryEnglish,
+        local = fullStoryLocal,
+        hi = fullStoryHi,
+        pa = fullStoryPa,
+        gu = fullStoryGu
     )
     val mediaUrl = data["mediaUrl"]?.toString() ?: ""
     val mediaType = if (data["mediaType"]?.toString() == "VIDEO") MediaType.VIDEO else MediaType.IMAGE
@@ -352,7 +418,11 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = L
     } ?: emptyList()
 
     val district = data["district"]?.toString() ?: "State"
+    val constituency = data["constituency"]?.toString()
+    val mandal = data["mandal"]?.toString()
     val state = data["state"]?.toString()
+    val stateCode = data["stateCode"]?.toString()
+    val postLanguage = data["language"]?.toString()
     val category = data["category"]?.toString() ?: "General News"
     val status = data["status"]?.toString()
     val notificationTitle = data["notificationTitle"]?.toString()
@@ -397,7 +467,11 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = L
         mediaUrls = mediaUrls,
         mediaTypes = mediaTypes,
         district = district,
+        constituency = constituency,
+        mandal = mandal,
         state = state,
+        stateCode = stateCode,
+        language = postLanguage,
         category = category,
         status = status,
         notificationTitle = notificationTitle,

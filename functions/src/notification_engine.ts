@@ -1,8 +1,18 @@
 import * as admin from 'firebase-admin';
 import { onSchedule } from "firebase-functions/v2/scheduler";
-import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { logger } from "firebase-functions/v2";
 import { getTopicName, slugify, createAndSaveThumbnail, REGION, isTopTeluguLeaderStatement } from './utils';
+import {
+    ALL_STATE_CODES,
+    EDITIONS,
+    EXPANSION_NEWS_COLLECTIONS,
+    NewsCollectionName,
+    StateCode,
+    resolveExpansionDistrict,
+    resolveStateCode,
+    getEditionTopic,
+    getLocalizedField
+} from './editions';
 
 // ==========================================
 // DESIGN PHILOSOPHY
@@ -137,6 +147,10 @@ export function getCanonicalDistrict(raw: string | null | undefined): string | n
     for (const dist of DISTRICTS) {
         if (clean.includes(dist) || dist.includes(clean)) return dist;
     }
+
+    // Check 7 expansion states' districts & aliases (UP, PB, UK, GA, MN, HP, GJ)
+    const expansionMatch = resolveExpansionDistrict(clean);
+    if (expansionMatch) return expansionMatch.district;
 
     return null;
 }
@@ -834,10 +848,6 @@ export const sendPersonalizedNotification = onSchedule({
     }
 
     const allNews = Array.from(newsMap.values());
-    if (allNews.length === 0) {
-        logger.log(`[NOTIF] No approved news found in last 24h. Exiting.`);
-        return;
-    }
 
     // Ranking: Quality-First Trending Score
     allNews.sort((a: any, b: any) => calculateTrendingScore(b) - calculateTrendingScore(a));
@@ -1014,6 +1024,102 @@ export const sendPersonalizedNotification = onSchedule({
         }
     }
 
+    // --- 4. Multi-State Expansion Edition Topic Notifications (UP, PB, UK, GA, MN, HP, GJ) ---
+    // Bounded to limit(50) per collection (4 collections max = <= 200 reads), native script titles,
+    // Cloudflare Edge Cache Proxy for images (Zero Egress), respects night shield & 12h dedup.
+    const expansionStates: StateCode[] = ALL_STATE_CODES.filter((c) => c !== 'AP' && c !== 'TS');
+    const editionDocsByCollection = new Map<NewsCollectionName, any[]>();
+    await Promise.all(
+        EXPANSION_NEWS_COLLECTIONS.map(async (colName) => {
+            try {
+                const snap = await db.collection(colName)
+                    .where('approved', '==', true)
+                    .where('timestamp', '>', sinceTime)
+                    .orderBy('timestamp', 'desc')
+                    .limit(50)
+                    .get();
+                const docs = snap.docs
+                    .map((d) => ({ id: d.id, _collection: colName, ...d.data() }))
+                    .filter((d: any) => d.notificationWorthy !== false);
+                docs.sort((a: any, b: any) => calculateTrendingScore(b) - calculateTrendingScore(a));
+                editionDocsByCollection.set(colName, docs);
+            } catch (colErr: any) {
+                logger.warn(`[NOTIF_EDITION] Bounded fetch skipped for ${colName}: ${colErr?.message}`);
+                editionDocsByCollection.set(colName, []);
+            }
+        })
+    );
+
+    const EXPANSION_SLOT_PREFIX: Record<string, Record<number, string>> = {
+        hi: { 8: '☀️ सुबह की प्रमुख खबर', 13: '📍 स्थानीय अपडेट', 18: '📌 शाम की बड़ी खबर', 21: '🌙 रात की मुख्य खबर' },
+        pa: { 8: '☀️ ਸਵੇਰ ਦੀ ਮੁੱਖ ਖ਼ਬਰ', 13: '📍 ਸਥਾਨਕ ਅਪਡੇਟ', 18: '📌 ਸ਼ਾਮ ਦੀ ਵੱਡੀ ਖ਼ਬਰ', 21: '🌙 ਰਾਤ ਦੀ ਮੁੱਖ ਖ਼ਬਰ' },
+        gu: { 8: '☀️ સવારના મુખ્ય સમાચાર', 13: '📍 સ્થાનિક અપડેટ', 18: '📌 સાંજના મોટા સમાચાર', 21: '🌙 રાત્રિના મુખ્ય સમાચાર' },
+        en: { 8: '☀️ Morning Top Story', 13: '📍 Local Update', 18: '📌 Evening Highlight', 21: '🌙 Night Roundup' },
+    };
+
+    for (const stateCode of expansionStates) {
+        const edition = EDITIONS[stateCode];
+        const primaryLang = edition.primaryLanguage;
+        const pool = editionDocsByCollection.get(edition.firestoreCollection) || [];
+        if (pool.length === 0) continue;
+
+        const topicName = getEditionTopic(stateCode, primaryLang);
+        const dedupKey = topicName;
+
+        // Strictly prioritize posts tagged for this stateCode, fallback to general/national posts in same language
+        const stateSpecific = pool.filter((n: any) => {
+            const st = resolveStateCode(n.stateCode || n.state, n.district);
+            return st === stateCode;
+        });
+        const universalSameLang = pool.filter((n: any) => {
+            const st = resolveStateCode(n.stateCode || n.state, n.district);
+            return !st;
+        });
+        const candidates = stateSpecific.length > 0 ? stateSpecific : universalSameLang;
+
+        const chosen = candidates.find((n: any) => lastSentMap[dedupKey] !== n.id && isFreshFingerprint(n))
+            || candidates.find((n: any) => lastSentMap[dedupKey] !== n.id);
+        if (!chosen) continue;
+
+        const localizedHeadline = chosen.notificationTitle || getLocalizedField(chosen.headline, primaryLang);
+        if (!localizedHeadline) continue;
+
+        const shortHeadline = localizedHeadline.length > 72 ? localizedHeadline.substring(0, 72).trim() + '...' : localizedHeadline;
+        const prefix = EXPANSION_SLOT_PREFIX[primaryLang]?.[istHour] || '📰';
+        const rawImg = String(chosen.thumbnailUrl || chosen.mediaUrl || '').trim();
+        const edgeProxiedImg = rawImg && rawImg.includes('firebasestorage.googleapis.com')
+            ? `https://wsrv.nl/?url=${encodeURIComponent(rawImg)}&w=640&output=webp&q=75`
+            : rawImg;
+
+        try {
+            const message = buildNewsMessage(
+                { ...chosen, stateCode, language: primaryLang },
+                `${prefix}: ${shortHeadline}`,
+                istHour === 13 ? 'local_news_v2' : 'general_news_v2',
+                edgeProxiedImg,
+                getScheduledTTL(istHour),
+                { topic: topicName },
+                { slotTag: `alfa_${stateCode.toLowerCase()}_slot_${istHour}` }
+            );
+            await admin.messaging().send(message);
+            updatedMap[dedupKey] = chosen.id;
+            recordFingerprint(chosen);
+            sentTopicsCount++;
+            if (!lastSentHeadline) {
+                lastSentHeadline = `[${stateCode}] ${shortHeadline}`;
+                lastSentNewsId = chosen.id;
+            }
+            logger.log(`[NOTIF_EDITION] Sent ${topicName}: newsId=${chosen.id}, col=${edition.firestoreCollection}, hour=${istHour}`);
+        } catch (edErr: any) {
+            logger.error(`[NOTIF_EDITION] Failed topic ${topicName}:`, edErr?.message);
+        }
+    }
+
+    if (allNews.length === 0 && sentTopicsCount === 0) {
+        logger.log(`[NOTIF] No approved news found across any collection in last 24h. Exiting.`);
+        return;
+    }
+
     const updatedRecentGeneral = Array.from(new Set(recentGeneralIds)).slice(0, 30);
     const updatedRecentFingerprints = Array.from(new Set(recentFingerprints)).slice(0, 30);
 
@@ -1067,15 +1173,21 @@ export async function dispatchBreakingNotification(postId: string, after: any, _
         return false;
     }
 
-    const notifTitle = after.notificationTitle || after.headline?.telugu || after.headline?.english || after.headline || "తాజా వార్త";
+    const resolvedState = resolveStateCode(after.stateCode || after.state, gate.canonicalDistrict || after.district);
+    const isExpansionEdition = Boolean(resolvedState && resolvedState !== 'AP' && resolvedState !== 'TS');
+    const resolvedTopic = isExpansionEdition && gate.isStatewide && resolvedState
+        ? getEditionTopic(resolvedState, after.language)
+        : gate.targetTopic;
+
+    const notifTitle = after.notificationTitle || getLocalizedField(after.headline, after.language) || "తాజా వార్త";
     const shortBreaking = notifTitle.length > 70 ? notifTitle.substring(0, 70).trim() + "..." : notifTitle;
     const imageUrl = after.thumbnailUrl || after.mediaUrl || "";
 
     const breakingTitle = (gate.tone === 'BREAKING' || after.isBreaking === true || gate.isLeaderBreaking)
         ? `🔴 Breaking: ${shortBreaking}`
         : (gate.tone === 'URGENT')
-            ? `⚡ అత్యవసరం: ${shortBreaking}`
-            : `📌 ముఖ్యాంశం: ${shortBreaking}`;
+            ? `⚡ Urgent: ${shortBreaking}`
+            : `📌 ${shortBreaking}`;
 
     try {
         const news = {
@@ -1090,7 +1202,7 @@ export async function dispatchBreakingNotification(postId: string, after: any, _
             "breaking_news",
             imageUrl,
             1800000, // 30 min TTL
-            { topic: gate.targetTopic },
+            { topic: resolvedTopic },
             { silent: false }
         );
         await admin.messaging().send(message);
@@ -1161,29 +1273,8 @@ export async function dispatchBreakingNotification(postId: string, after: any, _
     }
 }
 
-export const onNewsPostApprovedNotify = onDocumentWritten({
-    document: "news/{postId}",
-    region: REGION,
-    memory: "256MiB",
-    timeoutSeconds: 60,
-    maxInstances: 5
-}, async (event) => {
-    const before = event.data?.before?.data();
-    const after  = event.data?.after?.data();
-    if (!after) return;
-
-    // Instant guard: if already handled directly by onNewsPostCreated pipeline, skip to avoid duplicate executions
-    if (after.pipelineHandled === true || after.notificationHandled === true) return;
-
-    const postId = event.params.postId;
-
-    // Only fire when approved changes false → true
-    const wasApproved = before?.approved === true;
-    const isNowApproved = after.approved === true;
-    if (wasApproved || !isNowApproved) return;
-
-    await dispatchBreakingNotification(postId, after, before);
-});
+// Note: Standalone onNewsPostApprovedNotify trigger was consolidated into the unified
+// onNewsPostCreated / onNewsPostUpdated triggers in news_handler.ts to eliminate 5x trigger storms.
 
 // ==========================================
 // CATEGORY TOPIC NAME HELPER

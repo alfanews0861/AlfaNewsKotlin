@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, UserRole, TS_DISTRICTS, AP_DISTRICTS } from '../types';
+import { User, UserRole } from '../types';
 import { db } from '../services/firebase';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { MANDAL_DATA } from '../data/mandalData';
+import { ALL_STATE_CODES, EDITIONS } from '../data/editions';
 
 interface EditProfileModalProps {
   isOpen: boolean;
@@ -35,8 +36,10 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
   // Check if user is strictly ADMIN to allow signature upload
   const isAdmin = user.role === UserRole.ADMIN;
 
-  // Combine District Lists
-  const allDistricts = [...TS_DISTRICTS, ...AP_DISTRICTS].sort();
+  // Combine District Lists across all 9 states (236 districts)
+  const allDistricts = Array.from(
+    new Set(ALL_STATE_CODES.flatMap((code) => EDITIONS[code].districts))
+  ).sort();
 
   useEffect(() => {
     if (!isOpen) return;

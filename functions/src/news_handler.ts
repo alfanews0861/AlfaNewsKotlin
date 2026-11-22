@@ -1,6 +1,6 @@
 import * as admin from "firebase-admin";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
-import { onDocumentWritten } from "firebase-functions/v2/firestore";
+import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { Type } from "@google/genai";
 import * as fs from 'fs';
@@ -20,14 +20,18 @@ import {
     FLASH_MODEL,
     REGION,
     createAndSaveThumbnail,
-    detectTopTeluguLeader
+    detectTopTeluguLeader,
+    NEWS_PROCESSING_QUEUE_COLLECTION,
+    enqueueNewsProcessing
 } from "./utils";
 import { normalizeCategory, normalizeCategories, getCategorySystemInstruction } from './categories';
 import { refineHeadlineWithPaidAI, refineVocalScriptWithPaidAI, REPORTER_PUNCH_HEADLINE_RULE } from "./geminiService";
-import { notifyReporter, awardPointsToReporter, getAssignedReporter } from "./reporter_handler";
+import { notifyReporter, awardPointsToReporter, getAssignedReporter, handleNewsViewCountUpdated } from "./reporter_handler";
+import { recordApprovedNewsForReporter } from "./reporter_tracking";
 import { areMandalsMatching } from "./location_data";
 import { dispatchBreakingNotification } from "./notification_engine";
 import { dispatchSocialAutoPost } from "./social_auto_post";
+import { resolveStateCode, validateLanguageForState, getLocalizedField, EDITIONS } from "./editions";
 
 const db = admin.firestore();
 
@@ -1076,6 +1080,7 @@ export const processNewsPost = onCall(async (request) => {
                     timestamp: existingData.timestamp || admin.firestore.FieldValue.serverTimestamp()
                 };
                 await postRef.update(updatePayload);
+                await enqueueNewsProcessing(postId, "REPROCESS", "NEWS_EDIT_PENDING", true);
                 console.log(`[NEWS_POST_EDIT_PENDING] Post ${postId} updated and queued for re-processing.`);
                 return { success: true, postId: postId, message: "వార్త అప్‌డేట్ అవుతోంది..." };
             }
@@ -1110,20 +1115,118 @@ function calculateIncentivePoints(hasVideo: boolean, qs?: any): number {
 }
 
 /**
- * 6.2 Background News Processing (Combined Trigger)
+ * Helper: Execute post-approval side effects (reporter count, breaking push, district social auto-post)
+ * used by both pre-approved creations (e.g., VPS scraper) and the consolidated onNewsPostUpdated trigger.
  */
-export const onNewsPostCreated = onDocumentWritten({
+export interface NewsPostUpdateDeps {
+    handleViewMilestones?: (postId: string, before: any, after: any) => Promise<boolean>;
+    recordApproved?: (postId: string, after: any) => Promise<{ counted: boolean; reporterId?: string }>;
+    dispatchNotification?: (postId: string, after: any, before?: any) => Promise<any>;
+    dispatchSocial?: (postId: string, after: any, before?: any) => Promise<any>;
+}
+
+export async function processNewsPostUpdateTransition(
+    postId: string,
+    before: any,
+    after: any,
+    deps: NewsPostUpdateDeps = {}
+): Promise<{ skipped: boolean; reason?: string; milestoneAwarded: boolean; approvalDispatched: boolean }> {
+    if (!after) {
+        return { skipped: true, reason: "missing_after", milestoneAwarded: false, approvalDispatched: false };
+    }
+
+    // Defense-in-depth guard: ignore archived / cleanup-touched docs immediately
+    const statusLower = String(after.status || "").toLowerCase();
+    if (statusLower === "archived" || after.lastCleanupAt) {
+        return { skipped: true, reason: "archived_or_cleanup", milestoneAwarded: false, approvalDispatched: false };
+    }
+
+    const handleViews = deps.handleViewMilestones || handleNewsViewCountUpdated;
+    const recordApproved = deps.recordApproved || recordApprovedNewsForReporter;
+    const dispatchNotif = deps.dispatchNotification || dispatchBreakingNotification;
+    const dispatchSocial = deps.dispatchSocial || dispatchSocialAutoPost;
+
+    let milestoneAwarded = false;
+    let approvalDispatched = false;
+
+    // 1. Reporter view milestone rewards (only when longViews actually changes)
+    if (after.isReporter && (!before || before.longViews !== after.longViews)) {
+        milestoneAwarded = await handleViews(postId, before, after);
+    }
+
+    // 2. Approval transition (false/undefined -> true): reporter count + breaking push + district social post
+    const wasApproved = before?.approved === true;
+    const isNowApproved = after.approved === true;
+    if (!wasApproved && isNowApproved) {
+        approvalDispatched = true;
+        const tasks: Promise<any>[] = [];
+
+        if (after.activityCounted !== true) {
+            tasks.push(
+                recordApproved(postId, after).then((res) => {
+                    if (res?.counted) {
+                        console.log(`[POST_APPROVED] Recorded real-time approved post ${postId} for reporter ${res.reporterId}`);
+                    }
+                }).catch((err: any) => {
+                    console.warn(`[POST_APPROVED_WARN] ${postId}:`, err?.message || err);
+                })
+            );
+        }
+
+        if (after.pipelineHandled !== true && after.notificationHandled !== true) {
+            tasks.push(
+                dispatchNotif(postId, after, before).catch((err: any) => {
+                    console.warn(`[POST_NOTIFY_WARN] ${postId}:`, err?.message || err);
+                })
+            );
+        }
+
+        if (after.pipelineHandled !== true && after.socialAutoPosted !== true) {
+            tasks.push(
+                dispatchSocial(postId, after, before).catch((err: any) => {
+                    console.warn(`[POST_SOCIAL_WARN] ${postId}:`, err?.message || err);
+                })
+            );
+        }
+
+        if (tasks.length > 0) {
+            await Promise.all(tasks);
+        }
+    }
+
+    return { skipped: false, milestoneAwarded, approvalDispatched };
+}
+
+/**
+ * 6.2a Unified Lightweight News Update Trigger (replaces 4 separate onDocumentWritten triggers).
+ * Fires ONLY on document updates (NEVER on create and NEVER on cleanupOldNews delete()).
+ */
+export const onNewsPostUpdated = onDocumentUpdated({
     document: "news/{postId}",
     region: REGION,
-    secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"],
-    memory: "2GiB",
-    timeoutSeconds: 540,
-    maxInstances: 5
+    memory: "256MiB",
+    timeoutSeconds: 60,
+    maxInstances: 3
 }, async (event) => {
-    const snapshot = event.data?.after;
-    if (!snapshot || !snapshot.exists) return;
-    const postId = event.params.postId;
-    let data: any = snapshot.data();
+    const before = event.data?.before?.data();
+    const after = event.data?.after?.data();
+    await processNewsPostUpdateTransition(event.params.postId, before, after);
+});
+
+/**
+ * 6.2b Core Background News Pipeline (AI Rewrite + Safety Scan + Video/YouTube Upload).
+ * Invoked ONLY by `onNewsPostCreated` (new docs) and `onNewsReprocessRequested` (Phase 2 video & explicit retries).
+ */
+async function runNewsPostPipeline(
+    postId: string,
+    rawData: any,
+    beforeData: any = {},
+    options: { forceReprocess?: boolean; fromQueuePhase?: "VIDEO" | "REPROCESS" } = {}
+): Promise<void> {
+    let data: any = { ...rawData };
+    if (options.forceReprocess) {
+        data.forceReprocess = true;
+    }
 
     // 1. QUICK GUARD: Skip if document is already processed, approved, or published unless forceReprocess is set
     if (!data.forceReprocess) {
@@ -1131,13 +1234,13 @@ export const onNewsPostCreated = onDocumentWritten({
         if (data.approved === true || currentStatus === "PUBLISHED" || currentStatus === "REJECTED" || currentStatus === "FAILED" || currentStatus === "ARCHIVED") {
             return;
         }
-        if (data.aiProcessed === true && (data.mediaType !== 'VIDEO' || data.videoProcessed === true)) {
+        const hasVideoMedia = String(data.mediaType || "").toUpperCase() === "VIDEO" ||
+            (Array.isArray(data.mediaTypes) && data.mediaTypes.some((t: string) => String(t).toUpperCase() === "VIDEO"));
+        if (data.aiProcessed === true && (!hasVideoMedia || data.videoProcessed === true)) {
             return;
         }
     }
 
-
-    const beforeData = event.data?.before?.data() || {};
     const status = (data.status || "").toUpperCase();
 
     // Fields that should NOT trigger re-processing (views, likes, maintenance, reports)
@@ -1146,7 +1249,7 @@ export const onNewsPostCreated = onDocumentWritten({
         "lastUpdated", "lastCleanupAt", "rawVideoCleaned", 
         "thumbnailUrl", "reportCount", "lastReportedAt", "hiddenReason", "editorialStatus", "editorialStage"
     ];
-    const isPassiveUpdate = Object.keys(data).every(key =>
+    const isPassiveUpdate = Object.keys(beforeData).length > 0 && Object.keys(data).every(key =>
         passiveFields.includes(key) || JSON.stringify(data[key]) === JSON.stringify(beforeData[key])
     );
 
@@ -1227,8 +1330,9 @@ export const onNewsPostCreated = onDocumentWritten({
     }
 
     // 3. AI PROCESSING PHASE
-    // Trigger if not processed and status is PENDING or missing, or if forceReprocess is set
-    if ((!latestData.aiProcessed || data.forceReprocess) && (latestStatus === "PENDING" || latestStatus === "" || data.forceReprocess)) {
+    // Trigger if not processed and status is PENDING or missing, or if forceReprocess is set (unless explicitly queued for VIDEO Phase 2 only)
+    const isVideoOnlyPhase = options.fromQueuePhase === "VIDEO" && latestData.aiProcessed === true;
+    if (!isVideoOnlyPhase && (!latestData.aiProcessed || data.forceReprocess) && (latestStatus === "PENDING" || latestStatus === "" || data.forceReprocess)) {
         console.log(`[ON_WRITE_PROCEED] AI Start: ${postId}`);
 
         // Loop prevention: If reprocess count exceeds 3, abort to avoid infinite loop
@@ -1452,6 +1556,12 @@ export const onNewsPostCreated = onDocumentWritten({
 
                 if (i === 0) {
                     await db.collection('news').doc(postId).update(updatePayload);
+                    // Video Phase 2 Handoff: enqueue deterministic job so onNewsReprocessRequested uploads to YouTube
+                    // cleanly without keeping an expensive 2GiB onDocumentWritten trigger on news/{postId}.
+                    if (!isPostRejected && updatePayload.status === "PROCESSING_VIDEO" && options.fromQueuePhase !== "VIDEO") {
+                        await enqueueNewsProcessing(postId, "VIDEO", "PHASE_1_VIDEO_HANDOFF", false);
+                        console.log(`[VIDEO_QUEUE_ENQUEUED] Queued Phase 2 YouTube upload for ${postId}.`);
+                    }
                 } else {
                     const splitDocData = {
                         ...latestData,
@@ -1486,13 +1596,16 @@ export const onNewsPostCreated = onDocumentWritten({
                             updatePayload.pointsAwarded = true;
                             const points = calculateIncentivePoints(false, updatePayload.qualitySignals);
                             await awardPointsToReporter(originalReporterId, points);
-                            await db.collection('users').doc(originalReporterId).set({
-                                lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp(),
-                                warningLevel: 0,
-                                inProbation: false,
-                                lastWarningDate: admin.firestore.FieldValue.delete()
-                            }, { merge: true }).catch(() => null);
                             await db.collection('news').doc(targetPostId).update({ pointsAwarded: true }).catch(() => {});
+                        }
+                        if (finalIsReporter) {
+                            await recordApprovedNewsForReporter(targetPostId, {
+                                ...latestData,
+                                ...updatePayload,
+                                approved: true,
+                                isReporter: true,
+                                originalReporterId
+                            });
                         }
                         await notifyReporter(
                             originalReporterId,
@@ -1581,6 +1694,13 @@ export const onNewsPostCreated = onDocumentWritten({
             if (isReporter && originalReporterId) {
                 const points = calculateIncentivePoints(true, data.qualitySignals);
                 await awardPointsToReporter(originalReporterId, points);
+                await recordApprovedNewsForReporter(postId, {
+                    ...data,
+                    approved: true,
+                    status: "published",
+                    isReporter: true,
+                    originalReporterId
+                });
                 await notifyReporter(originalReporterId, postId, data.headline?.telugu || "", 'SUCCESS');
             }
             return;
@@ -2440,6 +2560,13 @@ export const onNewsPostCreated = onDocumentWritten({
                 const points = calculateIncentivePoints(true, freshData?.qualitySignals);
 
                 await awardPointsToReporter(originalReporterId, points);
+                await recordApprovedNewsForReporter(postId, {
+                    ...freshData,
+                    approved: true,
+                    status: "published",
+                    isReporter: true,
+                    originalReporterId
+                });
                 await notifyReporter(originalReporterId, postId, data.headline?.telugu || "", 'SUCCESS');
             }
         } catch (err: any) {
@@ -2487,6 +2614,71 @@ export const onNewsPostCreated = onDocumentWritten({
             });
         }
     }
+}
+
+/**
+ * 6.2c New News Document Trigger (onDocumentCreated ONLY — ZERO fires on updates or cleanupOldNews deletes!).
+ */
+export const onNewsPostCreated = onDocumentCreated({
+    document: "news/{postId}",
+    region: REGION,
+    secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"],
+    memory: "2GiB",
+    timeoutSeconds: 540,
+    maxInstances: 5
+}, async (event) => {
+    const snapshot = event.data;
+    if (!snapshot || !snapshot.exists) return;
+    const postId = event.params.postId;
+    const data: any = snapshot.data();
+
+    // Pre-approved creations (e.g., VPS scraper or direct publish): dispatch approval side-effects once and exit.
+    if (data?.approved === true && !data?.forceReprocess) {
+        await processNewsPostUpdateTransition(postId, undefined, data);
+        return;
+    }
+
+    await runNewsPostPipeline(postId, data, {});
+});
+
+/**
+ * 6.2d Dedicated Queue Trigger for Phase 2 YouTube Video Uploads & Explicit Reprocessing.
+ * Fires ONLY on newly created docs in `news_processing_queue/{jobId}` and deletes the job doc in `finally`,
+ * preventing any loop or trigger storm on the main `news` collection.
+ */
+export const onNewsReprocessRequested = onDocumentCreated({
+    document: `${NEWS_PROCESSING_QUEUE_COLLECTION}/{jobId}`,
+    region: REGION,
+    secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"],
+    memory: "2GiB",
+    timeoutSeconds: 540,
+    maxInstances: 3
+}, async (event) => {
+    const jobSnap = event.data;
+    if (!jobSnap || !jobSnap.exists) return;
+
+    const jobData: any = jobSnap.data() || {};
+    const postId = String(jobData.postId || "").trim();
+    const phase = (jobData.phase === "VIDEO" ? "VIDEO" : "REPROCESS") as "VIDEO" | "REPROCESS";
+    const forceReprocess = jobData.forceReprocess === true;
+
+    try {
+        if (!postId) return;
+        const newsSnap = await db.collection('news').doc(postId).get();
+        if (!newsSnap.exists) {
+            console.log(`[QUEUE_SKIP] News post ${postId} no longer exists.`);
+            return;
+        }
+        await runNewsPostPipeline(postId, newsSnap.data(), {}, {
+            forceReprocess,
+            fromQueuePhase: phase
+        });
+    } finally {
+        // Always clean up queue doc so collection stays empty and retries can enqueue cleanly later
+        await jobSnap.ref.delete().catch((delErr: any) => {
+            console.warn(`[QUEUE_CLEANUP_WARN] Could not delete queue job ${event.params.jobId}:`, delErr?.message);
+        });
+    }
 });
 
 /**
@@ -2520,6 +2712,9 @@ export async function runReprocessFailedAndUnprocessedNews(hoursLookback: number
                     rejectionReason: admin.firestore.FieldValue.delete(),
                     recoveredAt: admin.firestore.FieldValue.serverTimestamp()
                 });
+                if (targetStatus === "PROCESSING_VIDEO") {
+                    await enqueueNewsProcessing(doc.id, "VIDEO", "RECOVERED_VIDEO", false);
+                }
 
                 if (targetApproved && d.reporter?.id && !d.pointsAwarded && !d.isCitizen && d.reporter?.name !== "సిటిజెన్ పోస్ట్") {
                     try {
@@ -2583,6 +2778,8 @@ export async function runReprocessFailedAndUnprocessedNews(hoursLookback: number
                 reprocessCount: admin.firestore.FieldValue.increment(1),
                 lastReprocessAttempt: admin.firestore.FieldValue.serverTimestamp()
             });
+            const queuePhase = (data.aiProcessed && targetStatus === "PROCESSING_VIDEO") ? "VIDEO" : "REPROCESS";
+            await enqueueNewsProcessing(postId, queuePhase, "AUTO_RETRY", true);
 
             items.push({
                 id: postId,
@@ -2665,6 +2862,9 @@ export const recoverFalselyRejectedNewsHttp = onRequest({ region: REGION }, asyn
                     rejectionReason: admin.firestore.FieldValue.delete(),
                     recoveredAt: admin.firestore.FieldValue.serverTimestamp()
                 });
+                if (targetStatus === "PROCESSING_VIDEO") {
+                    await enqueueNewsProcessing(doc.id, "VIDEO", "RECOVERED_VIDEO_HTTP", false);
+                }
 
                 if (targetApproved && d.reporter?.id && !d.pointsAwarded && !d.isCitizen && d.reporter?.name !== "సిటిజెన్ పోస్ట్") {
                     try {
@@ -2684,4 +2884,216 @@ export const recoverFalselyRejectedNewsHttp = onRequest({ region: REGION }, asyn
         res.status(500).json({ success: false, error: err.message });
     }
 });
+
+// ============================================================================
+// MULTI-STATE EDITION TRIGGERS (news_hi, news_pa, news_gu, news_en)
+// Strict before/after loop guards, cross-mandal "Alfa News Desk" attribution,
+// immediate raw Firebase Storage video purge, and zero trigger storm.
+// ============================================================================
+export interface EditionDraftDecision {
+    shouldUpdate: boolean;
+    updates: Record<string, any>;
+}
+
+/**
+ * Pure helper for expansion-state (news_hi, news_pa, news_gu, news_en) unapproved draft normalization,
+ * cross-mandal "Alfa News Desk" public attribution masking (preserving originalReporterId for incentives),
+ * and safe auto-approval of valid drafts without creating Firestore update loops.
+ */
+export function evaluateEditionDraftOnCreate(
+    collectionName: string,
+    after: any,
+    reporterProfile?: { assignedMandal?: string; mandal?: string; district?: string; stateCode?: string; role?: string } | null
+): EditionDraftDecision {
+    if (!after || after.approved === true || after.status === 'rejected' || after.isPostRejected === true) {
+        return { shouldUpdate: false, updates: {} };
+    }
+
+    const defaultLangByCol: Record<string, string> = {
+        news_hi: 'hi',
+        news_pa: 'pa',
+        news_gu: 'gu',
+        news_en: 'en'
+    };
+    const fallbackLang = defaultLangByCol[collectionName] || 'en';
+    const resolvedState = resolveStateCode(after.stateCode || after.state || reporterProfile?.stateCode, after.district || reporterProfile?.district);
+    const resolvedLang = resolvedState
+        ? validateLanguageForState(resolvedState, after.language || fallbackLang)
+        : (after.language || fallbackLang);
+
+    const headlineText = getLocalizedField(after.headline, resolvedLang) || (typeof after.title === 'string' ? after.title.trim() : '');
+    const contentText = getLocalizedField(after.content, resolvedLang) || getLocalizedField(after.summary, resolvedLang) || '';
+
+    if (headlineText.length < 6 || contentText.length < 12) {
+        return { shouldUpdate: false, updates: {} };
+    }
+
+    const updates: Record<string, any> = {
+        language: resolvedLang,
+        approved: true,
+        status: 'published',
+        editorialReviewed: true
+    };
+    if (resolvedState) {
+        updates.stateCode = resolvedState;
+        updates.state = EDITIONS[resolvedState].nameEn;
+    }
+
+    // Normalize localized headline & content maps so all readers (Web + Android) render natively
+    const existingHeadline = typeof after.headline === 'object' && after.headline ? { ...after.headline } : {};
+    existingHeadline.local = existingHeadline.local || headlineText;
+    if (resolvedLang === 'en') {
+        existingHeadline.english = existingHeadline.english || headlineText;
+    } else {
+        existingHeadline[resolvedLang] = existingHeadline[resolvedLang] || headlineText;
+    }
+    updates.headline = existingHeadline;
+
+    const existingContent = typeof after.content === 'object' && after.content ? { ...after.content } : {};
+    existingContent.local = existingContent.local || contentText;
+    if (resolvedLang === 'en') {
+        existingContent.english = existingContent.english || contentText;
+    } else {
+        existingContent[resolvedLang] = existingContent[resolvedLang] || contentText;
+    }
+    updates.content = existingContent;
+
+    // Cross-mandal / cross-tehsil reporter attribution masking:
+    // If a reporter posts for a sub-district outside their assigned area, display "Alfa News Desk"
+    // publicly while preserving `originalReporterId` so incentive points credit the submitting reporter.
+    const submittingReporterId = after.originalReporterId || after.reporter?.id || after.userId || '';
+    const assignedMandal = (reporterProfile?.assignedMandal || reporterProfile?.mandal || '').trim();
+    const postMandal = String(after.mandal || after.location || '').trim();
+    const postDistrict = String(after.district || reporterProfile?.district || '').trim();
+
+    if (submittingReporterId && !after.isCitizen) {
+        updates.originalReporterId = submittingReporterId;
+        if (assignedMandal && postMandal && postMandal.toLowerCase() !== 'general') {
+            const isSameArea = areMandalsMatching(postMandal, assignedMandal, postDistrict) ||
+                postMandal.toLowerCase() === assignedMandal.toLowerCase();
+            if (!isSameArea) {
+                updates.reporter = {
+                    ...(typeof after.reporter === 'object' && after.reporter ? after.reporter : {}),
+                    id: 'ALFA_DESK',
+                    name: 'Alfa News Desk'
+                };
+                updates.crossMandalMasked = true;
+            }
+        }
+    }
+
+    return { shouldUpdate: true, updates };
+}
+
+async function handleEditionApprovalTransition(
+    collectionName: string,
+    postId: string,
+    before: any | undefined,
+    after: any | undefined
+): Promise<void> {
+    if (!after) return;
+
+    const wasApproved = before?.approved === true;
+    const isNowApproved = after.approved === true;
+
+    // Strict before/after guard: only act on fresh approval transition or fresh creation
+    if (before && wasApproved === isNowApproved) {
+        return;
+    }
+
+    // Handle freshly created unapproved drafts in expansion collections (reporter & citizen submissions)
+    if (!before && !isNowApproved) {
+        const submittingReporterId = after.originalReporterId || after.reporter?.id || after.userId || '';
+        let reporterProfile: any = null;
+        if (submittingReporterId && !after.isCitizen && !String(submittingReporterId).startsWith('BOT_') && submittingReporterId !== 'ALFA_DESK') {
+            const userSnap = await db.collection('users').doc(String(submittingReporterId)).get().catch(() => null);
+            if (userSnap?.exists) {
+                reporterProfile = userSnap.data();
+            }
+        }
+
+        const decision = evaluateEditionDraftOnCreate(collectionName, after, reporterProfile);
+        if (decision.shouldUpdate) {
+            await db.collection(collectionName).doc(postId).update(decision.updates).catch((err: any) => {
+                console.warn(`[EDITION_DRAFT_UPDATE_WARN] ${collectionName}/${postId}:`, err?.message);
+            });
+        }
+        return;
+    }
+
+    if (!isNowApproved) return;
+
+    // 1. Immediate raw Storage video purge once published (Zero Egress & Storage Bloat Policy)
+    const rawMediaUrl = String(after.mediaUrl || '');
+    const isVideo = String(after.mediaType || '').toUpperCase() === 'VIDEO';
+    if (isVideo && rawMediaUrl.includes('firebasestorage.googleapis.com') && after.youtubeUrl) {
+        await deleteOriginalFile(rawMediaUrl);
+    }
+
+    // 2. Credit reporter reward points (always credited to originalReporterId even on cross-mandal "Alfa News Desk" posts)
+    const creditReporterId = after.originalReporterId || after.reporter?.id;
+    const isRealReporter = Boolean(
+        creditReporterId &&
+        !after.isCitizen &&
+        !after.pointsAwarded &&
+        !String(creditReporterId).startsWith('BOT_') &&
+        !String(creditReporterId).startsWith('SYSTEM_') &&
+        creditReporterId !== 'ALFA_DESK'
+    );
+
+    if (isRealReporter) {
+        try {
+            await awardPointsToReporter(creditReporterId, 10);
+            await recordApprovedNewsForReporter(creditReporterId, postId);
+            await db.collection(collectionName).doc(postId).update({ pointsAwarded: true }).catch(() => {});
+        } catch (err: any) {
+            console.warn(`[EDITION_REWARD_WARN] ${collectionName}/${postId}:`, err?.message);
+        }
+    }
+
+    // 3. Dispatch breaking notification to edition-scoped topic (respects quiet hours & caps inside notification_engine)
+    if (after.isBreaking === true || after.tone === 'BREAKING' || after.tone === 'URGENT') {
+        await dispatchBreakingNotification(postId, after, before).catch((err: any) => {
+            console.warn(`[EDITION_BREAKING_WARN] ${collectionName}/${postId}:`, err?.message);
+        });
+    }
+}
+
+function createEditionCreatedTrigger(collectionName: 'news_hi' | 'news_pa' | 'news_gu' | 'news_en') {
+    return onDocumentCreated({
+        document: `${collectionName}/{postId}`,
+        region: REGION,
+        memory: "256MiB",
+        timeoutSeconds: 60,
+        maxInstances: 3
+    }, async (event) => {
+        const snapshot = event.data;
+        if (!snapshot || !snapshot.exists) return;
+        await handleEditionApprovalTransition(collectionName, event.params.postId, undefined, snapshot.data());
+    });
+}
+
+function createEditionUpdatedTrigger(collectionName: 'news_hi' | 'news_pa' | 'news_gu' | 'news_en') {
+    return onDocumentUpdated({
+        document: `${collectionName}/{postId}`,
+        region: REGION,
+        memory: "256MiB",
+        timeoutSeconds: 60,
+        maxInstances: 3
+    }, async (event) => {
+        const before = event.data?.before?.data();
+        const after = event.data?.after?.data();
+        await handleEditionApprovalTransition(collectionName, event.params.postId, before, after);
+    });
+}
+
+export const onNewsHiPostCreated = createEditionCreatedTrigger('news_hi');
+export const onNewsHiPostUpdated = createEditionUpdatedTrigger('news_hi');
+export const onNewsPaPostCreated = createEditionCreatedTrigger('news_pa');
+export const onNewsPaPostUpdated = createEditionUpdatedTrigger('news_pa');
+export const onNewsGuPostCreated = createEditionCreatedTrigger('news_gu');
+export const onNewsGuPostUpdated = createEditionUpdatedTrigger('news_gu');
+export const onNewsEnPostCreated = createEditionCreatedTrigger('news_en');
+export const onNewsEnPostUpdated = createEditionUpdatedTrigger('news_en');
+
 

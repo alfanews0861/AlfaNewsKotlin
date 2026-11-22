@@ -8,6 +8,13 @@ import * as nodemailer from "nodemailer";
 import * as https from "https";
 import { REGION } from "./utils";
 import { getCanonicalDistrict } from "./notification_engine";
+import {
+    ALL_NEWS_COLLECTIONS,
+    NewsCollectionName,
+    getLocalizedField,
+    resolveStateCode,
+    EDITIONS
+} from "./editions";
 
 if (admin.apps.length === 0) {
     admin.initializeApp();
@@ -42,8 +49,6 @@ export {
     processReporterSubmission,
     submitReporterApplication,
     backfillReporterPoints,
-    onNewsViewCountUpdated,
-    onNewsPostApproved,
     verifyReporter,
     onUserCreated,
     onAnonymousDeviceCreated,
@@ -68,9 +73,19 @@ export {
 export {
     processNewsPost,
     onNewsPostCreated,
+    onNewsPostUpdated,
+    onNewsReprocessRequested,
     scheduleReprocessFailedReporterNews,
     recoverFalselyRejectedNewsHttp,
-    reprocessUnprocessedNewsHttp
+    reprocessUnprocessedNewsHttp,
+    onNewsHiPostCreated,
+    onNewsHiPostUpdated,
+    onNewsPaPostCreated,
+    onNewsPaPostUpdated,
+    onNewsGuPostCreated,
+    onNewsGuPostUpdated,
+    onNewsEnPostCreated,
+    onNewsEnPostUpdated
 } from "./news_handler";
 
 // 4. Export Notification Engine
@@ -92,7 +107,6 @@ export {
 
 // 8. Export Social Auto-Post Engine (Facebook & Instagram per District)
 export {
-    onNewsPostSocialAutoPost,
     testDistrictSocialPost,
     manuallyTriggerSocialPost,
     initializeDistrictSocialConfigs,
@@ -106,6 +120,11 @@ export {
     simulateVoiceConversation,
     handleTelephonyWebhook
 } from './voice_agent_handler';
+
+// 10. Export Server-Side Edge-Cached Feed API (Zero Firestore Egress)
+export {
+    getCachedFeed
+} from './feed_cache_api';
 
 
 
@@ -478,6 +497,56 @@ async function loadPhotoFast(mediaUrl: string, timeoutMs = 8000): Promise<any> {
     return null;
 }
 
+async function findNewsDocAcrossCollections(
+    id: string,
+    preferredCol?: string | null
+): Promise<{ doc: admin.firestore.DocumentSnapshot | null; collectionName: NewsCollectionName }> {
+    const validPreferred = preferredCol && (ALL_NEWS_COLLECTIONS as string[]).includes(preferredCol)
+        ? (preferredCol as NewsCollectionName)
+        : null;
+
+    if (validPreferred) {
+        const direct = await db.collection(validPreferred).doc(id).get().catch(() => null);
+        if (direct && direct.exists) return { doc: direct, collectionName: validPreferred };
+    }
+
+    // Check legacy 'news' first (if not already checked)
+    if (validPreferred !== 'news') {
+        const legacyDoc = await db.collection('news').doc(id).get().catch(() => null);
+        if (legacyDoc && legacyDoc.exists) return { doc: legacyDoc, collectionName: 'news' };
+    }
+
+    // Parallel point-read across remaining expansion collections (max 4 cheap point-reads)
+    const remaining = ALL_NEWS_COLLECTIONS.filter((c) => c !== 'news' && c !== validPreferred);
+    const hits = await Promise.all(
+        remaining.map(async (col) => {
+            const snap = await db.collection(col).doc(id).get().catch(() => null);
+            return snap && snap.exists ? { doc: snap, collectionName: col } : null;
+        })
+    );
+    const found = hits.find(Boolean);
+    if (found) return found;
+
+    // Prefix fallback on primary collection ('news' or validPreferred)
+    const fallbackCol: NewsCollectionName = validPreferred || 'news';
+    if (id.length >= 5) {
+        const prefix = id.substring(0, 5);
+        const snap = await db.collection(fallbackCol)
+            .where(admin.firestore.FieldPath.documentId(), '>=', prefix)
+            .where(admin.firestore.FieldPath.documentId(), '<=', prefix + '\uf8ff')
+            .limit(20)
+            .get()
+            .catch(() => null);
+        const matched = snap?.docs.find(d =>
+            d.id.toLowerCase() === id.toLowerCase() ||
+            d.id.toLowerCase().startsWith(id.toLowerCase())
+        ) || (snap && snap.docs.length === 1 ? snap.docs[0] : null);
+        if (matched) return { doc: matched, collectionName: fallbackCol };
+    }
+
+    return { doc: null, collectionName: fallbackCol };
+}
+
 export const getNewsCardImage = onRequest(async (req, res) => {
     const pathSegments = req.path.split('/').filter(Boolean);
     let fileName = pathSegments.pop() || "";
@@ -490,35 +559,28 @@ export const getNewsCardImage = onRequest(async (req, res) => {
 
     try {
         const isAd = pathSegments.includes('ad');
-        const collectionName = isAd ? 'localAds' : 'news';
-        let doc = await db.collection(collectionName).doc(id).get();
+        const requestedCol = typeof req.query.col === 'string' ? req.query.col.trim() : null;
+        let doc: admin.firestore.DocumentSnapshot | null = null;
 
-        if (!doc.exists) {
-            // Case-insensitive / prefix fallback in case of casing mismatch or short URL in link
-            if (id.length >= 5) {
-                const prefix = id.substring(0, 5);
-                const snap = await db.collection(collectionName)
-                    .where(admin.firestore.FieldPath.documentId(), '>=', prefix)
-                    .where(admin.firestore.FieldPath.documentId(), '<=', prefix + '\uf8ff')
-                    .limit(20)
-                    .get();
-                const matched = snap.docs.find(d => 
-                    d.id.toLowerCase() === id.toLowerCase() || 
-                    d.id.toLowerCase().startsWith(id.toLowerCase())
-                );
-                if (matched) doc = matched;
-            }
+        if (isAd) {
+            doc = await db.collection('localAds').doc(id).get();
+        } else {
+            const resolved = await findNewsDocAcrossCollections(id, requestedCol);
+            doc = resolved.doc;
         }
 
-        if (!doc.exists) {
+        if (!doc || !doc.exists) {
             res.status(404).send("Post not found");
             return;
         }
 
         const data = doc.data() || {};
-        const title = data.headline?.telugu || data.headline?.english || data.title || data.businessName || "Alfa News Telugu";
-        const content = data.content?.telugu || data.summary?.telugu || data.content?.english || data.summary?.english || data.description || "";
-        const location = data.location || data.district || "ఆంధ్రప్రదేశ్";
+        const docLang = String(data.language || 'te').toLowerCase();
+        const resolvedState = resolveStateCode(data.stateCode || data.state, data.district);
+        const defaultLocation = resolvedState ? EDITIONS[resolvedState].nameNative : "ఆంధ్రప్రదేశ్";
+        const title = getLocalizedField(data.headline, docLang) || data.title || data.businessName || "Alfa News";
+        const content = getLocalizedField(data.content, docLang) || getLocalizedField(data.summary, docLang) || data.description || "";
+        const location = data.location || data.district || defaultLocation;
         const mandal = data.mandal || location;
         const reporterName = data.reporter?.name || data.reporterName || "Alfa News";
         const likes = data.likes || data.likeCount || (Math.floor(Math.random() * 150) + 75);
@@ -531,7 +593,13 @@ export const getNewsCardImage = onRequest(async (req, res) => {
             if (typeof urlCandidate === 'string') {
                 let s = urlCandidate.trim();
                 if (s.startsWith('//')) s = 'https:' + s;
-                if (s.startsWith('http') && !candidateUrls.includes(s)) candidateUrls.push(s);
+                if (s.startsWith('http')) {
+                    // Zero Egress Policy: route Firebase Storage URLs through Cloudflare Edge Cache Proxy
+                    if (s.includes('firebasestorage.googleapis.com')) {
+                        s = `https://wsrv.nl/?url=${encodeURIComponent(s)}&w=900&output=webp&q=80`;
+                    }
+                    if (!candidateUrls.includes(s)) candidateUrls.push(s);
+                }
             } else if (typeof urlCandidate === 'object') {
                 if (typeof urlCandidate.url === 'string') addCandidate(urlCandidate.url);
                 if (typeof urlCandidate.mediaUrl === 'string') addCandidate(urlCandidate.mediaUrl);
@@ -792,44 +860,44 @@ export const shareNews = onRequest(async (req, res) => {
     }
 
     try {
-        const collectionName = isAd ? 'localAds' : 'news';
-        let doc = await db.collection(collectionName).doc(id).get();
+        const requestedCol = typeof req.query.col === 'string' ? req.query.col.trim() : null;
+        let doc: admin.firestore.DocumentSnapshot | null = null;
+        let resolvedCollection: string = isAd ? 'localAds' : 'news';
 
-        if (!doc.exists) {
-            if (id.length >= 5) {
-                const prefix = id.substring(0, 5);
-                const snap = await db.collection(collectionName)
-                    .where(admin.firestore.FieldPath.documentId(), '>=', prefix)
-                    .where(admin.firestore.FieldPath.documentId(), '<=', prefix + '\uf8ff')
-                    .limit(20)
-                    .get();
-                const matched = snap.docs.find(d => 
-                    d.id.toLowerCase() === id.toLowerCase() || 
-                    d.id.toLowerCase().startsWith(id.toLowerCase())
-                ) || (snap.docs.length === 1 ? snap.docs[0] : null);
-                if (matched) doc = matched;
-            }
+        if (isAd) {
+            doc = await db.collection('localAds').doc(id).get();
+        } else {
+            const resolved = await findNewsDocAcrossCollections(id, requestedCol);
+            doc = resolved.doc;
+            resolvedCollection = resolved.collectionName;
         }
 
-        if (!doc.exists) {
+        if (!doc || !doc.exists) {
             res.redirect("https://alfanews.app/");
             return;
         }
 
         const data = doc.data() || {};
-        const titleRaw = data.headline?.telugu || data.headline?.english || data.title || data.businessName || "Alfa News Telugu";
-        const reporterName = data.reporter?.name || data.reporterName || "ఆల్ఫా న్యూస్ డెస్క్";
-        const location = data.location || data.district || "ఆంధ్రప్రదేశ్";
+        const docLang = String(data.language || (resolvedCollection === 'news_hi' ? 'hi' : resolvedCollection === 'news_pa' ? 'pa' : resolvedCollection === 'news_gu' ? 'gu' : resolvedCollection === 'news_en' ? 'en' : 'te')).toLowerCase();
+        const resolvedState = resolveStateCode(data.stateCode || data.state, data.district);
+        const defaultLoc = resolvedState ? EDITIONS[resolvedState].nameNative : "ఆంధ్రప్రదేశ్";
+        const titleRaw = getLocalizedField(data.headline, docLang) || data.title || data.businessName || "Alfa News";
+        const reporterName = data.reporter?.name || data.reporterName || (docLang === 'te' ? "ఆల్ఫా న్యూస్ డెస్క్" : "Alfa News Desk");
+        const location = data.location || data.district || defaultLoc;
+        const colParam = !isAd && resolvedCollection !== 'news' ? `col=${encodeURIComponent(resolvedCollection)}` : '';
         
         // Always prioritize the high-resolution branded news card for WhatsApp rich preview!
-        const directImageUrl = `https://alfanews.app/news-card/${doc.id}.jpg`;
+        const directImageUrl = `https://alfanews.app/news-card/${doc.id}.jpg${colParam ? `?${colParam}` : ''}`;
 
-        const fullDesc = data.summary?.telugu || data.content?.telugu || data.summary?.english || data.content?.english || data.description || "";
+        const fullDesc = getLocalizedField(data.summary, docLang) || getLocalizedField(data.content, docLang) || data.description || "";
         const descRaw = fullDesc.length > 100 ? fullDesc.substring(0, 100) + "..." : fullDesc;
         const safeTitle = escapeHtml(titleRaw);
         const safeDesc = escapeHtml(descRaw);
         const safeImage = escapeHtml(directImageUrl);
-        const refQuery = cleanRef ? `?ref=${encodeURIComponent(cleanRef)}` : '';
+        const queryParts: string[] = [];
+        if (cleanRef) queryParts.push(`ref=${encodeURIComponent(cleanRef)}`);
+        if (colParam) queryParts.push(colParam);
+        const refQuery = queryParts.length > 0 ? `?${queryParts.join('&')}` : '';
         const postUrl = `https://alfanews.app/${isAd ? 'ad' : 'news'}/${doc.id}${refQuery}`;
         const intentScheme = `alfanews://${isAd ? 'ad' : 'news'}/${doc.id}${refQuery}`;
 
@@ -897,7 +965,7 @@ export const shareNews = onRequest(async (req, res) => {
                     },
                     description: descRaw,
                     articleSection: category,
-                    inLanguage: 'te-IN'
+                    inLanguage: `${docLang}-IN`
                 });
                 hydratedHtml = hydratedHtml.replace('</head>', `<script type="application/ld+json">${schemaJson}</script></head>`);
 
@@ -1047,27 +1115,49 @@ export const serveSitemap = onRequest(async (req, res) => {
         // -------------------------------------------------------------
         if (path.includes('news-sitemap')) {
             const twoDaysAgo = Date.now() - (48 * 60 * 60 * 1000);
-            const snap = await db.collection("news")
-                .where("approved", "==", true)
-                .orderBy("timestamp", "desc")
-                .limit(200)
-                .select("timestamp", "headline", "title")
-                .get();
+            const collectionLimits: Array<{ col: NewsCollectionName; limit: number; defaultLang: string }> = [
+                { col: 'news', limit: 120, defaultLang: 'te' },
+                { col: 'news_hi', limit: 20, defaultLang: 'hi' },
+                { col: 'news_pa', limit: 20, defaultLang: 'pa' },
+                { col: 'news_gu', limit: 20, defaultLang: 'gu' },
+                { col: 'news_en', limit: 20, defaultLang: 'en' }
+            ];
+
+            const snapshots = await Promise.all(
+                collectionLimits.map(async (cfg) => {
+                    try {
+                        const snap = await db.collection(cfg.col)
+                            .where("approved", "==", true)
+                            .orderBy("timestamp", "desc")
+                            .limit(cfg.limit)
+                            .select("timestamp", "headline", "title", "language")
+                            .get();
+                        return { cfg, docs: snap.docs };
+                    } catch {
+                        return { cfg, docs: [] as admin.firestore.QueryDocumentSnapshot[] };
+                    }
+                })
+            );
 
             let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">\n';
-            for (const d of snap.docs) {
-                const data = d.data();
-                let timestampMs = Date.now();
-                if (data.timestamp) {
-                    timestampMs = data.timestamp.toMillis ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : Date.now());
+            for (const { cfg, docs } of snapshots) {
+                for (const d of docs) {
+                    const data = d.data();
+                    let timestampMs = Date.now();
+                    if (data.timestamp) {
+                        timestampMs = data.timestamp.toMillis ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : Date.now());
+                    }
+                    if (timestampMs < twoDaysAgo) continue;
+
+                    const dateStr = new Date(timestampMs).toISOString();
+                    const lang = String(data.language || cfg.defaultLang).toLowerCase();
+                    const titleRaw = getLocalizedField(data.headline, lang) || data.title || "Alfa News";
+                    const safeTitleXml = escapeHtml(titleRaw);
+                    const locUrl = cfg.col === 'news' ? `${baseUrl}/news/${d.id}` : `${baseUrl}/news/${d.id}?col=${cfg.col}`;
+                    const pubName = lang === 'te' ? 'Alfa News Telugu' : 'Alfa News';
+
+                    xml += `  <url>\n    <loc>${locUrl}</loc>\n    <news:news>\n      <news:publication>\n        <news:name>${pubName}</news:name>\n        <news:language>${lang}</news:language>\n      </news:publication>\n      <news:publication_date>${dateStr}</news:publication_date>\n      <news:title>${safeTitleXml}</news:title>\n    </news:news>\n  </url>\n`;
                 }
-                if (timestampMs < twoDaysAgo) continue;
-
-                const dateStr = new Date(timestampMs).toISOString();
-                const titleRaw = data.headline?.telugu || data.headline?.english || data.title || "Alfa News Telugu";
-                const safeTitleXml = escapeHtml(titleRaw);
-
-                xml += `  <url>\n    <loc>${baseUrl}/news/${d.id}</loc>\n    <news:news>\n      <news:publication>\n        <news:name>Alfa News Telugu</news:name>\n        <news:language>te</news:language>\n      </news:publication>\n      <news:publication_date>${dateStr}</news:publication_date>\n      <news:title>${safeTitleXml}</news:title>\n    </news:news>\n  </url>\n`;
             }
             xml += '</urlset>';
 

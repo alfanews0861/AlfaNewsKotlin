@@ -1,367 +1,248 @@
 import * as admin from "firebase-admin";
 import { onSchedule } from "firebase-functions/v2/scheduler";
-import { onCall } from "firebase-functions/v2/https";
-import { UserRole } from "./types";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { REGION } from "./utils";
+import { ReporterReminderLog, ReporterTrackingConfig, UserRole } from "./types";
+import {
+    calculateIstCalendarDaysInactive,
+    evaluateReporterInactivity,
+    getReporterTrackingConfig,
+    isQuietHoursIst,
+    parseEpochMs,
+    parseToDate,
+    renderReminderTemplate,
+    REPORTER_ROLE_VALUES,
+    saveReporterTrackingConfig,
+    syncAllReporterActivityStats
+} from "./reporter_tracking";
 
-if (admin.apps.length === 0) {
+if (Array.isArray(admin.apps) && admin.apps.length === 0) {
     admin.initializeApp();
 }
 const db = admin.firestore();
 
+export { parseToDate };
+
 /**
- * Helper to parse various timestamp formats into a valid Date object or null
+ * Backwards-compatible wrapper for callers computing inactivity days.
  */
-export function parseToDate(val: any): Date | null {
-    if (!val) return null;
+export function calculateDaysInactive(
+    reporter: any,
+    now: Date = new Date(),
+    actualNewsDate?: Date | null
+): number {
+    const overrideMs = actualNewsDate ? actualNewsDate.getTime() : undefined;
+    return calculateIstCalendarDaysInactive(reporter, now.getTime(), overrideMs);
+}
+
+/**
+ * Verifies the caller is an Admin / Editor / Regional Incharge / Super Admin.
+ */
+async function assertAdminCaller(auth: any): Promise<string> {
+    if (!auth || !auth.uid) {
+        throw new HttpsError("unauthenticated", "మీరు లాగిన్ అవ్వాలి.");
+    }
+    const email = String(auth.token?.email || "").toLowerCase();
+    if (email === "alfanews0861@gmail.com") return auth.uid;
+
+    const userSnap = await db.collection("users").doc(auth.uid).get();
+    const uData = userSnap.data() || {};
+    const roleStr = String(uData.role || "").toUpperCase();
+    const allowed = [
+        "ADMIN",
+        "SUPER_ADMIN",
+        "EDITOR",
+        "NEWS_DESK",
+        "REGIONAL_INCHARGE",
+        "3",
+        "3.0",
+        "4",
+        "4.0",
+        "5",
+        "5.0",
+        "6",
+        "6.0",
+        "7",
+        "7.0"
+    ];
+    if (
+        allowed.includes(roleStr) ||
+        uData.role === UserRole.ADMIN ||
+        uData.role === UserRole.EDITOR ||
+        uData.role === UserRole.NEWS_DESK ||
+        uData.role === UserRole.REGIONAL_INCHARGE
+    ) {
+        return auth.uid;
+    }
+
+    throw new HttpsError("permission-denied", "అడ్మిన్లకు మాత్రమే ఈ అనుమతి ఉంది.");
+}
+
+/**
+ * Extracts unique valid FCM tokens from a user document.
+ */
+function extractUserTokens(userData: any): string[] {
+    if (!userData) return [];
+    if (userData.notificationsEnabled === false || userData.pushEnabled === false) {
+        return [];
+    }
+    const raw: any[] = [
+        ...(Array.isArray(userData.fcmTokens) ? userData.fcmTokens : []),
+        userData.fcmToken
+    ];
+    return Array.from(
+        new Set(raw.filter((t): t is string => typeof t === "string" && t.trim().length > 0))
+    );
+}
+
+/**
+ * Strictly Push-Only automated inactivity reminder for Reporters.
+ * NEVER writes to `reporter_conversations` (Desk Chat) or `users/{uid}/messages`.
+ */
+export async function sendReporterReminderPushOnly(
+    reporterId: string,
+    reporterData: any,
+    title: string,
+    body: string,
+    stage: "DAY_3" | "DAY_7",
+    daysInactive: number
+): Promise<{ tokensTargeted: number; sentCount: number; status: "SENT" | "NO_TOKENS" | "FAILED" }> {
+    const tokens = extractUserTokens(reporterData);
+    if (tokens.length === 0) {
+        return { tokensTargeted: 0, sentCount: 0, status: "NO_TOKENS" };
+    }
+
+    const messages = tokens.map((token) => ({
+        token,
+        android: {
+            priority: "high" as const,
+            ttl: 12 * 60 * 60 * 1000,
+            directBootOk: true,
+            notification: {
+                channelId: "general_news_v2",
+                sound: "default",
+                tag: `reporter_reminder_${stage.toLowerCase()}`
+            }
+        },
+        notification: {
+            title,
+            body
+        },
+        data: {
+            type: "REPORTER_INACTIVITY_REMINDER",
+            stage,
+            daysInactive: String(daysInactive),
+            title,
+            body,
+            channelId: "general_news_v2"
+        }
+    }));
+
     try {
-        if (typeof val.toDate === 'function') return val.toDate();
-        if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
-        if (typeof val === 'number') {
-            const ms = val > 1e11 ? val : val * 1000;
-            const d = new Date(ms);
-            return isNaN(d.getTime()) ? null : d;
-        }
-        if (val.seconds && typeof val.seconds === 'number') {
-            return new Date(val.seconds * 1000);
-        }
-        if (val._seconds && typeof val._seconds === 'number') {
-            return new Date(val._seconds * 1000);
-        }
-        if (typeof val === 'string') {
-            const trimmed = val.trim();
-            if (/^\d+$/.test(trimmed)) {
-                const num = Number(trimmed);
-                const ms = num > 1e11 ? num : num * 1000;
-                const d = new Date(ms);
-                return isNaN(d.getTime()) ? null : d;
-            }
-            const parsed = new Date(trimmed);
-            return isNaN(parsed.getTime()) ? null : parsed;
-        }
-        return null;
-    } catch {
-        return null;
-    }
-}
+        const response = await admin.messaging().sendEach(messages);
 
-export interface ReporterNewsActivitySummary {
-    latestDate: Date | null;
-    totalPosts: number;
-    recentPostsLast7Days: number;
-    recentPostsLast30Days: number;
-}
-
-/**
- * Deep multi-field news activity inspection:
- * Queries all fields (reporter.id, originalReporterId, reporterId, userId, reporter.phone, reporter.name)
- * across the news collection without early-break, calculating:
- * - Latest post date
- * - Total lifetime posts
- * - Recent posts in the last 7 days
- * - Recent posts in the last 30 days
- */
-export async function getReporterActivitySummary(
-    reporterId: string, 
-    reporterName?: string, 
-    reporterPhone?: string
-): Promise<ReporterNewsActivitySummary> {
-    const summary: ReporterNewsActivitySummary = {
-        latestDate: null,
-        totalPosts: 0,
-        recentPostsLast7Days: 0,
-        recentPostsLast30Days: 0
-    };
-
-    if (!reporterId) return summary;
-
-    const now = new Date();
-    const sevenDaysAgoMs = now.getTime() - (7 * 24 * 60 * 60 * 1000);
-    const thirtyDaysAgoMs = now.getTime() - (30 * 24 * 60 * 60 * 1000);
-
-    const seenDocIds = new Set<string>();
-
-    const checkDocs = (docs: admin.firestore.QueryDocumentSnapshot[]) => {
-        for (const doc of docs) {
-            if (seenDocIds.has(doc.id)) continue;
-            seenDocIds.add(doc.id);
-
-            const data = doc.data();
-            const date = parseToDate(data.timestamp || data.createdAt || data.lastUpdated || data.publishedAt);
-            if (date) {
-                const time = date.getTime();
-                if (!summary.latestDate || time > summary.latestDate.getTime()) {
-                    summary.latestDate = date;
-                }
-                if (time >= sevenDaysAgoMs) {
-                    summary.recentPostsLast7Days++;
-                }
-                if (time >= thirtyDaysAgoMs) {
-                    summary.recentPostsLast30Days++;
+        // Clean up invalid / unregistered FCM tokens cleanly
+        const invalidTokens: string[] = [];
+        response.responses.forEach((res, idx) => {
+            if (!res.success && res.error) {
+                const code = res.error.code;
+                if (
+                    code === "messaging/registration-token-not-registered" ||
+                    code === "messaging/invalid-registration-token"
+                ) {
+                    invalidTokens.push(tokens[idx]);
                 }
             }
-        }
-        summary.totalPosts = seenDocIds.size;
-    };
+        });
 
-    const queryPromises: Promise<void>[] = [];
-
-    // 1. Direct ID fields across news posts
-    const idFields = ['reporter.id', 'originalReporterId', 'reporterId', 'userId'];
-    for (const field of idFields) {
-        queryPromises.push((async () => {
-            try {
-                const snap = await db.collection('news')
-                    .where(field, '==', reporterId)
-                    .orderBy('timestamp', 'desc')
-                    .limit(5)
-                    .get();
-                if (!snap.empty) checkDocs(snap.docs);
-            } catch {
-                try {
-                    const snap = await db.collection('news')
-                        .where(field, '==', reporterId)
-                        .limit(25)
-                        .get();
-                    if (!snap.empty) checkDocs(snap.docs);
-                } catch {}
+        if (invalidTokens.length > 0) {
+            const cleanup: Record<string, any> = {
+                fcmTokens: admin.firestore.FieldValue.arrayRemove(...invalidTokens)
+            };
+            if (invalidTokens.includes(reporterData?.fcmToken)) {
+                cleanup.fcmToken = admin.firestore.FieldValue.delete();
             }
-        })());
-    }
-
-    // 2. Match by reporter phone number if available
-    if (reporterPhone && typeof reporterPhone === 'string' && reporterPhone.trim()) {
-        const clean10 = reporterPhone.replace(/\D/g, '').slice(-10);
-        const phonesToQuery = [reporterPhone.trim()];
-        if (clean10.length === 10 && !phonesToQuery.includes(clean10)) {
-            phonesToQuery.push(clean10);
-            phonesToQuery.push(`+91${clean10}`);
+            await db.collection("users").doc(reporterId).update(cleanup).catch(() => {});
         }
-        for (const ph of phonesToQuery) {
-            queryPromises.push((async () => {
-                try {
-                    const snap = await db.collection('news')
-                        .where('reporter.phone', '==', ph)
-                        .limit(20)
-                        .get();
-                    if (!snap.empty) checkDocs(snap.docs);
-                } catch {}
-            })());
-        }
+
+        const status = response.successCount > 0 ? "SENT" : "FAILED";
+        return {
+            tokensTargeted: tokens.length,
+            sentCount: response.successCount,
+            status
+        };
+    } catch (err: any) {
+        console.error(`[REPORTER_REMINDER_PUSH_ERR] ${reporterId}:`, err.message);
+        return { tokensTargeted: tokens.length, sentCount: 0, status: "FAILED" };
     }
-
-    // 3. Match by reporter name if unique and not generic placeholder
-    if (reporterName && typeof reporterName === 'string' && reporterName.trim() && 
-        !['Reporter', 'విలేకరి', 'Admin', 'Alfa News Desk', 'AlfaNews Admin'].includes(reporterName.trim())) {
-        queryPromises.push((async () => {
-            try {
-                const snap = await db.collection('news')
-                    .where('reporter.name', '==', reporterName.trim())
-                    .limit(20)
-                    .get();
-                if (!snap.empty) checkDocs(snap.docs);
-            } catch {}
-        })());
-    }
-
-    await Promise.allSettled(queryPromises);
-
-    return summary;
 }
 
 /**
- * Robust verification: Returns the latest news post date for a reporter.
- * Backwards-compatible with callers expecting Date | null.
- */
-export async function getActualLatestNewsDate(
-    reporterId: string, 
-    reporterName?: string,
-    reporterPhone?: string
-): Promise<Date | null> {
-    const summary = await getReporterActivitySummary(reporterId, reporterName, reporterPhone);
-    return summary.latestDate;
-}
-
-/**
- * Calculates days of inactivity for a reporter based on last post timestamp or promotion date.
- * Always takes the maximum (most recent) date between actual news collection date and user doc lastPostTimestamp.
- */
-export function calculateDaysInactive(reporter: any, now: Date, actualNewsDate?: Date | null): number {
-    const userDocLastPost = parseToDate(reporter.lastPostTimestamp);
-
-    // Pick the most recent timestamp between actualNewsDate and userDocLastPost
-    let lastPost: Date | null = null;
-    if (actualNewsDate && userDocLastPost) {
-        lastPost = actualNewsDate.getTime() > userDocLastPost.getTime() ? actualNewsDate : userDocLastPost;
-    } else {
-        lastPost = actualNewsDate || userDocLastPost;
-    }
-
-    const promotedAt = parseToDate(reporter.promotedAt) || parseToDate(reporter.rejoinedAt) || parseToDate(reporter.roleUpdatedAt);
-    const createdAt = parseToDate(reporter.timestamp) || parseToDate(reporter.createdAt) || parseToDate(reporter.joinedAt);
-
-    // 1. Pick the most recent activity marker between lastPost and promotedAt
-    let referenceDate: Date | null = null;
-    if (lastPost && promotedAt) {
-        referenceDate = lastPost.getTime() > promotedAt.getTime() ? lastPost : promotedAt;
-    } else if (lastPost) {
-        referenceDate = lastPost;
-    } else if (promotedAt) {
-        referenceDate = promotedAt;
-    }
-
-    if (referenceDate) {
-        const diffTime = Math.max(0, now.getTime() - referenceDate.getTime());
-        return Math.floor(diffTime / (1000 * 60 * 60 * 24));
-    }
-
-    // 2. Fallback for accounts created recently without lastPost/promotedAt
-    if (createdAt) {
-        const diffTime = Math.max(0, now.getTime() - createdAt.getTime());
-        const daysSinceCreation = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-        if (daysSinceCreation < 14) {
-            return daysSinceCreation;
-        }
-    }
-
-    // Default to 0 (grace period) if timestamps are not yet populated
-    return 0;
-}
-
-/**
- * Core scanner function to evaluate reporter activity.
- * Sends a polite request to reporters who haven't posted in 3+ days,
- * and notifies Admins if a reporter has been inactive for 10+ consecutive days.
- * 🛡️ Automated demotions, warning levels, and threatening alerts are completely disabled.
- */
-export async function runReporterActivityScan() {
-    console.log("[REPORTER_MONITOR] 🔍 Starting reporter activity scan...");
-
-    const now = new Date();
-
-    // Fetch all active reporters (handling string, numeric, and enum role formats)
-    const reportersSnapshot = await db.collection('users')
-        .where('role', 'in', [UserRole.REPORTER, 'REPORTER', 'reporter', 2, 2.0, '2'])
-        .get();
-
-    if (reportersSnapshot.empty) {
-        console.log("[REPORTER_MONITOR] No reporters found in database.");
-        return { reportersScanned: 0, inactiveActedOn: 0 };
-    }
-
-    console.log(`[REPORTER_MONITOR] Scanning ${reportersSnapshot.size} reporters for activity...`);
-    let inactiveCount = 0;
-
-    for (const doc of reportersSnapshot.docs) {
-        const reporter = doc.data();
-        const reporterId = doc.id;
-
-        // Skip suspended or admin-demoted accounts
-        if (reporter.suspended === true || reporter.previouslyDowngraded === true) {
-            continue;
-        }
-
-        // Auto-fix for existing reporters lacking promotedAt and lastPostTimestamp
-        if (!reporter.lastPostTimestamp && !reporter.promotedAt && !reporter.rejoinedAt && !reporter.roleUpdatedAt) {
-            console.log(`[REPORTER_MONITOR] Auto-initializing 14-day grace period for reporter ${reporter.name || reporterId}...`);
-            await db.collection('users').doc(reporterId).set({
-                promotedAt: admin.firestore.FieldValue.serverTimestamp(),
-                lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp(),
-                rejoinedAt: admin.firestore.FieldValue.serverTimestamp(),
-                warningLevel: 0,
-                inProbation: false,
-                previouslyDowngraded: false,
-                suspended: false
-            }, { merge: true });
-            continue;
-        }
-
-        const acted = await handleReporterStatus(reporterId, reporter, now);
-        if (acted) inactiveCount++;
-    }
-
-    console.log(`[REPORTER_MONITOR] Activity scan complete. Acted on ${inactiveCount} reporters.`);
-    return { reportersScanned: reportersSnapshot.size, inactiveActedOn: inactiveCount };
-}
-
-/**
- * Scheduled function to monitor reporter activity.
- * Runs daily at 10:00 AM IST (business hours, prevents midnight disturbance).
- */
-export const monitorReporterActivity = onSchedule({
-    schedule: "0 10 * * *",
-    timeZone: "Asia/Kolkata",
-    memory: "512MiB",
-    timeoutSeconds: 540
-}, async (event) => {
-    await runReporterActivityScan();
-});
-
-/**
- * Callable function to manually trigger reporter activity evaluation on demand.
- * Allows Admins or test scripts to run performance evaluation immediately.
- */
-export const triggerReporterActivityCheck = onCall({
-    memory: "256MiB",
-    timeoutSeconds: 60
-}, async (request) => {
-    console.log("[REPORTER_MONITOR_MANUAL] Manual activity check triggered...");
-    const result = await runReporterActivityScan();
-    return { success: true, ...result };
-});
-
-/**
- * Sends notification and in-app message to Admins when a reporter has not posted
- * for more than 10 consecutive days.
+ * Notifies Admins (in-app notice + FCM push) when a reporter crosses Day 10+ inactivity.
  */
 export async function sendAdminInactivityAlert(
-    reporterId: string, 
-    reporter: any, 
+    reporterId: string,
+    reporter: any,
     daysInactive: number
-) {
+): Promise<{ tokensTargeted: number; sentCount: number; status: "SENT" | "NO_TOKENS" | "FAILED" }> {
     try {
         const reporterName = reporter.name || "విలేకరి";
         const mandal = reporter.assignedMandal || reporter.mandal || "";
         const district = reporter.district || "";
-        const locationStr = mandal && district ? `${mandal}, ${district}` : (mandal || district || "జిల్లా/మండలం లేదు");
+        const locationStr =
+            mandal && district
+                ? `${mandal}, ${district}`
+                : mandal || district || "జిల్లా/మండలం లేదు";
 
-        const title = `రిపోర్టర్ నిష్క్రియా సమాచారం ⚠️`;
-        const body = `${reporterName} (${locationStr}) గత ${daysInactive} రోజులుగా ఎటువంటి వార్తలు పోస్ట్ చేయలేదు. దయచేసి పరిశీలించగలరు.`;
+        const title = `రిపోర్టర్ నిష్క్రియా సమాచారం`;
+        const body = `${reporterName} (${locationStr}) గత ${daysInactive} రోజులుగా వార్తలు పోస్ట్ చేయలేదు. దయచేసి పరిశీలించగలరు.`;
         const timestamp = admin.firestore.FieldValue.serverTimestamp();
 
-        // Query all Admins and Super Admins
-        const adminSnap = await db.collection('users')
-            .where('role', 'in', ['ADMIN', 'admin', '5', '5.0', '7', '7.0', 5, 7])
+        const adminSnap = await db
+            .collection("users")
+            .where("role", "in", ["ADMIN", "admin", "5", "5.0", "7", "7.0", 5, 7])
             .limit(10)
             .get();
+
+        let tokensTargeted = 0;
+        let sentCount = 0;
 
         for (const adminDoc of adminSnap.docs) {
             const adminId = adminDoc.id;
             const adminData = adminDoc.data();
 
-            // 1. Add to admin's in-app messages subcollection
-            await db.collection('users').doc(adminId).collection('messages').add({
-                title,
-                body,
-                senderName: "AlfaNews System",
-                senderRole: "SYSTEM",
-                read: false,
-                timestamp,
-                importance: "HIGH",
-                type: "REPORTER_INACTIVITY_NOTICE",
-                reporterId,
-                reporterName,
-                mandal,
-                district,
-                daysInactive
-            });
+            await db
+                .collection("users")
+                .doc(adminId)
+                .collection("messages")
+                .add({
+                    title,
+                    body,
+                    senderName: "AlfaNews Editorial Desk",
+                    senderRole: "ADMIN",
+                    read: false,
+                    timestamp,
+                    importance: "HIGH",
+                    type: "REPORTER_INACTIVITY_NOTICE",
+                    reporterId,
+                    reporterName,
+                    mandal,
+                    district,
+                    daysInactive
+                });
 
-            // 2. Send push to Admin if FCM token exists
-            const rawTokens: any[] = [...(adminData?.fcmTokens || []), adminData?.fcmToken];
-            const tokens = Array.from(new Set(rawTokens.filter((t): t is string => typeof t === 'string' && t.trim().length > 0)));
-
+            const tokens = extractUserTokens(adminData);
             if (tokens.length > 0) {
-                const messages = tokens.map(token => ({
+                tokensTargeted += tokens.length;
+                const messages = tokens.map((token) => ({
                     token,
+                    android: {
+                        priority: "high" as const,
+                        notification: {
+                            channelId: "general_news_v2",
+                            sound: "default"
+                        }
+                    },
                     notification: { title, body },
                     data: {
                         type: "REPORTER_INACTIVITY_NOTICE",
@@ -371,216 +252,458 @@ export async function sendAdminInactivityAlert(
                         body
                     }
                 }));
-                await admin.messaging().sendEach(messages).catch(() => {});
+                const res = await admin.messaging().sendEach(messages).catch(() => null);
+                if (res) sentCount += res.successCount;
             }
         }
-        console.log(`[ADMIN_INACTIVITY_ALERT] 📩 Alerted ${adminSnap.size} admins for inactive reporter ${reporterName} (${daysInactive} days)`);
+
+        const status =
+            adminSnap.size === 0 ? "NO_TOKENS" : sentCount > 0 || adminSnap.size > 0 ? "SENT" : "FAILED";
+        console.log(
+            `[ADMIN_INACTIVITY_ALERT] Alerted ${adminSnap.size} admins for inactive reporter ${reporterName} (${daysInactive}d)`
+        );
+        return { tokensTargeted, sentCount, status };
     } catch (err: any) {
         console.error(`[ADMIN_INACTIVITY_ALERT_ERR]:`, err.message);
+        return { tokensTargeted: 0, sentCount: 0, status: "FAILED" };
     }
 }
 
-export async function handleReporterStatus(
-    reporterId: string, 
-    reporter: any, 
-    now: Date = new Date()
-): Promise<boolean> {
-    // Clean up any legacy warning levels or probation flags
-    const currentLevel = Number(reporter.warningLevel || 0);
-    const inProbation = reporter.inProbation === true;
-    if (currentLevel > 0 || inProbation || reporter.lastWarningDate) {
-        await db.collection('users').doc(reporterId).set({
-            warningLevel: 0,
-            inProbation: false,
-            lastWarningDate: null
-        }, { merge: true });
-    }
-
-    // 1. Fetch comprehensive news activity summary across all fields
-    const summary = await getReporterActivitySummary(reporterId, reporter.name, reporter.phone);
-    const userDocLastPost = parseToDate(reporter.lastPostTimestamp);
-
-    // Take the maximum of summary.latestDate and userDocLastPost
-    let actualNewsDate: Date | null = null;
-    if (summary.latestDate && userDocLastPost) {
-        actualNewsDate = summary.latestDate.getTime() > userDocLastPost.getTime() ? summary.latestDate : userDocLastPost;
-    } else {
-        actualNewsDate = summary.latestDate || userDocLastPost;
-    }
-
-    // Sync latest post timestamp back to users doc if newer
-    if (actualNewsDate && (!userDocLastPost || actualNewsDate.getTime() > userDocLastPost.getTime())) {
-        await db.collection('users').doc(reporterId).set({
-            lastPostTimestamp: actualNewsDate
-        }, { merge: true });
-        reporter.lastPostTimestamp = actualNewsDate;
-    }
-
-    // 2. Calculate actual days inactive
-    const daysInactive = calculateDaysInactive(reporter, now, actualNewsDate);
-
-    // 3. Auto-heal reporter points if posts exist but points are 0
-    let points = Number(reporter.points || 0);
-    const totalNewsPosts = Math.max(summary.totalPosts, Math.floor(points / 10));
-    if (totalNewsPosts > 0 && points === 0) {
-        points = totalNewsPosts * 10;
-        await db.collection('users').doc(reporterId).set({ points }, { merge: true });
-        reporter.points = points;
-    }
-
-    // Exempt accounts check
-    if (reporter.exemptFromInactivity === true) {
-        return false;
-    }
-
-    // Rule 1: వరుసగా 10 రోజుల పైన ఎవరైనా రిపోర్టర్ వార్తలు పెట్టకపోతే అడ్మిన్‌కు సమాచారం పంపు
-    if (daysInactive >= 10) {
-        const lastAdminAlert = parseToDate(reporter.lastAdminInactivityAlertDate);
-        const daysSinceAdminAlert = lastAdminAlert 
-            ? (now.getTime() - lastAdminAlert.getTime()) / (1000 * 60 * 60 * 24) 
-            : 999;
-
-        // Throttle admin alert to once every 5 days per inactive reporter
-        if (daysSinceAdminAlert >= 5) {
-            await db.collection('users').doc(reporterId).set({
-                lastAdminInactivityAlertDate: admin.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
-
-            await sendAdminInactivityAlert(reporterId, reporter, daysInactive);
-            return true;
-        }
-        return false;
-    }
-
-    // Rule 2: వరుసగా 3 రోజులు వార్తలు పెట్టకపోతే రిపోర్టర్‌కి వార్తలు పంపమని రిక్వెస్ట్ మాత్రమే పంపు (హెచ్చరికలు, వార్నింగ్‌లు లేకుండా)
-    if (daysInactive >= 3) {
-        const lastNewsRequest = parseToDate(reporter.lastNewsRequestDate);
-        const daysSinceRequest = lastNewsRequest 
-            ? (now.getTime() - lastNewsRequest.getTime()) / (1000 * 60 * 60 * 24) 
-            : 999;
-
-        // Throttle request to once every 3 days so reporter is not spammed daily
-        if (daysSinceRequest >= 3) {
-            console.log(`[REPORTER_MONITOR] 📰 Sending news request to reporter ${reporter.name || reporterId} (inactive: ${daysInactive}d).`);
-            await db.collection('users').doc(reporterId).set({
-                lastNewsRequestDate: admin.firestore.FieldValue.serverTimestamp(),
-                warningLevel: 0,
-                inProbation: false
-            }, { merge: true });
-
-            const reporterName = reporter.name || "విలేకరి";
-            const reqTitle = "మీ ప్రాంత తాజా వార్తలు పంపండి 📰";
-            const reqBody = `నమస్కారం ${reporterName} గారు, గత 3 రోజులుగా మీ మండల వార్తలు రాలేదు. మీ ప్రాంత తాజా విశేషాలు, ప్రజా సమస్యల వార్తలను Alfa News లో పోస్ట్ చేయగలరని కోరుతున్నాము. ధన్యవాదాలు!`;
-
-            await sendInternalMessage(
-                reporterId, 
-                reqTitle, 
-                reqBody, 
-                "NORMAL", 
-                reporter, 
-                "REQUEST"
-            );
-            return true;
-        }
-    }
-
-    return false;
+export interface ScanPreviewItem {
+    reporterId: string;
+    reporterName: string;
+    district: string;
+    mandal: string;
+    daysInactive: number;
+    action: string;
+    nextStage: string;
+    reason: string;
 }
 
-export async function sendInternalMessage(
-    userId: string, 
-    title: string, 
-    body: string, 
-    importance: string, 
-    userData?: any,
-    msgType: string = "INTERNAL_MESSAGE"
-) {
-    try {
-        const timestamp = admin.firestore.FieldValue.serverTimestamp();
-        const isWarning = msgType === "WARNING" || importance === "HIGH" || importance === "CRITICAL";
-        const messageData = {
-            title,
-            body,
-            senderName: "AlfaNews Admin",
-            senderRole: "ADMIN",
-            read: false,
-            timestamp,
-            importance,
-            type: msgType,
-            isWarning
-        };
+export interface ReporterActivityScanResult {
+    dryRun: boolean;
+    configEnabled: boolean;
+    reportersScanned: number;
+    inactiveActedOn: number;
+    day3Count: number;
+    day7Count: number;
+    day10AdminAlertCount: number;
+    day3RemindersSent: number;
+    day7RemindersSent: number;
+    adminAlertsSent: number;
+    skippedExempt: number;
+    previewItems: ScanPreviewItem[];
+    previewActions: ScanPreviewItem[];
+}
 
-        // 1. Add to user's personal messages subcollection
-        await db.collection('users').doc(userId).collection('messages').add(messageData);
+function emptyScanResult(dryRun: boolean, configEnabled: boolean): ReporterActivityScanResult {
+    return {
+        dryRun,
+        configEnabled,
+        reportersScanned: 0,
+        inactiveActedOn: 0,
+        day3Count: 0,
+        day7Count: 0,
+        day10AdminAlertCount: 0,
+        day3RemindersSent: 0,
+        day7RemindersSent: 0,
+        adminAlertsSent: 0,
+        skippedExempt: 0,
+        previewItems: [],
+        previewActions: []
+    };
+}
 
-        // 2. Add to their reporter_conversations thread
-        try {
-            const icon = isWarning ? "⚠️ " : "📰 ";
-            await db.collection('reporter_conversations').doc(userId).collection('messages').add({
-                senderId: "SYSTEM_ADMIN",
-                senderName: "AlfaNews Admin",
-                senderRole: "ADMIN",
-                text: `${icon}[${title}]\n${body}`,
-                type: msgType === "WARNING" ? "WARNING" : "NOTICE",
-                isWarning,
-                importance,
-                read: false,
-                timestamp
-            });
+/**
+ * Core unified scanner: evaluates active reporters in a single bounded pass (ZERO news queries).
+ * Dispatches Day 3 push, Day 7 follow-up push (Push-Only, never Desk Chat), and Day 10+ Admin alerts.
+ */
+export async function runReporterActivityScan(options?: {
+    dryRun?: boolean;
+    ignoreEnabledFlag?: boolean;
+    nowMs?: number;
+}): Promise<ReporterActivityScanResult> {
+    const dryRun = options?.dryRun === true;
+    const nowMs = options?.nowMs ?? Date.now();
+    const config: ReporterTrackingConfig = await getReporterTrackingConfig();
 
-            await db.collection('reporter_conversations').doc(userId).set({
-                reporterId: userId,
-                reporterName: userData?.name || "Reporter",
-                reporterPhone: userData?.phone || "",
-                reporterDistrict: userData?.district || "",
-                reporterMandal: userData?.assignedMandal || userData?.mandal || "",
-                lastMessage: `${icon}${title}`,
-                lastMessageTime: timestamp,
-                lastSenderRole: "ADMIN",
-                unreadCountForReporter: admin.firestore.FieldValue.increment(1),
-                updatedAt: timestamp
-            }, { merge: true });
-        } catch (err: any) {
-            console.error(`[CONV_WRITE_ERR] ${userId}:`, err.message);
+    if (!config.enabled && !dryRun && !options?.ignoreEnabledFlag) {
+        console.log("[REPORTER_MONITOR] Automated inactivity reminders are paused in settings.");
+        return emptyScanResult(dryRun, false);
+    }
+
+    // Enforce night quiet hours (11 PM - 6 AM IST) for scheduled automated dispatches
+    if (!dryRun && !options?.ignoreEnabledFlag && isQuietHoursIst(nowMs)) {
+        console.log("[REPORTER_MONITOR] Skipping automated scan during night quiet hours (11 PM - 6 AM IST).");
+        return emptyScanResult(dryRun, config.enabled);
+    }
+
+    const reportersSnap = await db
+        .collection("users")
+        .where("role", "in", REPORTER_ROLE_VALUES)
+        .limit(500)
+        .get();
+
+    if (reportersSnap.empty) {
+        return emptyScanResult(dryRun, config.enabled);
+    }
+
+    let day3Count = 0;
+    let day7Count = 0;
+    let day10AdminAlertCount = 0;
+    let inactiveActedOn = 0;
+    let skippedExempt = 0;
+    const previewItems: ScanPreviewItem[] = [];
+
+    for (const doc of reportersSnap.docs) {
+        const reporterId = doc.id;
+        const reporter = doc.data();
+
+        if (reporter.suspended === true || reporter.previouslyDowngraded === true) {
+            continue;
         }
 
-        // 3. Fetch tokens and send High-Priority FCM Push
-        const data = userData || (await db.collection('users').doc(userId).get()).data();
-        if (data && (data.notificationsEnabled === false || data.pushEnabled === false)) return;
+        // Initialize fresh grace timestamp only if reporter has zero date markers at all
+        const hasAnyDateMarker =
+            parseEpochMs(reporter.reporterActivity?.lastApprovedPostAt) !== null ||
+            parseEpochMs(reporter.lastPostTimestamp) !== null ||
+            parseEpochMs(reporter.promotedAt) !== null ||
+            parseEpochMs(reporter.rejoinedAt) !== null ||
+            parseEpochMs(reporter.roleUpdatedAt) !== null ||
+            parseEpochMs(reporter.joinedAt) !== null ||
+            parseEpochMs(reporter.createdAt) !== null ||
+            parseEpochMs(reporter.timestamp) !== null;
 
-        const rawTokens: any[] = [...(data?.fcmTokens || []), data?.fcmToken];
-        const tokens = Array.from(new Set(rawTokens.filter((t): t is string => typeof t === 'string' && t.trim().length > 0)));
+        if (!hasAnyDateMarker) {
+            if (!dryRun) {
+                await db
+                    .collection("users")
+                    .doc(reporterId)
+                    .set(
+                        {
+                            promotedAt: nowMs,
+                            warningLevel: 0,
+                            inProbation: false,
+                            reporterActivity: {
+                                totalApprovedPosts: Number(reporter.totalNewsCount || 0),
+                                lastApprovedPostAt: null,
+                                dailyCounts: {},
+                                inactivityStage: reporter.exemptFromInactivity === true ? "EXEMPT" : "ACTIVE",
+                                lastReminderSentAt: null,
+                                lastReminderStage: null,
+                                lastAdminAlertAt: null,
+                                lastSyncedAt: nowMs
+                            }
+                        },
+                        { merge: true }
+                    );
+            }
+            continue;
+        }
 
-        if (tokens.length > 0) {
-            const messages = tokens.map(token => ({
-                token,
-                android: {
-                    priority: 'high' as const,
-                    ttl: 86400000,
-                    directBootOk: true,
-                    notification: {
-                        channelId: 'general_news_v2',
-                        sound: 'default'
-                    }
-                },
-                notification: {
-                    title,
-                    body
-                },
-                data: {
-                    type: "INTERNAL_MESSAGE",
+        const evaluation = evaluateReporterInactivity(reporter, config, nowMs);
+        const reporterName = reporter.name || "విలేకరి";
+        const district = reporter.district || "";
+        const mandal = reporter.assignedMandal || reporter.mandal || "";
+
+        // Keep stored inactivityStage synchronized when it drifts (without sending messages)
+        const currentStoredStage = reporter.reporterActivity?.inactivityStage;
+        if (!dryRun && currentStoredStage !== evaluation.nextStage && evaluation.action === "NONE") {
+            await db
+                .collection("users")
+                .doc(reporterId)
+                .set(
+                    {
+                        warningLevel: 0,
+                        inProbation: false,
+                        reporterActivity: {
+                            inactivityStage: evaluation.nextStage
+                        }
+                    },
+                    { merge: true }
+                )
+                .catch(() => {});
+        }
+
+        if (evaluation.nextStage === "EXEMPT") {
+            skippedExempt++;
+        }
+
+        if (evaluation.action === "NONE") {
+            continue;
+        }
+
+        previewItems.push({
+            reporterId,
+            reporterName,
+            district,
+            mandal,
+            daysInactive: evaluation.daysInactive,
+            action: evaluation.action,
+            nextStage: evaluation.nextStage,
+            reason: evaluation.reason
+        });
+
+        if (evaluation.action === "SEND_DAY_3_PUSH") {
+            day3Count++;
+            inactiveActedOn++;
+            if (!dryRun) {
+                const title = renderReminderTemplate(config.day3Title, {
+                    name: reporterName,
+                    days: evaluation.daysInactive,
+                    mandal: mandal || district || "మీ ప్రాంతం"
+                });
+                const body = renderReminderTemplate(config.day3Body, {
+                    name: reporterName,
+                    days: evaluation.daysInactive,
+                    mandal: mandal || district || "మీ ప్రాంతం"
+                });
+
+                const delivery = await sendReporterReminderPushOnly(
+                    reporterId,
+                    reporter,
                     title,
                     body,
-                    importance,
-                    channelId: 'general_news_v2'
-                }
-            }));
-            await admin.messaging().sendEach(messages).catch(err => console.error(`[FCM_ERROR] User ${userId}:`, err));
+                    "DAY_3",
+                    evaluation.daysInactive
+                );
+
+                await db
+                    .collection("users")
+                    .doc(reporterId)
+                    .set(
+                        {
+                            warningLevel: 0,
+                            inProbation: false,
+                            reporterActivity: {
+                                inactivityStage: "REMINDED_3D",
+                                lastReminderSentAt: nowMs,
+                                lastReminderStage: "DAY_3"
+                            }
+                        },
+                        { merge: true }
+                    );
+
+                const logEntry: ReporterReminderLog = {
+                    reporterId,
+                    reporterName,
+                    district,
+                    mandal,
+                    stage: "DAY_3",
+                    daysInactive: evaluation.daysInactive,
+                    channel: "PUSH",
+                    tokensTargeted: delivery.tokensTargeted,
+                    sentCount: delivery.sentCount,
+                    status: delivery.status,
+                    timestamp: nowMs
+                };
+                await db.collection("reporter_reminder_logs").add(logEntry);
+            }
+        } else if (evaluation.action === "SEND_DAY_7_PUSH") {
+            day7Count++;
+            inactiveActedOn++;
+            if (!dryRun) {
+                const title = renderReminderTemplate(config.day7Title, {
+                    name: reporterName,
+                    days: evaluation.daysInactive,
+                    mandal: mandal || district || "మీ ప్రాంతం"
+                });
+                const body = renderReminderTemplate(config.day7Body, {
+                    name: reporterName,
+                    days: evaluation.daysInactive,
+                    mandal: mandal || district || "మీ ప్రాంతం"
+                });
+
+                const delivery = await sendReporterReminderPushOnly(
+                    reporterId,
+                    reporter,
+                    title,
+                    body,
+                    "DAY_7",
+                    evaluation.daysInactive
+                );
+
+                await db
+                    .collection("users")
+                    .doc(reporterId)
+                    .set(
+                        {
+                            warningLevel: 0,
+                            inProbation: false,
+                            reporterActivity: {
+                                inactivityStage: "REMINDED_7D",
+                                lastReminderSentAt: nowMs,
+                                lastReminderStage: "DAY_7"
+                            }
+                        },
+                        { merge: true }
+                    );
+
+                const logEntry: ReporterReminderLog = {
+                    reporterId,
+                    reporterName,
+                    district,
+                    mandal,
+                    stage: "DAY_7",
+                    daysInactive: evaluation.daysInactive,
+                    channel: "PUSH",
+                    tokensTargeted: delivery.tokensTargeted,
+                    sentCount: delivery.sentCount,
+                    status: delivery.status,
+                    timestamp: nowMs
+                };
+                await db.collection("reporter_reminder_logs").add(logEntry);
+            }
+        } else if (evaluation.action === "SEND_DAY_10_ADMIN_ALERT") {
+            day10AdminAlertCount++;
+            inactiveActedOn++;
+            if (!dryRun) {
+                const delivery = await sendAdminInactivityAlert(
+                    reporterId,
+                    reporter,
+                    evaluation.daysInactive
+                );
+
+                await db
+                    .collection("users")
+                    .doc(reporterId)
+                    .set(
+                        {
+                            warningLevel: 0,
+                            inProbation: false,
+                            lastAdminInactivityAlertDate: nowMs,
+                            reporterActivity: {
+                                inactivityStage: "ADMIN_ALERTED_10D",
+                                lastAdminAlertAt: nowMs
+                            }
+                        },
+                        { merge: true }
+                    );
+
+                const logEntry: ReporterReminderLog = {
+                    reporterId,
+                    reporterName,
+                    district,
+                    mandal,
+                    stage: "DAY_10_ADMIN",
+                    daysInactive: evaluation.daysInactive,
+                    channel: "ADMIN_ALERT",
+                    tokensTargeted: delivery.tokensTargeted,
+                    sentCount: delivery.sentCount,
+                    status: delivery.status,
+                    timestamp: nowMs
+                };
+                await db.collection("reporter_reminder_logs").add(logEntry);
+            }
         }
-    } catch (err) {
-        console.error(`[SEND_INTERNAL_MSG_ERROR] User ${userId}:`, err);
     }
+
+    console.log(
+        `[REPORTER_MONITOR] Scan complete (dryRun=${dryRun}): scanned=${reportersSnap.size}, acted=${inactiveActedOn} (day3=${day3Count}, day7=${day7Count}, day10Admin=${day10AdminAlertCount})`
+    );
+
+    const cappedPreview = previewItems.slice(0, 100);
+
+    return {
+        dryRun,
+        configEnabled: config.enabled,
+        reportersScanned: reportersSnap.size,
+        inactiveActedOn,
+        day3Count,
+        day7Count,
+        day10AdminAlertCount,
+        day3RemindersSent: day3Count,
+        day7RemindersSent: day7Count,
+        adminAlertsSent: day10AdminAlertCount,
+        skippedExempt,
+        previewItems: cappedPreview,
+        previewActions: cappedPreview
+    };
 }
 
+/**
+ * Scheduled function to monitor reporter inactivity.
+ * Runs once daily at 10:00 AM IST in asia-south1.
+ */
+export const monitorReporterActivity = onSchedule(
+    {
+        schedule: "0 10 * * *",
+        timeZone: "Asia/Kolkata",
+        region: REGION,
+        memory: "256MiB",
+        timeoutSeconds: 300
+    },
+    async () => {
+        await runReporterActivityScan({ dryRun: false });
+    }
+);
 
+/**
+ * Admin callable to run a manual scan or dry-run preview.
+ */
+export const triggerReporterActivityCheck = onCall(
+    {
+        region: REGION,
+        memory: "256MiB",
+        timeoutSeconds: 120
+    },
+    async (request) => {
+        await assertAdminCaller(request.auth);
+        const dryRun = request.data?.dryRun === true;
+        const result = await runReporterActivityScan({
+            dryRun,
+            ignoreEnabledFlag: true
+        });
+        return { success: true, ...result };
+    }
+);
 
+/**
+ * Admin callable to read central reporter tracking configuration.
+ */
+export const getReporterTrackingSettings = onCall(
+    {
+        region: REGION,
+        memory: "256MiB",
+        timeoutSeconds: 30
+    },
+    async (request) => {
+        await assertAdminCaller(request.auth);
+        const config = await getReporterTrackingConfig();
+        return { success: true, config };
+    }
+);
+
+/**
+ * Admin callable to update central reporter tracking configuration.
+ */
+export const updateReporterTrackingSettings = onCall(
+    {
+        region: REGION,
+        memory: "256MiB",
+        timeoutSeconds: 30
+    },
+    async (request) => {
+        const adminUid = await assertAdminCaller(request.auth);
+        const updates = request.data?.config || request.data || {};
+        const config = await saveReporterTrackingConfig(updates, adminUid);
+        return { success: true, config };
+    }
+);
+
+/**
+ * Admin callable to run bounded historical reconciliation for all active reporters.
+ */
+export const syncReporterActivityStats = onCall(
+    {
+        region: REGION,
+        memory: "512MiB",
+        timeoutSeconds: 240
+    },
+    async (request) => {
+        await assertAdminCaller(request.auth);
+        const maxNewsScan = Number(request.data?.maxNewsScan || 2000);
+        const result = await syncAllReporterActivityStats({ maxNewsScan });
+        return { success: true, ...result };
+    }
+);

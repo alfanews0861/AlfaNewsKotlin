@@ -62,6 +62,7 @@ fun ReporterManagementPageView(
     val reporters by reportersViewModel.filteredReporters.collectAsStateWithLifecycle()
     val searchQuery by reportersViewModel.searchQuery.collectAsStateWithLifecycle()
     val sortOrder by reportersViewModel.sortOrder.collectAsStateWithLifecycle()
+    val statusFilter by reportersViewModel.statusFilter.collectAsStateWithLifecycle()
 
     var selectedReporterIdForProfile by remember { mutableStateOf<String?>(null) }
 
@@ -528,11 +529,13 @@ fun ReporterManagementPageView(
                         modifier = Modifier.background(MaterialTheme.colorScheme.surface)
                     ) {
                         val options = listOf(
-                            "Recent" to "ఇటీవలి",
-                            "Points" to "పాయింట్లు",
+                            "Total" to "మొత్తం వార్తలు",
                             "Today" to "ఈ రోజు పోస్ట్లు",
-                            "Week" to "వారపు పోస్ట్లు",
-                            "Name" to "పేరు"
+                            "Week" to "7 రోజుల పోస్ట్లు",
+                            "Inactive" to "వార్త లేని రోజులు",
+                            "Points" to "పాయింట్లు",
+                            "Name" to "పేరు",
+                            "Recent" to "ఇటీవలి"
                         )
                         options.forEach { (key, label) ->
                             DropdownMenuItem(
@@ -546,45 +549,99 @@ fun ReporterManagementPageView(
                     }
                 }
             }
+
+            // Status Filter Chips (Active / 3-9d Reminder / 10+d Admin / Exempt)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val filterChips = listOf(
+                    "ALL" to "అందరు",
+                    "ACTIVE" to "చురుకుగా",
+                    "REMINDER_3_9" to "3–9d రిమైండర్",
+                    "ADMIN_10_PLUS" to "10+ అడ్మిన్",
+                    "EXEMPT" to "మినహాయింపు"
+                )
+                filterChips.forEach { (key, label) ->
+                    FilterChip(
+                        selected = statusFilter == key,
+                        onClick = { reportersViewModel.setStatusFilter(key) },
+                        label = { Text(label, fontSize = 11.sp) }
+                    )
+                }
+            }
         }
 
-        // Admin Backfill Button
+        // Admin Sync Buttons (News Stats Sync + Leaderboard Points Sync)
         if (currentUser.role == UserRole.ADMIN && selectedTab == 1) {
-            val context = LocalContext.current
+            val ctx = LocalContext.current
+            var isSyncingStats by remember { mutableStateOf(false) }
             var isBackfilling by remember { mutableStateOf(false) }
-            
-            Button(
-                onClick = {
-                    scope.launch {
-                        isBackfilling = true
-                        try {
-                            val result = FirebaseFunctionsService.backfillReporterPoints()
-                            if (result.isSuccess) {
-                                Toast.makeText(context, "డేటా విజయవంతంగా అప్‌డేట్ చేయబడింది!", Toast.LENGTH_SHORT).show()
-                                fetchData()
-                            } else {
-                                Toast.makeText(context, "Error: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
-                            }
-                        } catch (e: Exception) {
-                            if (e !is kotlinx.coroutines.CancellationException) {
-                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                            }
-                        } finally {
-                            isBackfilling = false
-                        }
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
-                enabled = !isBackfilling
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (isBackfilling) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
-                } else {
-                    Icon(Icons.Default.Sync, contentDescription = null)
+                Button(
+                    onClick = {
+                        isSyncingStats = true
+                        reportersViewModel.syncReporterActivityStats { success, msg ->
+                            isSyncingStats = false
+                            Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
+                            if (success) {
+                                scope.launch { fetchData() }
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                    enabled = !isSyncingStats && !isBackfilling,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                ) {
+                    if (isSyncingStats) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Text("వార్తల గణాంకాలు సింక్", fontSize = 12.sp)
                 }
-                Spacer(Modifier.width(8.dp))
-                Text("లీడర్ బోర్డ్ డేటా సింక్ (Admin)")
+
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            isBackfilling = true
+                            try {
+                                val result = FirebaseFunctionsService.backfillReporterPoints()
+                                if (result.isSuccess) {
+                                    Toast.makeText(ctx, "పాయింట్లు అప్‌డేట్ చేయబడ్డాయి!", Toast.LENGTH_SHORT).show()
+                                    fetchData()
+                                } else {
+                                    Toast.makeText(ctx, "Error: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                if (e !is kotlinx.coroutines.CancellationException) {
+                                    Toast.makeText(ctx, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            } finally {
+                                isBackfilling = false
+                            }
+                        }
+                    },
+                    enabled = !isBackfilling && !isSyncingStats,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                ) {
+                    if (isBackfilling) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    } else {
+                        Text("పాయింట్ల సింక్", fontSize = 12.sp)
+                    }
+                }
             }
         }
 
@@ -657,6 +714,11 @@ fun ReporterManagementPageView(
                                 stats = reporterStats[reporter.id],
                                 occupiedMandalsMap = occupiedMandalsMap,
                                 onRefresh = { scope.launch { fetchData() } },
+                                onToggleExemption = { nextExempt ->
+                                    reportersViewModel.toggleReporterExemption(reporter.id, nextExempt) { _, msg ->
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                    }
+                                },
                                 onCardClick = { reporterId ->
                                     if (onOpenProfile != null) {
                                         onOpenProfile(reporterId)
@@ -931,6 +993,7 @@ fun ReporterListCard(
     stats: com.alfanews.telugu.viewmodels.ReporterStats? = null,
     occupiedMandalsMap: Map<String, String> = emptyMap(),
     onRefresh: () -> Unit,
+    onToggleExemption: ((Boolean) -> Unit)? = null,
     onCardClick: (String) -> Unit = {},
     onChatClick: ((String) -> Unit)? = null
 ) {
@@ -1044,6 +1107,21 @@ fun ReporterListCard(
                             Icon(Icons.Default.MoreVert, contentDescription = "Actions", modifier = Modifier.size(18.dp))
                         }
                         DropdownMenu(expanded = showActionMenu, onDismissRequest = { showActionMenu = false }) {
+                            if (onToggleExemption != null) {
+                                val nextExempt = !reporter.exemptFromInactivity
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            if (nextExempt) "పుష్ రిమైండర్ నిలిపివేయి (Pause)" else "పుష్ రిమైండర్ ప్రారంభించు (Resume)",
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    },
+                                    onClick = {
+                                        showActionMenu = false
+                                        onToggleExemption(nextExempt)
+                                    }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("రిపోర్టర్ హోదా తొలగించు (Downgrade)", color = Color(0xFFE65100)) },
                                 onClick = {
@@ -1120,7 +1198,25 @@ fun ReporterListCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Post count statistics row
+            // Inactivity Status Line (Non-threatening editorial tracking)
+            val stage = stats?.inactivityStage ?: reporter.inactivityStage
+            val daysInactive = stats?.daysInactive ?: 0
+            val (statusLabel, statusColor) = when (stage) {
+                "EXEMPT" -> "రిమైండర్ నిలిపివేత (మినహాయింపు)" to MaterialTheme.colorScheme.onSurfaceVariant
+                "ADMIN_ALERTED_10D" -> "${daysInactive} రోజులు · అడ్మిన్ పరిశీలన" to Color(0xFFC62828)
+                "REMINDED_7D" -> "${daysInactive} రోజులు · 7వ రోజు ఫాలో-అప్" to Color(0xFFE65100)
+                "REMINDED_3D" -> "${daysInactive} రోజులు · 3వ రోజు రిమైండర్" to Color(0xFFF57C00)
+                else -> "చురుకుగా (${daysInactive}d)" to Color(0xFF2E7D32)
+            }
+            Text(
+                text = statusLabel,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = statusColor,
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
+
+            // Post count statistics row (Today / 7d / Total Approved / Points)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1130,11 +1226,15 @@ fun ReporterListCard(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("ఈ రోజు", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("${stats?.todayPosts ?: 0}", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text("${stats?.todayPosts ?: 0}", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = Color(0xFF2E7D32))
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("గత వారం", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("${stats?.weekPosts ?: 0}", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text("7 రోజులు", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${stats?.weekPosts ?: 0}", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("మొత్తం", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${stats?.totalPosts ?: reporter.totalNewsCount}", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("పాయింట్లు", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1335,9 +1435,10 @@ private suspend fun processJoin(
         "downgradedReason" to com.google.firebase.firestore.FieldValue.delete(),
         "downgradedAt" to com.google.firebase.firestore.FieldValue.delete(),
         "lastWarningDate" to com.google.firebase.firestore.FieldValue.delete(),
-        "promotedAt" to com.google.firebase.Timestamp.now(),
-        "rejoinedAt" to com.google.firebase.Timestamp.now(),
-        "lastPostTimestamp" to com.google.firebase.Timestamp.now()
+        "promotedAt" to System.currentTimeMillis(),
+        "rejoinedAt" to System.currentTimeMillis(),
+        "reporterActivity.inactivityStage" to "ACTIVE",
+        "reporterActivity.lastReminderStage" to com.google.firebase.firestore.FieldValue.delete()
     )
     if (isOccupied) {
         updates["probationStartDate"] = com.google.firebase.Timestamp.now()

@@ -1,7 +1,13 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { User } from '../../types';
 import { Search, Flame, User as UserIcon, LogIn, Menu, X, Smartphone, ChevronDown, MapPin } from 'lucide-react';
-import { AP_DISTRICTS, TS_DISTRICTS } from '../../utils/newsFilter';
+import { ALL_DISTRICTS, AP_DISTRICTS, TS_DISTRICTS } from '../../utils/newsFilter';
+import {
+  ALL_EDITIONS_LIST,
+  EDITIONS,
+  getDistrictDisplayName,
+  type StateCode,
+} from '../../data/editions';
 import { getPreferredPlayStoreUrl, openNativePlayStore } from '../../utils/playStoreHelper';
 import PortalAdBanner from './PortalAdBanner';
 import WebPushBellButton from '../WebPushBellButton';
@@ -50,9 +56,9 @@ export const PortalHeader: React.FC<PortalHeaderProps> = ({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [currentDateStr, setCurrentDateStr] = useState('');
   const [districtDropdownOpen, setDistrictDropdownOpen] = useState(false);
-  const [activeDistrictTab, setActiveDistrictTab] = useState<'AP' | 'TS'>('AP');
+  const [activeDistrictTab, setActiveDistrictTab] = useState<StateCode>('AP');
   const [mobileDistrictsOpen, setMobileDistrictsOpen] = useState(false);
-  const [mobileStateExpanded, setMobileStateExpanded] = useState<'AP' | 'TS' | null>('AP');
+  const [mobileStateExpanded, setMobileStateExpanded] = useState<StateCode | null>('AP');
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -112,9 +118,13 @@ export const PortalHeader: React.FC<PortalHeaderProps> = ({
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleDistrictSelect = (district: string, state: 'AP' | 'TS') => {
+  const handleDistrictSelect = (district: string, state: StateCode) => {
     setDistrictDropdownOpen(false);
     setMobileMenuOpen(false);
+    try {
+      localStorage.setItem('user_selected_state', state);
+      localStorage.setItem('user_local_district', district);
+    } catch {}
     if (onSelectDistrict) {
       onSelectDistrict(district, state);
     }
@@ -243,7 +253,7 @@ export const PortalHeader: React.FC<PortalHeaderProps> = ({
           {/* Categories List */}
           <div className="flex items-center space-x-1 sm:space-x-1.5 overflow-x-auto no-scrollbar py-1">
             {navCategories.map((cat) => {
-              const isSelected = selectedCategory === cat.id || (cat.hasDropdown && (AP_DISTRICTS.includes(selectedCategory) || TS_DISTRICTS.includes(selectedCategory)));
+              const isSelected = selectedCategory === cat.id || (cat.hasDropdown && ALL_DISTRICTS.includes(selectedCategory));
               
               if (cat.hasDropdown) {
                 return (
@@ -263,44 +273,36 @@ export const PortalHeader: React.FC<PortalHeaderProps> = ({
                       <ChevronDown className={`w-3.5 h-3.5 transition-transform ${districtDropdownOpen ? 'rotate-180' : ''}`} />
                     </button>
 
-                    {/* DISTRICTS MEGA DROPDOWN (DESKTOP) */}
+                    {/* DISTRICTS MEGA DROPDOWN (DESKTOP — ALL 9 STATES) */}
                     {districtDropdownOpen && (
-                      <div className="absolute top-full left-0 mt-1 w-[680px] bg-white text-gray-900 rounded-2xl shadow-2xl border border-gray-200 p-5 z-50 animate-fade-in font-mallanna">
-                        {/* State Selection Tabs */}
-                        <div className="flex items-center gap-3 pb-3 border-b border-gray-200 mb-4">
-                          <button
-                            onClick={() => setActiveDistrictTab('AP')}
-                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-ramabhadra transition-all ${
-                              activeDistrictTab === 'AP'
-                                ? 'bg-red-600 text-white shadow-sm'
-                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                            }`}
-                          >
-                            <MapPin className="w-4 h-4" />
-                            <span>ఆంధ్రప్రదేశ్ జిల్లాలు ({AP_DISTRICTS.length})</span>
-                          </button>
-
-                          <button
-                            onClick={() => setActiveDistrictTab('TS')}
-                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-ramabhadra transition-all ${
-                              activeDistrictTab === 'TS'
-                                ? 'bg-red-600 text-white shadow-sm'
-                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                            }`}
-                          >
-                            <MapPin className="w-4 h-4" />
-                            <span>తెలంగాణ జిల్లాలు ({TS_DISTRICTS.length})</span>
-                          </button>
+                      <div className="absolute top-full left-0 mt-1 w-[720px] bg-white text-gray-900 rounded-2xl shadow-2xl border border-gray-200 p-5 z-50 animate-fade-in font-mallanna">
+                        {/* 9-State Selection Tabs */}
+                        <div className="flex flex-wrap items-center gap-2 pb-3 border-b border-gray-200 mb-4">
+                          {ALL_EDITIONS_LIST.map((ed) => (
+                            <button
+                              key={ed.code}
+                              onClick={() => setActiveDistrictTab(ed.code)}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-ramabhadra transition-all ${
+                                activeDistrictTab === ed.code
+                                  ? 'bg-red-600 text-white shadow-sm'
+                                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                              }`}
+                            >
+                              <MapPin className="w-3.5 h-3.5" />
+                              <span>{ed.nativeName} ({ed.districts.length})</span>
+                            </button>
+                          ))}
                         </div>
 
                         {/* Districts Grid */}
                         <div className="max-h-[380px] overflow-y-auto pr-2">
                           <p className="text-xs text-gray-500 mb-2 font-mallanna">
-                            మీ జిల్లా వార్తలను చదవడానికి క్రింది జిల్లాను ఎంచుకోండి:
+                            {EDITIONS[activeDistrictTab].nativeName} ({EDITIONS[activeDistrictTab].name}) — {EDITIONS[activeDistrictTab].districts.length} Districts:
                           </p>
                           <div className="grid grid-cols-3 gap-2">
-                            {(activeDistrictTab === 'AP' ? AP_DISTRICTS : TS_DISTRICTS).map((district) => {
+                            {EDITIONS[activeDistrictTab].districts.map((district) => {
                               const isDistActive = selectedCategory === district;
+                              const label = getDistrictDisplayName(district, EDITIONS[activeDistrictTab].primaryLanguage);
                               return (
                                 <button
                                   key={district}
@@ -310,9 +312,9 @@ export const PortalHeader: React.FC<PortalHeaderProps> = ({
                                       ? 'bg-red-50 text-red-700 border border-red-300'
                                       : 'hover:bg-red-50 hover:text-red-700 text-gray-700'
                                   }`}
-                                  title={district}
+                                  title={`${label} (${district})`}
                                 >
-                                  {district}
+                                  {label}
                                 </button>
                               );
                             })}

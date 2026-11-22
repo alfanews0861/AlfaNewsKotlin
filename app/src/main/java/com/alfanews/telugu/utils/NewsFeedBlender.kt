@@ -29,19 +29,19 @@ object NewsFeedBlender {
      * (capped to Firestore's 10-item limit).
      */
     private val CANONICAL_FIRESTORE_ALIASES: Map<String, List<String>> = mapOf(
-        "politics" to listOf("రాజకీయం", "రాజకీయాలు", "Politics"),
-        "cinema" to listOf("సినిమా", "వినోదం", "Cinema"),
-        "sports" to listOf("క్రీడలు", "స్పోర్ట్స్", "Sports"),
-        "crime" to listOf("క్రైమ్", "నేరాలు", "Crime"),
-        "business" to listOf("వ్యాపారం", "Business"),
-        "technology" to listOf("టెక్నాలజీ", "Technology"),
-        "health" to listOf("ఆరోగ్యం", "Health"),
-        "education" to listOf("విద్య/ఉద్యోగాలు", "విద్య", "Education"),
-        "devotional" to listOf("భక్తి", "Devotional"),
-        "agriculture" to listOf("వ్యవసాయం", "Agriculture"),
-        "national" to listOf("జాతీయం", "National"),
-        "international" to listOf("అంతర్జాతీయం", "International"),
-        "lifestyle" to listOf("లైఫ్ స్టైల్", "జీవనశైలి", "Lifestyle")
+        "politics" to listOf("రాజకీయం", "Politics", "రాజకీయాలు", "राजनीति", "ਰਾਜਨੀਤੀ", "રાજકારણ"),
+        "cinema" to listOf("సినిమా", "Cinema", "వినోదం", "मनोरंजन", "ਮਨੋਰੰਜਨ", "મનોરંજન"),
+        "sports" to listOf("క్రీడలు", "Sports", "స్పోర్ట్స్", "खेल", "ਖੇਡਾਂ", "રમતગમત"),
+        "crime" to listOf("క్రైమ్", "Crime", "నేరాలు", "अपराध", "ਅਪਰਾਧ", "ગુનાખોરી"),
+        "business" to listOf("వ్యాపారం", "Business", "व्यापार", "ਕਾਰੋਬਾਰ", "વ્યાપાર"),
+        "technology" to listOf("టెక్నాలజీ", "Technology", "तकनीक", "ਤਕਨਾਲੋਜੀ", "ટેકનોલોજી"),
+        "health" to listOf("ఆరోగ్యం", "Health", "स्वास्थ्य", "ਸਿਹਤ", "આરોગ્ય"),
+        "education" to listOf("విద్య/ఉద్యోగాలు", "Education", "విద్య", "शिक्षा", "ਸਿੱਖਿਆ", "શિક્ષણ"),
+        "devotional" to listOf("భక్తి", "Devotional", "धर्म", "ਧਰਮ", "ભક્તિ"),
+        "agriculture" to listOf("వ్యవసాయం", "Agriculture", "कृषि", "ਖੇਤੀਬਾੜੀ", "ખેતી"),
+        "national" to listOf("జాతీయం", "National", "देश", "ਦੇਸ਼", "રાષ્ટ્રીય"),
+        "international" to listOf("అంతర్జాతీయం", "International", "विदेश", "ਵਿਦੇਸ਼", "આંતરરાષ્ટ્રીય"),
+        "lifestyle" to listOf("లైఫ్ స్టైల్", "Lifestyle", "జీవనశైలి", "लाइफस्टाइल", "ਜੀਵਨਸ਼ੈਲੀ", "લાઇફસ્ટાઇલ")
     )
 
     private val NON_TOPICAL_CANONICAL = setOf("general", "local_district", "special", "greeting", "history", "cartoon", "survey", "weather")
@@ -63,50 +63,58 @@ object NewsFeedBlender {
     )
 
     /**
-     * Maps diverse raw Telugu & English category strings into standardized canonical keys.
+     * Maps diverse raw Telugu, Hindi, Punjabi, Gujarati & English category strings into standardized canonical keys.
      */
     fun normalizeCategoryKey(raw: String?): String {
         if (raw.isNullOrBlank()) return "general"
         val s = raw.trim().lowercase()
         return when {
-            s.contains("క్రీడలు") || s.contains("స్పోర్ట్స్") || s.contains("sports") || s.contains("cricket") || s.contains("క్రికెట్") || s.contains("ipl") -> "sports"
-            s.contains("సినిమా") || s.contains("వినోదం") || s.contains("cinema") || s.contains("entertainment") || s.contains("movies") || s.contains("ఓటీటీ") || s.contains("ott") || s.contains("చిత్రసీమ") || s.contains("టాలీవుడ్") || s.contains("tollywood") -> "cinema"
-            s.contains("రాజకీయం") || s.contains("రాజకీయాలు") || s.contains("రాజకీయ") || s.contains("politics") || s.contains("political") -> "politics"
-            s.contains("క్రైమ్") || s.contains("నేరాలు") || s.contains("crime") || s.contains("పోలీస్") || s.contains("police") -> "crime"
-            s.contains("వ్యాపారం") || s.contains("బిజినెస్") || s.contains("business") || s.contains("మార్కెట్") || s.contains("బంగారం") -> "business"
-            s.contains("టెక్నాలజీ") || s.contains("technology") || s.contains("tech") -> "technology"
-            s.contains("ఆరోగ్యం") || s.contains("health") -> "health"
-            s.contains("విద్య") || s.contains("education") || s.contains("ఉద్యోగాలు") || s.contains("jobs") -> "education"
-            s.contains("భక్తి") || s.contains("ఆధ్యాత్మికం") || s.contains("devotional") -> "devotional"
-            s.contains("వ్యవసాయం") || s.contains("agriculture") -> "agriculture"
-            s.contains("అంతర్జాతీయం") || s.contains("international") || s.contains("ప్రపంచం") || s.contains("world") -> "international"
-            s.contains("జాతీయం") || s.contains("national") || s.contains("భారతదేశం") -> "national"
-            s.contains("జీవనశైలి") || s.contains("లైఫ్‌స్టైల్") || s.contains("లైఫ్ స్టైల్") || s.contains("lifestyle") -> "lifestyle"
-            s.contains("జిల్లా") || s.contains("స్థానిక") || s.contains("local") -> "local_district"
-            s == "general" || s == "general news" || s == "జనరల్" || s == "state" || s == "రాష్ట్రం" || s == "తాజా వార్తలు" || s == "బ్రేకింగ్" || s == "ముఖ్యాంశాలు" || s == "news" -> "general"
+            s.contains("క్రీడలు") || s.contains("స్పోర్ట్స్") || s.contains("sports") || s.contains("cricket") || s.contains("క్రికెట్") || s.contains("ipl") || s.contains("खेल") || s.contains("ਖੇਡਾਂ") || s.contains("રમત") -> "sports"
+            s.contains("సినిమా") || s.contains("వినోదం") || s.contains("cinema") || s.contains("entertainment") || s.contains("movies") || s.contains("ఓటీటీ") || s.contains("ott") || s.contains("చిత్రసీమ") || s.contains("టాలీవుడ్") || s.contains("tollywood") || s.contains("मनोरंजन") || s.contains("बॉलीवुड") || s.contains("ਮਨੋਰੰਜਨ") || s.contains("મનોરંજન") -> "cinema"
+            s.contains("రాజకీయం") || s.contains("రాజకీయాలు") || s.contains("రాజకీయ") || s.contains("politics") || s.contains("political") || s.contains("राजनीति") || s.contains("ਰਾਜਨੀਤੀ") || s.contains("રાજકારણ") -> "politics"
+            s.contains("క్రైమ్") || s.contains("నేరాలు") || s.contains("crime") || s.contains("పోలీస్") || s.contains("police") || s.contains("अपराध") || s.contains("ਅਪਰਾਧ") || s.contains("ગુના") -> "crime"
+            s.contains("వ్యాపారం") || s.contains("బిజినెస్") || s.contains("business") || s.contains("మార్కెట్") || s.contains("బంగారం") || s.contains("व्यापार") || s.contains("बिजनेस") || s.contains("ਕਾਰੋਬਾਰ") || s.contains("વ્યાપાર") -> "business"
+            s.contains("టెక్నాలజీ") || s.contains("technology") || s.contains("tech") || s.contains("तकनीक") || s.contains("ਤਕਨਾਲੋਜੀ") || s.contains("ટેકનોલોજી") -> "technology"
+            s.contains("ఆరోగ్యం") || s.contains("health") || s.contains("स्वास्थ्य") || s.contains("ਸਿਹਤ") || s.contains("આરોગ્ય") -> "health"
+            s.contains("విద్య") || s.contains("education") || s.contains("ఉద్యోగాలు") || s.contains("jobs") || s.contains("शिक्षा") || s.contains("रोजगार") || s.contains("ਸਿੱਖਿਆ") || s.contains("શિક્ષણ") -> "education"
+            s.contains("భక్తి") || s.contains("ఆధ్యాత్మికం") || s.contains("devotional") || s.contains("धर्म") || s.contains("ਧਰਮ") || s.contains("ભક્તિ") -> "devotional"
+            s.contains("వ్యవసాయం") || s.contains("agriculture") || s.contains("कृषि") || s.contains("ਖੇਤੀਬਾੜੀ") || s.contains("ખેતી") -> "agriculture"
+            s.contains("అంతర్జాతీయం") || s.contains("international") || s.contains("ప్రపంచం") || s.contains("world") || s.contains("विदेश") || s.contains("ਵਿਦੇਸ਼") || s.contains("આંતરરાષ્ટ્રીય") -> "international"
+            s.contains("జాతీయం") || s.contains("national") || s.contains("భారతదేశం") || s.contains("देश") || s.contains("ਦੇਸ਼") || s.contains("રાષ્ટ્રીય") -> "national"
+            s.contains("జీవనశైలి") || s.contains("లైఫ్‌స్టైల్") || s.contains("లైఫ్ స్టైల్") || s.contains("lifestyle") || s.contains("लाइफस्टाइल") || s.contains("ਜੀਵਨਸ਼ੈਲੀ") || s.contains("લાઇફસ્ટાઇલ") -> "lifestyle"
+            s.contains("జిల్లా") || s.contains("స్థానిక") || s.contains("local") || s.contains("स्थानीय") || s.contains("ਸਥਾਨਕ") || s.contains("સ્થાનિક") -> "local_district"
+            s == "general" || s == "general news" || s == "జనరల్" || s == "state" || s == "రాష్ట్రం" || s == "తాజా వార్తలు" || s == "బ్రేకింగ్" || s == "ముఖ్యాంశాలు" || s == "news" || s == "राज्य" || s == "ताजा खबर" || s == "ताज़ा समाचार" || s == "ਰਾਜ" || s == "રાજ્ય" -> "general"
             else -> s
         }
     }
 
     /**
-     * Expands user's top preferred category keys into Telugu + English strings for Firestore
-     * `whereArrayContainsAny("categories", ...)` (strictly capped to Firestore's 10-item limit).
+     * Expands user's top preferred category keys via breadth-first round-robin so every preferred
+     * category gets its primary native + English aliases inside Firestore's 10-item `whereArrayContainsAny` limit.
      */
     fun expandCategoriesForFirestoreQuery(rawPreferred: List<String>, maxLimit: Int = 10): List<String> {
         if (rawPreferred.isEmpty()) return emptyList()
-        val result = LinkedHashSet<String>()
+        val aliasLists = mutableListOf<List<String>>()
+        val seenCanonical = HashSet<String>()
         for (raw in rawPreferred) {
-            if (result.size >= maxLimit) break
             val canonical = normalizeCategoryKey(raw)
-            if (canonical in NON_TOPICAL_CANONICAL) continue
+            if (canonical in NON_TOPICAL_CANONICAL || !seenCanonical.add(canonical)) continue
             val aliases = CANONICAL_FIRESTORE_ALIASES[canonical]
             if (aliases != null) {
-                for (alias in aliases) {
-                    if (result.size >= maxLimit) break
-                    result.add(alias)
-                }
+                aliasLists.add(aliases)
             } else if (raw.isNotBlank()) {
-                result.add(raw.trim())
+                aliasLists.add(listOf(raw.trim()))
+            }
+        }
+        val result = LinkedHashSet<String>()
+        val maxDepth = aliasLists.maxOfOrNull { it.size } ?: 0
+        for (depth in 0 until maxDepth) {
+            if (result.size >= maxLimit) break
+            for (aliases in aliasLists) {
+                if (result.size >= maxLimit) break
+                if (depth < aliases.size) {
+                    result.add(aliases[depth])
+                }
             }
         }
         return result.toList().take(maxLimit)

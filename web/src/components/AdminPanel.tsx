@@ -202,7 +202,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
           />
         );
       case 'reporterManagement':
-        return <ReporterManagementPage currentUser={user} />;
+        return (
+          <ReporterManagementPage
+            currentUser={user}
+            onOpenReporterChat={(reporterId) => {
+              setChatTargetReporterId(reporterId);
+              setActivePage('messages');
+            }}
+          />
+        );
       case 'appInstalls':
         return <AppInstallsPage currentUser={user} />;
       case 'messages':

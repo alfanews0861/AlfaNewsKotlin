@@ -215,11 +215,8 @@ class MainActivity : ComponentActivity() {
                 val language = mainViewModel.language.value
                 val currentUser = mainViewModel.currentUser.value
                 newsFeedViewModel.loadNews(language, currentUser, initialPostId = initialPostId)
-                // Preload local news with slight delay (300ms) so Home Feed gets initial priority
-                lifecycleScope.launch {
-                    kotlinx.coroutines.delay(300L)
-                    localNewsFeedViewModel.loadNews(language, currentUser)
-                }
+                // 🛡️ PHASE 1 EGRESS REDUCTION: Do NOT auto-preload Local Feed on Home cold start.
+                // LocalNewsFeedViewModel loads on-demand when the user taps the "స్థానిక" (Local) tab.
             } else {
                 Log.w("MainActivity", "Cold start blocked news loading: cachedMinVersionCode ($cachedMinVersion) > BuildConfig.VERSION_CODE (${BuildConfig.VERSION_CODE})")
             }
@@ -538,7 +535,10 @@ class MainActivity : ComponentActivity() {
         val language = mainViewModel.language.value
         val currentUser = mainViewModel.currentUser.value
         newsFeedViewModel.refreshIfStale(language, currentUser)
-        localNewsFeedViewModel.refreshIfStale(language, currentUser)
+        // 🛡️ PHASE 1 EGRESS REDUCTION: Refresh Local Feed on resume ONLY if user is on Local tab or already opened it
+        if (mainViewModel.activeTab.value == "local" || localNewsFeedViewModel.news.value.isNotEmpty()) {
+            localNewsFeedViewModel.refreshIfStale(language, currentUser)
+        }
     }
 
     // యాప్ రన్ అవుతున్నప్పుడు కొత్త ఇంటెంట్ వస్తే

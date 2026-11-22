@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { FacebookFeed, AP_DISTRICTS, TS_DISTRICTS } from '../types';
+import { FacebookFeed } from '../types';
+import { ALL_STATE_CODES, EDITIONS, StateCode } from '../data/editions';
 import { db, app } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
 import * as _functions from 'firebase/functions';
@@ -165,8 +166,9 @@ const ApifyFacebookScrapingPage: React.FC = () => {
                                 setMandal('');
                             }} className="w-full border p-4 rounded-2xl text-lg font-bold bg-gray-50 outline-none" required>
                                 <option value="">రాష్ట్రాన్ని ఎంచుకోండి</option>
-                                <option value="AP">ఆంధ్ర ప్రదేశ్</option>
-                                <option value="TS">తెలంగాణ</option>
+                                {ALL_STATE_CODES.map(code => (
+                                    <option key={code} value={code}>{EDITIONS[code].nameNative} ({EDITIONS[code].nameEn})</option>
+                                ))}
                             </select>
                         </div>
                     )}
@@ -178,7 +180,7 @@ const ApifyFacebookScrapingPage: React.FC = () => {
                             <label className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-2">జిల్లా</label>
                             <select value={district} onChange={e => setDistrict(e.target.value)} className="w-full border p-4 rounded-2xl text-lg font-bold bg-gray-50 outline-none" required>
                                 <option value="">జిల్లాను ఎంచుకోండి</option>
-                                {(stateSelection === 'AP' ? AP_DISTRICTS : TS_DISTRICTS).map(d => (
+                                {(EDITIONS[stateSelection as StateCode]?.districts || []).map(d => (
                                     <option key={d} value={d}>{d}</option>
                                 ))}
                             </select>

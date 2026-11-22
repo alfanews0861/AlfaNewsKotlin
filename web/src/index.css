@@ -37,14 +37,60 @@ body {
   font-weight: 400 !important;
 }
 
-.font-ramabhadra {
-  font-family: 'Ramabhadra', sans-serif;
+.font-ramabhadra,
+.font-headline-te {
+  font-family: 'Ramabhadra', 'Baloo 2', sans-serif;
   font-weight: 400 !important;
   letter-spacing: normal;
 }
 
-.font-mallanna {
-  font-family: 'Mallanna', sans-serif;
+.font-mallanna,
+.font-body-te {
+  font-family: 'Mallanna', 'Hind', sans-serif;
+  font-weight: 400 !important;
+}
+
+.font-headline-hi {
+  font-family: 'Baloo 2', sans-serif;
+  font-weight: 400 !important;
+  letter-spacing: normal;
+}
+
+.font-body-hi {
+  font-family: 'Hind', sans-serif;
+  font-weight: 400 !important;
+}
+
+.font-headline-pa {
+  font-family: 'Baloo Paaji 2', sans-serif;
+  font-weight: 400 !important;
+  letter-spacing: normal;
+}
+
+.font-body-pa {
+  font-family: 'Mukta Mahee', sans-serif;
+  font-weight: 400 !important;
+}
+
+.font-headline-gu {
+  font-family: 'Baloo Bhai 2', sans-serif;
+  font-weight: 400 !important;
+  letter-spacing: normal;
+}
+
+.font-body-gu {
+  font-family: 'Hind Vadodara', sans-serif;
+  font-weight: 400 !important;
+}
+
+.font-headline-en {
+  font-family: 'Baloo 2', 'Poppins', sans-serif;
+  font-weight: 400 !important;
+  letter-spacing: normal;
+}
+
+.font-body-en {
+  font-family: 'Hind', 'Poppins', sans-serif;
   font-weight: 400 !important;
 }
 

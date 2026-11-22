@@ -7,6 +7,7 @@ import { logAnalyticsEvent } from '../services/analyticsService';
 import StarReporterCard from './StarReporterPoster';
 import { VerifiedBadge } from './VerifiedBadge';
 import { isUserVerifiedReporter } from '../services/reporterVerification';
+import { getCollectionForEdition, resolveStateCode, getLocalizedText } from '../data/editions';
 
 const { doc, getDoc, collection, query, where, orderBy, getDocs, Timestamp, limit } = _firestore as any;
 
@@ -82,45 +83,57 @@ const ReporterProfileView: React.FC<ReporterProfileViewProps> = ({ reporterId, o
                     }
                 }
 
-                const newsRef = collection(db, 'news');
-                let fetchedPosts: NewsPost[] = [];
-                try {
-                    const q = query(newsRef, where('reporter.id', '==', reporterId), orderBy('timestamp', 'desc'), limit(50));
-                    const querySnapshot = await getDocs(q);
-                    fetchedPosts = querySnapshot.docs.map((doc: any) => {
-                        const data = doc.data();
-                        const timestamp = data.timestamp instanceof Timestamp ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : Date.now());
-                        return { id: doc.id, ...data, timestamp } as NewsPost;
+                const repState = resolveStateCode((resolvedReporter as any)?.stateCode || (resolvedReporter as any)?.state, (resolvedReporter as any)?.district);
+                const repCol = getCollectionForEdition(repState || 'AP', (resolvedReporter as any)?.language);
+                const targetCols = Array.from(new Set([repCol, 'news']));
+
+                const postsMap = new Map<string, NewsPost>();
+                for (const colName of targetCols) {
+                    const newsRef = collection(db, colName);
+                    let colPosts: NewsPost[] = [];
+                    try {
+                        const q = query(newsRef, where('reporter.id', '==', reporterId), orderBy('timestamp', 'desc'), limit(50));
+                        const querySnapshot = await getDocs(q);
+                        colPosts = querySnapshot.docs.map((doc: any) => {
+                            const data = doc.data();
+                            const timestamp = data.timestamp instanceof Timestamp ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : Date.now());
+                            return { id: doc.id, ...data, timestamp } as NewsPost;
+                        });
+                    } catch (qErr) {
+                        console.warn(`Primary reporter.id query failed on ${colName}, trying simple query:`, qErr);
+                        try {
+                            const qSimple = query(newsRef, where('reporter.id', '==', reporterId), limit(50));
+                            const querySnapshot = await getDocs(qSimple);
+                            colPosts = querySnapshot.docs.map((doc: any) => {
+                                const data = doc.data();
+                                const timestamp = data.timestamp instanceof Timestamp ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : Date.now());
+                                return { id: doc.id, ...data, timestamp } as NewsPost;
+                            });
+                        } catch (e2) {
+                            console.error("Simple reporter query error:", e2);
+                        }
+                    }
+
+                    if (colPosts.length === 0) {
+                        try {
+                            const qName = query(newsRef, where('reporter.name', '==', reporterId), limit(50));
+                            const querySnapshot = await getDocs(qName);
+                            colPosts = querySnapshot.docs.map((doc: any) => {
+                                const data = doc.data();
+                                const timestamp = data.timestamp instanceof Timestamp ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : Date.now());
+                                return { id: doc.id, ...data, timestamp } as NewsPost;
+                            });
+                        } catch (e3) {
+                            console.warn("Fallback reporter.name query error:", e3);
+                        }
+                    }
+
+                    colPosts.forEach((p) => {
+                        if (!postsMap.has(p.id)) postsMap.set(p.id, p);
                     });
-                } catch (qErr) {
-                    console.warn("Primary reporter.id query failed, trying simple query:", qErr);
-                    try {
-                        const qSimple = query(newsRef, where('reporter.id', '==', reporterId), limit(50));
-                        const querySnapshot = await getDocs(qSimple);
-                        fetchedPosts = querySnapshot.docs.map((doc: any) => {
-                            const data = doc.data();
-                            const timestamp = data.timestamp instanceof Timestamp ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : Date.now());
-                            return { id: doc.id, ...data, timestamp } as NewsPost;
-                        });
-                    } catch (e2) {
-                        console.error("Simple reporter query error:", e2);
-                    }
                 }
 
-                if (fetchedPosts.length === 0) {
-                    try {
-                        const qName = query(newsRef, where('reporter.name', '==', reporterId), limit(50));
-                        const querySnapshot = await getDocs(qName);
-                        fetchedPosts = querySnapshot.docs.map((doc: any) => {
-                            const data = doc.data();
-                            const timestamp = data.timestamp instanceof Timestamp ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : Date.now());
-                            return { id: doc.id, ...data, timestamp } as NewsPost;
-                        });
-                    } catch (e3) {
-                        console.warn("Fallback reporter.name query error:", e3);
-                    }
-                }
-
+                const fetchedPosts = Array.from(postsMap.values());
                 fetchedPosts.sort((a: NewsPost, b: NewsPost) => b.timestamp - a.timestamp);
                 setPosts(fetchedPosts);
 
@@ -221,8 +234,8 @@ const ReporterProfileView: React.FC<ReporterProfileViewProps> = ({ reporterId, o
                                 )}
                             </div>
                             <div className="p-2">
-                                <h4 className="font-mallanna text-sm font-semibold text-gray-800 line-clamp-2 leading-tight mb-1 h-9">{post.headline.telugu}</h4>
-                                <p className="text-[10px] text-gray-400 text-right">{new Date(post.timestamp).toLocaleDateString('te-IN')}</p>
+                                <h4 className="font-mallanna text-sm font-semibold text-gray-800 line-clamp-2 leading-tight mb-1 h-9">{getLocalizedText(post.headline, (post as any).language || 'te')}</h4>
+                                <p className="text-[10px] text-gray-400 text-right">{new Date(post.timestamp).toLocaleDateString('en-IN')}</p>
                             </div>
                         </div>
                     ))}

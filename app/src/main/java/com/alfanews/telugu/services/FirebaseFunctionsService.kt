@@ -145,8 +145,12 @@ object FirebaseFunctionsService {
         ))
     }
 
-    suspend fun triggerReporterActivityCheck(): Result<Map<String, Any>> {
-        return callFunction("triggerReporterActivityCheck")
+    suspend fun triggerReporterActivityCheck(dryRun: Boolean = false): Result<Map<String, Any>> {
+        return callFunction("triggerReporterActivityCheck", mapOf("dryRun" to dryRun))
+    }
+
+    suspend fun syncReporterActivityStats(maxNewsScan: Int = 2000): Result<Map<String, Any>> {
+        return callFunction("syncReporterActivityStats", mapOf("maxNewsScan" to maxNewsScan))
     }
 
     suspend fun sendAdminReporterMessage(

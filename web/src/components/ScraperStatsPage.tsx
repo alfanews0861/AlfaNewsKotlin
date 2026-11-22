@@ -6,7 +6,15 @@ import { Activity, RefreshCw, Database } from 'lucide-react';
 
 const { collection, query, where, getCountFromServer, Timestamp } = _firestore as any;
 
-const SCRAPER_REPORTER_IDS = ['rep1', 'rep2', 'rep3', 'rep4', 'rep5'];
+import { ALL_NEWS_COLLECTIONS, NewsCollectionName } from '../data/editions';
+
+const SCRAPER_REPORTER_IDS_BY_COL: Record<NewsCollectionName, string[]> = {
+    news: ['rep1', 'rep2', 'rep3', 'rep4', 'rep5', 'rep6', 'rep7', 'rep8', 'rep9', 'rep10'],
+    news_hi: ['rep_hi_1', 'rep_hi_2', 'rep_hi_3', 'rep_hi_4', 'rep_hi_5', 'rep_hi_6', 'rep_hi_7', 'rep_hi_8', 'rep_hi_9', 'rep_hi_10'],
+    news_pa: ['rep_pa_1', 'rep_pa_2', 'rep_pa_3', 'rep_pa_4', 'rep_pa_5', 'rep_pa_6', 'rep_pa_7', 'rep_pa_8', 'rep_pa_9', 'rep_pa_10'],
+    news_gu: ['rep_gu_1', 'rep_gu_2', 'rep_gu_3', 'rep_gu_4', 'rep_gu_5', 'rep_gu_6', 'rep_gu_7', 'rep_gu_8', 'rep_gu_9', 'rep_gu_10'],
+    news_en: ['rep_en_1', 'rep_en_2', 'rep_en_3', 'rep_en_4', 'rep_en_5', 'rep_en_6', 'rep_en_7', 'rep_en_8', 'rep_en_9', 'rep_en_10'],
+};
 
 interface DailyStats {
     date: string;
@@ -18,15 +26,16 @@ const ScraperStatsPage: React.FC = () => {
     const [stats, setStats] = useState<DailyStats[]>([]);
     const [loading, setLoading] = useState(true);
     const [totalScraped, setTotalScraped] = useState(0);
+    const [selectedCol, setSelectedCol] = useState<'ALL' | NewsCollectionName>('ALL');
 
-    const fetchStats = async () => {
+    const fetchStats = async (colFilter: 'ALL' | NewsCollectionName = selectedCol) => {
         setLoading(true);
         try {
-            const newsRef = collection(db, 'news');
+            const colsToQuery: NewsCollectionName[] = colFilter === 'ALL' ? ALL_NEWS_COLLECTIONS : [colFilter];
             const newStats: DailyStats[] = [];
             let total = 0;
 
-            // Fetch stats for the last 7 days
+            // Fetch stats for the last 7 days using cheap server-side aggregation count
             for (let i = 6; i >= 0; i--) {
                 const date = new Date();
                 date.setDate(date.getDate() - i);
@@ -37,15 +46,30 @@ const ScraperStatsPage: React.FC = () => {
                 endOfDayDate.setHours(23, 59, 59, 999);
                 const endOfDay = Timestamp.fromDate(endOfDayDate);
 
-                const q = query(
-                    newsRef,
-                    where('reporter.id', 'in', SCRAPER_REPORTER_IDS),
-                    where('createdAt', '>=', startOfDay),
-                    where('createdAt', '<=', endOfDay)
+                const counts = await Promise.all(
+                    colsToQuery.map(async (colName) => {
+                        try {
+                            const newsRef = collection(db, colName);
+                            const q = colName === 'news'
+                                ? query(
+                                    newsRef,
+                                    where('reporter.id', 'in', SCRAPER_REPORTER_IDS_BY_COL.news),
+                                    where('createdAt', '>=', startOfDay),
+                                    where('createdAt', '<=', endOfDay)
+                                  )
+                                : query(
+                                    newsRef,
+                                    where('timestamp', '>=', startOfDay.toMillis()),
+                                    where('timestamp', '<=', endOfDay.toMillis())
+                                  );
+                            const snapshot = await getCountFromServer(q);
+                            return snapshot.data().count || 0;
+                        } catch {
+                            return 0;
+                        }
+                    })
                 );
-
-                const snapshot = await getCountFromServer(q);
-                const count = snapshot.data().count;
+                const count = counts.reduce((sum, c) => sum + c, 0);
                 
                 newStats.push({
                     date: date.toLocaleDateString('te-IN', { month: 'short', day: 'numeric' }),
@@ -65,27 +89,41 @@ const ScraperStatsPage: React.FC = () => {
     };
 
     useEffect(() => {
-        fetchStats();
-    }, []);
+        fetchStats(selectedCol);
+    }, [selectedCol]);
 
     return (
         <div className="p-6 max-w-6xl mx-auto font-mallanna animate-fade-in">
-            <div className="flex justify-between items-center mb-8">
+            <div className="flex flex-wrap justify-between items-center gap-3 mb-8">
                 <div>
                     <h1 className="text-3xl font-ramabhadra text-gray-900 flex items-center gap-3">
                         <Activity className="w-8 h-8 text-blue-600" />
                         స్క్రాపర్ రిపోర్ట్ (Scraper Stats)
                     </h1>
-                    <p className="text-gray-500 mt-2 text-lg">గత 7 రోజుల్లో వెబ్ స్క్రాపర్ ద్వారా వచ్చిన వార్తల వివరాలు</p>
+                    <p className="text-gray-500 mt-2 text-lg">గత 7 రోజుల్లో 9 రాష్ట్రాల వెబ్ స్క్రాపర్ ద్వారా వచ్చిన వార్తల వివరాలు</p>
                 </div>
-                <button 
-                    onClick={fetchStats} 
-                    disabled={loading}
-                    className="flex items-center gap-2 bg-blue-50 text-blue-600 px-4 py-2 rounded-xl font-bold hover:bg-blue-100 transition-colors"
-                >
-                    <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
-                    రిఫ్రెష్
-                </button>
+                <div className="flex items-center gap-2">
+                    <select
+                        value={selectedCol}
+                        onChange={(e) => setSelectedCol(e.target.value as 'ALL' | NewsCollectionName)}
+                        className="border border-gray-300 rounded-xl px-3 py-2 text-sm font-bold bg-white text-gray-800 outline-none"
+                    >
+                        <option value="ALL">అన్ని కలెక్షన్లు (All 5)</option>
+                        <option value="news">AP / TS (news)</option>
+                        <option value="news_hi">UP / UK / HP (news_hi)</option>
+                        <option value="news_pa">Punjab (news_pa)</option>
+                        <option value="news_gu">Gujarat (news_gu)</option>
+                        <option value="news_en">Goa / Manipur (news_en)</option>
+                    </select>
+                    <button 
+                        onClick={() => fetchStats(selectedCol)} 
+                        disabled={loading}
+                        className="flex items-center gap-2 bg-blue-50 text-blue-600 px-4 py-2 rounded-xl font-bold hover:bg-blue-100 transition-colors"
+                    >
+                        <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+                        రిఫ్రెష్
+                    </button>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">

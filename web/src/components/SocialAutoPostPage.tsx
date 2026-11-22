@@ -4,10 +4,9 @@ import {
     DistrictSocialConfig, 
     SocialAutoPostLog, 
     SocialAutoPostSettings, 
-    TS_DISTRICTS, 
-    AP_DISTRICTS,
     User
 } from '../types';
+import { ALL_STATE_CODES, EDITIONS, StateCode } from '../data/editions';
 import * as _firestore from 'firebase/firestore';
 import * as _functions from 'firebase/functions';
 
@@ -21,7 +20,7 @@ interface SocialAutoPostPageProps {
 const SocialAutoPostPage: React.FC<SocialAutoPostPageProps> = () => {
     // Navigation Tabs
     const [activeTab, setActiveTab] = useState<'districts' | 'settings' | 'logs' | 'manual'>('districts');
-    const [stateFilter, setStateFilter] = useState<'ALL' | 'TS' | 'AP' | 'CONFIGURED' | 'ACTIVE'>('ALL');
+    const [stateFilter, setStateFilter] = useState<'ALL' | StateCode | 'CONFIGURED' | 'ACTIVE'>('ALL');
     const [searchQuery, setSearchQuery] = useState('');
 
     // State Data
@@ -119,19 +118,17 @@ const SocialAutoPostPage: React.FC<SocialAutoPostPageProps> = () => {
         return () => unsubscribe();
     }, [activeTab]);
 
-    // Combine all standard districts
-    const allDistricts = [
-        ...TS_DISTRICTS.map(d => ({ name: d, state: 'TS' as const })),
-        ...AP_DISTRICTS.map(d => ({ name: d, state: 'AP' as const }))
-    ];
+    // Combine all 9 states (236 districts)
+    const allDistricts = ALL_STATE_CODES.flatMap((code) =>
+        EDITIONS[code].districts.map((d) => ({ name: d, state: code }))
+    );
 
     // Filtered districts
     const filteredDistricts = allDistricts.filter(item => {
         const config = districtConfigs[item.name];
         
         // State / Status Filter
-        if (stateFilter === 'TS' && item.state !== 'TS') return false;
-        if (stateFilter === 'AP' && item.state !== 'AP') return false;
+        if ((ALL_STATE_CODES as string[]).includes(stateFilter) && item.state !== stateFilter) return false;
         if (stateFilter === 'ACTIVE' && (!config || !config.enabled)) return false;
         if (stateFilter === 'CONFIGURED' && (!config || (!config.facebook?.pageId && !config.instagram?.igUserId))) return false;
 
@@ -152,7 +149,7 @@ const SocialAutoPostPage: React.FC<SocialAutoPostPageProps> = () => {
     const activeCount = Object.values(districtConfigs).filter(c => c.enabled).length;
 
     // Handle Quick Toggle Active
-    const handleQuickToggle = async (districtName: string, state: 'TS' | 'AP', currentEnabled: boolean) => {
+    const handleQuickToggle = async (districtName: string, state: StateCode, currentEnabled: boolean) => {
         try {
             const configRef = doc(db, 'social_auto_post_configs', districtName);
             const newEnabled = !currentEnabled;
@@ -188,7 +185,7 @@ const SocialAutoPostPage: React.FC<SocialAutoPostPageProps> = () => {
     };
 
     // Open Edit Modal
-    const handleOpenEdit = (districtName: string, state: 'TS' | 'AP') => {
+    const handleOpenEdit = (districtName: string, state: StateCode) => {
         const existing = districtConfigs[districtName] || {
             id: districtName,
             district: districtName,
@@ -919,8 +916,12 @@ const SocialAutoPostPage: React.FC<SocialAutoPostPageProps> = () => {
                                 className="w-full border-2 border-gray-200 p-3 rounded-xl text-base focus:border-red-500 outline-none"
                             >
                                 <option value="">పోస్ట్‌లోని జిల్లానే తీసుకో (Auto)</option>
-                                {[...TS_DISTRICTS, ...AP_DISTRICTS].map(d => (
-                                    <option key={d} value={d}>{d}</option>
+                                {ALL_STATE_CODES.map(code => (
+                                    <optgroup key={code} label={`${EDITIONS[code].nameNative} (${code})`}>
+                                        {EDITIONS[code].districts.map(d => (
+                                            <option key={`${code}_${d}`} value={d}>{d}</option>
+                                        ))}
+                                    </optgroup>
                                 ))}
                             </select>
                         </div>

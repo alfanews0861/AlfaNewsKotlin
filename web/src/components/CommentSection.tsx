@@ -17,6 +17,7 @@ const SendIcon = () => (
 
 interface CommentSectionProps {
   postId: string;
+  collectionName?: string;
   initialCommentCount: number;
   currentUser: User | null;
   onClose: () => void;
@@ -24,7 +25,7 @@ interface CommentSectionProps {
   onLoginRequest: () => void;
 }
 
-const CommentSection: React.FC<CommentSectionProps> = ({ postId, initialCommentCount, currentUser, onClose, onCommentPosted, onLoginRequest }) => {
+const CommentSection: React.FC<CommentSectionProps> = ({ postId, collectionName = 'news', initialCommentCount, currentUser, onClose, onCommentPosted, onLoginRequest }) => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [isPosting, setIsPosting] = useState(false);
@@ -35,7 +36,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ postId, initialCommentC
   useEffect(() => {
     setIsLoading(true);
     try {
-        const commentsRef = collection(db, 'news', postId, 'comments');
+        const commentsRef = collection(db, collectionName, postId, 'comments');
         const q = query(commentsRef, orderBy('timestamp', 'desc'), limit(50));
 
         const unsubscribe = onSnapshot(q, (snapshot: any) => {
@@ -71,7 +72,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ postId, initialCommentC
         console.error("Error subscribing to comments:", error);
         setIsLoading(false);
     }
-  }, [postId]);
+  }, [postId, collectionName]);
 
   const handlePostComment = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -86,7 +87,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ postId, initialCommentC
 
     setIsPosting(true);
     try {
-      const commentsRef = collection(db, 'news', postId, 'comments');
+      const commentsRef = collection(db, collectionName, postId, 'comments');
       
       await addDoc(commentsRef, {
           text: newComment.trim(),

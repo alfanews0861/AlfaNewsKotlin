@@ -10,6 +10,7 @@ import { VerifiedBadge } from './VerifiedBadge';
 import { isReporterVerified } from '../services/reporterVerification';
 import SurveyCard from './SurveyCard';
 import { getOptimizedImageUrl } from '../utils/imageHelper';
+import { getBodyFontClass, getHeadlineFontClass, getLocalizedText, getCollectionForEdition, resolveStateCode } from '../data/editions';
 
 export const getReadNewsIds = (): Set<string> => {
   try {
@@ -87,8 +88,11 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
   const hasScrolledToBottom = useRef(false);
   const isSkipped = useRef(true);
 
-  const headline = language === Language.TELUGU ? (post.headline?.telugu || '') : (post.headline?.english || '');
-  const rawContent = language === Language.TELUGU ? (post.content?.telugu || '') : (post.content?.english || '');
+  const headlineFont = getHeadlineFontClass(language);
+  const bodyFont = getBodyFontClass(language);
+
+  const headline = getLocalizedText(post.headline, language);
+  const rawContent = getLocalizedText(post.content, language);
 
   // 🛡️ Automatic Language Recovery: If Telugu is active but content is in English,
   // recover Telugu text from fullStory.telugu first paragraph if available.
@@ -104,7 +108,7 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
     return rawContent;
   }, [language, rawContent, post.fullStory?.telugu]);
 
-  const fullStoryText = (language === Language.TELUGU ? post.fullStory?.telugu : post.fullStory?.english) || '';
+  const fullStoryText = getLocalizedText(post.fullStory, language);
   const fullStoryWords = fullStoryText.trim().split(/\s+/).filter(Boolean).length;
   const contentWords = content.trim().split(/\s+/).filter(Boolean).length;
   const isReporterPost = post.isReporter === true || (Boolean(post.reporter) && post.reporter?.name !== 'సిటిజెన్ పోస్ట్');
@@ -484,7 +488,9 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
 
         {showComments && (
           <CommentSection 
-            postId={post.id} initialCommentCount={post.comments} currentUser={currentUser}
+            postId={post.id}
+            collectionName={getCollectionForEdition(resolveStateCode((post as any).stateCode || post.state, post.district) || 'AP', (post as any).language)}
+            initialCommentCount={post.comments} currentUser={currentUser}
             onClose={() => setShowComments(false)}
             onCommentPosted={() => {}}
             onLoginRequest={onProfileClick}
@@ -610,12 +616,12 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
           <div className="flex h-full gap-4">
             <div className="flex-1 flex flex-col animate-slide-up overflow-hidden">
               {/* Headline */}
-              <h1 className="font-ramabhadra text-xl md:text-2xl leading-tight mb-2 font-medium text-white">
+              <h1 className={`${headlineFont} text-xl md:text-2xl leading-tight mb-2 text-white`}>
                 {headline}
               </h1>
               
               {/* Meta Section with Dotted Borders */}
-              <div className="py-1.5 border-y border-dotted border-white/20 mb-3 flex flex-wrap items-center gap-x-2 text-[10px] font-mallanna text-white/80">
+              <div className={`py-1.5 border-y border-dotted border-white/20 mb-3 flex flex-wrap items-center gap-x-2 text-[10px] ${bodyFont} text-white/80`}>
                 {post.isCitizen || post.reporter?.name === 'సిటిజెన్ పోస్ట్' ? (
                   <span className="text-red-500 font-bold">
                     {language === 'te' ? 'సిటిజెన్ పోస్ట్' : 'Citizen Post'}
@@ -701,7 +707,9 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
 
       {showComments && (
         <CommentSection 
-          postId={post.id} initialCommentCount={post.comments} currentUser={currentUser}
+          postId={post.id}
+          collectionName={getCollectionForEdition(resolveStateCode((post as any).stateCode || post.state, post.district) || 'AP', (post as any).language)}
+          initialCommentCount={post.comments} currentUser={currentUser}
           onClose={() => setShowComments(false)}
           onCommentPosted={() => {}}
           onLoginRequest={onProfileClick}

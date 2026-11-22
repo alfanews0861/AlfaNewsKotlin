@@ -1,9 +1,17 @@
-import type { NewsPost } from '../types';
+import type { NewsPost } from '../types.ts';
+import {
+  ALL_STATE_CODES,
+  EDITIONS,
+  getExpansionDistrictAliases,
+  resolveStateCode,
+  type StateCode,
+} from '../data/editions.ts';
 
 export const AP_DISTRICTS: string[] = [
   'అల్లూరి సీతారామరాజు', 'అనకాపల్లి', 'అనంతపురం', 'అన్నమయ్య', 'బాపట్ల', 'చిత్తూరు', 'కోనసీమ',
   'తూర్పు గోదావరి', 'ఏలూరు', 'గుంటూరు', 'కాకినాడ', 'కృష్ణా', 'కర్నూలు', 'నంద్యాల', 'ఎన్టీఆర్',
-  'పల్నాడు', 'పార్వతీపురం మన్యం', 'ప్రకాశం', 'శ్రీ పొట్టి శ్రీరాములు నెల్లూరు', 'శ్రీ సత్యసాయి',
+  'పల్నాడు', 'పార్వతీపురం మన్యం', 'ప్రకాశం', 'మార్కాపురం', 'పోలవరం', 'మదనపల్లె',
+  'శ్రీ పొట్టి శ్రీరాములు నెల్లూరు', 'శ్రీ సత్యసాయి',
   'శ్రీకాకుళం', 'తిరుపతి', 'విశాఖపట్నం', 'విజయనగరం', 'పశ్చిమ గోదావరి', 'వైఎస్ఆర్ కడప'
 ];
 
@@ -15,7 +23,11 @@ export const TS_DISTRICTS: string[] = [
   'వికారాబాద్', 'వనపర్తి', 'వరంగల్', 'యాదాద్రి భువనగిరి'
 ];
 
-export const ALL_DISTRICTS: string[] = [...AP_DISTRICTS, ...TS_DISTRICTS];
+export const ALL_DISTRICTS: string[] = [
+  ...AP_DISTRICTS,
+  ...TS_DISTRICTS,
+  ...ALL_STATE_CODES.filter((c) => c !== 'AP' && c !== 'TS').flatMap((c) => EDITIONS[c].districts),
+];
 
 export const DISTRICT_ALIASES: Record<string, string[]> = {
   'హైదరాబాద్': ['హైదరాబాద్', 'hyderabad', 'hyd', 'సికింద్రాబాద్', 'secunderabad', 'సైబరాబాద్', 'cyberabad'],
@@ -51,6 +63,9 @@ export const DISTRICT_ALIASES: Record<string, string[]> = {
   'ఏలూరు': ['ఏలూరు', 'eluru'],
   'కృష్ణా': ['కృష్ణా', 'మచిలీపట్నం', 'krishna', 'machilipatnam'],
   'ప్రకాశం': ['ప్రకాశం', 'ఒంగోలు', 'prakasam', 'ongole'],
+  'మార్కాపురం': ['మార్కాపురం', 'markapur', 'markapuram'],
+  'పోలవరం': ['పోలవరం', 'polavaram'],
+  'మదనపల్లె': ['మదనపల్లె', 'మదనపల్లి', 'madanapalle', 'madanapalli'],
   'బాపట్ల': ['బాపట్ల', 'చీరాల', 'bapatla'],
   'పల్నాడు': ['పల్నాడు', 'నరసరావుపేట', 'palnadu'],
   'శ్రీ సత్యసాయి': ['శ్రీ సత్యసాయి', 'పుట్టపర్తి', 'sri sathya sai', 'puttaparthi'],
@@ -78,12 +93,16 @@ export const DISTRICT_ALIASES: Record<string, string[]> = {
   'యాదాద్రి భువనగిరి': ['యాదాద్రి', 'భువనగిరి', 'yadadri', 'bhuvanagiri'],
   'అల్లూరి సీతారామరాజు': ['అల్లూరి సీతారామరాజు', 'పాడేరు', 'అరకు', 'alluri', 'paderu', 'araku'],
   'పార్వతీపురం మన్యం': ['పార్వతీపురం మన్యం', 'పార్వతీపురం', 'మన్యం', 'parvathipuram'],
+  ...getExpansionDistrictAliases(),
 };
 
 export function getDistrictAliases(district: string): string[] {
   const clean = district.trim().toLowerCase();
   const matchedKey = Object.keys(DISTRICT_ALIASES).find((k) =>
-    k.toLowerCase() === clean || clean.includes(k.toLowerCase()) || k.toLowerCase().includes(clean)
+    k.toLowerCase() === clean ||
+    DISTRICT_ALIASES[k].some((a) => a.toLowerCase() === clean) ||
+    clean.includes(k.toLowerCase()) ||
+    k.toLowerCase().includes(clean)
   );
   if (matchedKey && DISTRICT_ALIASES[matchedKey]) {
     return DISTRICT_ALIASES[matchedKey];
@@ -101,62 +120,82 @@ export function isDistrictMatch(postText: string | undefined | null, targetDistr
   }
 
   const aliases = getDistrictAliases(targetDistrict);
-  return aliases.some((a) => pLower.includes(a.toLowerCase()));
+  return aliases.some((a) => {
+    const aLow = a.toLowerCase();
+    return aLow.length >= 3 && (pLower === aLow || pLower.includes(aLow));
+  });
 }
 
 export function isPostFromDistrict(post: NewsPost, targetDistrict: string): boolean {
   if (!post || !targetDistrict) return false;
 
-  // 1. Check direct post.district
   if (isDistrictMatch(post.district, targetDistrict)) return true;
-
-  // 2. Check categories array
   if (post.categories?.some((c) => isDistrictMatch(c, targetDistrict))) return true;
-
-  // 3. Check post.category
   if (isDistrictMatch(post.category, targetDistrict)) return true;
-
-  // 4. Check post.location
   if (isDistrictMatch(post.location, targetDistrict)) return true;
 
-  // 5. Check post.reporter mandal/district
   const anyPost = post as any;
   if (isDistrictMatch(anyPost.reporterDistrict, targetDistrict)) return true;
 
-  // 6. Substring in headline
-  const headline = `${post.headline?.telugu || ''} ${post.headline?.english || ''}`;
+  const headline = `${post.headline?.telugu || ''} ${post.headline?.english || ''} ${post.headline?.local || ''} ${post.headline?.hi || ''} ${post.headline?.pa || ''} ${post.headline?.gu || ''}`.toLowerCase();
   const aliases = getDistrictAliases(targetDistrict);
-  return aliases.some((a) => headline.toLowerCase().includes(a.toLowerCase()));
+  return aliases.some((a) => a.length >= 3 && headline.includes(a.toLowerCase()));
+}
+
+/**
+ * Resolves the state a post belongs to across all 9 states (returns null for truly national/universal posts).
+ */
+export function detectPostStateCode(post: NewsPost): StateCode | null {
+  if (!post) return null;
+
+  // 1. Explicit stateCode or state field
+  const explicit = resolveStateCode(post.stateCode) || resolveStateCode(post.state);
+  if (explicit) return explicit;
+
+  // 2. Specific district field
+  if (post.district) {
+    const fromDistrict = resolveStateCode(post.district);
+    if (fromDistrict) return fromDistrict;
+  }
+
+  // 3. Categories / category / location tags
+  const tagCandidates = [...(post.categories || []), post.category || '', post.location || ''];
+  for (const tag of tagCandidates) {
+    const resolved = resolveStateCode(tag);
+    if (resolved) return resolved;
+  }
+
+  // 4. Headline state-identifier check (critical for legacy AP/TS news lacking state field)
+  const headlineText = `${post.headline?.telugu || ''} ${post.headline?.english || ''} ${post.headline?.local || ''} ${post.headline?.hi || ''} ${post.headline?.pa || ''} ${post.headline?.gu || ''} ${post.location || ''}`.toLowerCase();
+  const matchedStates = new Set<StateCode>();
+  for (const code of ALL_STATE_CODES) {
+    const identifiers = EDITIONS[code].stateIdentifiers;
+    if (identifiers.some((id) => headlineText.includes(id.toLowerCase()))) {
+      matchedStates.add(code);
+    }
+  }
+  // If unambiguously tied to a single state (e.g. only AP or only TS), return that state
+  if (matchedStates.size === 1) {
+    return Array.from(matchedStates)[0];
+  }
+
+  return null;
+}
+
+export function isPostFromState(post: NewsPost, targetState: StateCode): boolean {
+  const detected = detectPostStateCode(post);
+  if (detected === targetState) return true;
+  // Also allow posts mentioning both states if explicitly checking a state tab
+  const text = `${post.state || ''} ${post.stateCode || ''} ${post.district || ''} ${post.location || ''} ${post.headline?.telugu || ''} ${post.headline?.english || ''} ${post.headline?.local || ''}`.toLowerCase();
+  return EDITIONS[targetState].stateIdentifiers.some((id) => text.includes(id.toLowerCase()));
 }
 
 export function isPostFromAp(post: NewsPost): boolean {
-  if (post.state === 'AP' || post.state === 'Andhra Pradesh' || post.state === 'Andhra') return true;
-
-  if (post.district && AP_DISTRICTS.some((d) => isDistrictMatch(post.district, d))) {
-    return true;
-  }
-
-  if (post.categories?.some((c) => c.includes('AP') || c.includes('ఆంధ్ర') || c.toLowerCase().includes('andhra'))) {
-    return true;
-  }
-
-  const text = `${post.category || ''} ${post.location || ''} ${post.headline?.telugu || ''}`.toLowerCase();
-  return text.includes('ఆంధ్ర') || text.includes('అమరావతి') || text.includes('విజయవాడ') || text.includes('విశాఖ') || text.includes('వైసీపీ') || text.includes('టిడిపి') || text.includes('కూటమి');
+  return isPostFromState(post, 'AP');
 }
 
 export function isPostFromTs(post: NewsPost): boolean {
-  if (post.state === 'TS' || post.state === 'TG' || post.state === 'Telangana' || post.state === 'తెలంగాణ') return true;
-
-  if (post.district && TS_DISTRICTS.some((d) => isDistrictMatch(post.district, d))) {
-    return true;
-  }
-
-  if (post.categories?.some((c) => c.includes('TS') || c.includes('తెలంగాణ') || c.toLowerCase().includes('telangana'))) {
-    return true;
-  }
-
-  const text = `${post.category || ''} ${post.location || ''} ${post.headline?.telugu || ''}`.toLowerCase();
-  return text.includes('తెలంగాణ') || text.includes('హైదరాబాద్') || text.includes('వరంగల్') || text.includes('రేవంత్') || text.includes('బిఆర్ఎస్');
+  return isPostFromState(post, 'TS');
 }
 
 /**
@@ -178,17 +217,19 @@ export function filterPostsByCategory(posts: NewsPost[], selectedKey: string): N
     );
   }
 
-  // 2. Andhra Pradesh State News
-  if (keyLower === 'ఆంధ్రప్రదేశ్' || keyLower === 'ap' || keyLower === 'andhra') {
-    return posts.filter((p) => isPostFromAp(p));
+  // 2. Any of the 9 States (AP, TS, UP, PB, UK, GA, MN, HP, GJ)
+  const resolvedState = resolveStateCode(selectedKey);
+  if (
+    resolvedState &&
+    (EDITIONS[resolvedState].code.toLowerCase() === keyLower ||
+      EDITIONS[resolvedState].name.toLowerCase() === keyLower ||
+      EDITIONS[resolvedState].nativeName.toLowerCase() === keyLower ||
+      EDITIONS[resolvedState].stateAliases.includes(keyLower))
+  ) {
+    return posts.filter((p) => isPostFromState(p, resolvedState));
   }
 
-  // 3. Telangana State News
-  if (keyLower === 'తెలంగాణ' || keyLower === 'ts' || keyLower === 'telangana') {
-    return posts.filter((p) => isPostFromTs(p));
-  }
-
-  // 4. Specific District
+  // 3. Specific District (all 9 states)
   const isDistrict = ALL_DISTRICTS.find((d) => isDistrictMatch(d, selectedKey));
   if (isDistrict) {
     return posts.filter((p) => isPostFromDistrict(p, isDistrict));

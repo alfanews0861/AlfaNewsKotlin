@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Alfa News</string>
+    <string name="home">ਹੋਮ</string>
+    <string name="local_news">ਸਥਾਨਕ</string>
+    <string name="create">ਪੋਸਟ ਕਰੋ</string>
+    <string name="classifieds">ਕਲਾਸੀਫਾਈਡ</string>
+    <string name="profile">ਪ੍ਰੋਫਾਈਲ</string>
+    <string name="login">ਲਾਗਇਨ</string>
+    <string name="logout">ਲਾਗਆਉਟ</string>
+    <string name="loading">ਲੋਡ ਹੋ ਰਿਹਾ ਹੈ...</string>
+    <string name="error">ਗਲਤੀ</string>
+    <string name="retry">ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ</string>
+
+    <string name="news_language">ਖ਼ਬਰਾਂ ਦੀ ਭਾਸ਼ਾ</string>
+    <string name="about_us">ਸਾਡੇ ਬਾਰੇ</string>
+    <string name="contact_us">ਸੰਪਰਕ ਕਰੋ</string>
+    <string name="privacy_policy">ਗੋਪਨੀਯਤਾ ਨੀਤੀ</string>
+    <string name="terms_of_service">ਸੇਵਾ ਦੀਆਂ ਸ਼ਰਤਾਂ</string>
+    <string name="content_policy">ਸਮੱਗਰੀ ਨੀਤੀ</string>
+    <string name="disclaimer">ਬੇਦਾਅਵਾ</string>
+    <string name="ad_policy">ਇਸ਼ਤਿਹਾਰ ਨੀਤੀ</string>
+    <string name="data_policy">ਡਾਟਾ ਨੀਤੀ</string>
+    <string name="display_theme">ਡਿਸਪਲੇਅ ਥੀਮ</string>
+    <string name="notifications">ਸੂਚਨਾਵਾਂ</string>
+    <string name="push_notifications">ਪੁਸ਼ ਸੂਚਨਾਵਾਂ</string>
+    <string name="edit_profile">ਪ੍ਰੋਫਾਈਲ ਸੰਪਾਦਿਤ ਕਰੋ</string>
+    <string name="id_card">ਪਛਾਣ ਪੱਤਰ</string>
+    <string name="login_signup">ਲਾਗਇਨ / ਸਾਈਨ ਅੱਪ</string>
+    <string name="guest">ਮਹਿਮਾਨ</string>
+    <string name="subscriber">ਮੈਂਬਰ</string>
+    <string name="reporter">ਰਿਪੋਰਟਰ</string>
+    <string name="editor">ਸੰਪਾਦਕ</string>
+    <string name="admin">ਪ੍ਰਸ਼ਾਸਕ</string>
+    <string name="delete_account">ਖਾਤਾ ਮਿਟਾਓ</string>
+    <string name="language_telugu">తెలుగు</string>
+    <string name="language_english">English</string>
+    <string name="theme_light">ਲਾਈਟ</string>
+    <string name="theme_dark">ਡਾਰਕ</string>
+    <string name="theme_system">ਸਿਸਟਮ</string>
+    <string name="policies_info">ਨੀਤੀਆਂ ਅਤੇ ਜਾਣਕਾਰੀ</string>
+    <string name="reporters">ਰਿਪੋਰਟਰ</string>
+    <string name="reporters_directory">ਰਿਪੋਰਟਰ ਡਾਇਰੈਕਟਰੀ</string>
+    <string name="select_state">ਰਾਜ ਚੁਣੋ</string>
+    <string name="all_district_reporters">ਜ਼ਿਲ੍ਹਾ ਰਿਪੋਰਟਰ</string>
+    <string name="mandal_reporter_details">ਤਹਿਸੀਲ ਰਿਪੋਰਟਰ ਵੇਰਵਾ</string>
+    <string name="no_reporters_found">ਇਸ ਖੇਤਰ ਲਈ ਕੋਈ ਰਿਪੋਰਟਰ ਨਹੀਂ ਮਿਲਿਆ।</string>
+    <string name="storage_management">ਸਟੋਰੇਜ ਪ੍ਰਬੰਧਨ</string>
+    <string name="current_cache_usage">ਮੌਜੂਦਾ ਸਟੋਰੇਜ ਵਰਤੋਂ: %1$s</string>
+    <string name="clear_cache_now">ਕੈਸ਼ ਸਾਫ਼ ਕਰੋ</string>
+    <string name="cache_cleared_success">ਕੈਸ਼ ਸਫਲਤਾਪੂਰਵਕ ਸਾਫ਼ ਹੋ ਗਿਆ!</string>
+
+    <string name="nav_home">ਹੋਮ</string>
+    <string name="nav_local">ਸਥਾਨਕ</string>
+    <string name="nav_post">ਪੋਸਟ</string>
+    <string name="nav_classifieds">ਕਲਾਸੀਫਾਈਡ</string>
+    <string name="nav_profile">ਪ੍ਰੋਫਾਈਲ</string>
+    <string name="nav_survey">ਸਰਵੇ</string>
+    <string name="post_news">ਖ਼ਬਰ ਭੇਜੋ</string>
+    <string name="post_survey">ਸਰਵੇ ਪੋਸਟ ਕਰੋ</string>
+
+    <!-- 100% Human Editorial Copy (Zero AI Mention) -->
+    <string name="news_preparing">ਸੰਪਾਦਕੀ ਡੈਸਕ ਤਾਜ਼ਾ ਖ਼ਬਰਾਂ ਤਿਆਰ ਕਰ ਰਹੀ ਹੈ...</string>
+    <string name="no_internet">ਇੰਟਰਨੈੱਟ ਕਨੈਕਸ਼ਨ ਨਹੀਂ ਹੈ</string>
+    <string name="check_internet">ਕਿਰਪਾ ਕਰਕੇ ਆਪਣਾ ਇੰਟਰਨੈੱਟ ਕਨੈਕਸ਼ਨ ਜਾਂਚੋ।</string>
+    <string name="news_source">ਸਰੋਤ : %1$s</string>
+    <string name="share_news">ਖ਼ਬਰ ਸਾਂਝੀ ਕਰੋ</string>
+    <string name="share_failed">ਸਾਂਝਾ ਕਰਨ ਵਿੱਚ ਗਲਤੀ</string>
+    <string name="screenshot_failed">ਸਕ੍ਰੀਨਸ਼ਾਟ ਅਸਫਲ</string>
+
+    <!-- Categories -->
+    <string name="cat_local">ਸਥਾਨਕ</string>
+    <string name="cat_politics">ਰਾਜਨੀਤੀ</string>
+    <string name="cat_crime">ਅਪਰਾਧ</string>
+    <string name="cat_entertainment">ਮਨੋਰੰਜਨ</string>
+    <string name="cat_sports">ਖੇਡਾਂ</string>
+    <string name="cat_business">ਕਾਰੋਬਾਰ</string>
+    <string name="cat_technology">ਤਕਨਾਲੋਜੀ</string>
+    <string name="cat_devotion">ਭਗਤੀ</string>
+    <string name="cat_agriculture">ਖੇਤੀਬਾੜੀ</string>
+    <string name="cat_education_jobs">ਸਿੱਖਿਆ/ਨੌਕਰੀਆਂ</string>
+    <string name="cat_health">ਸਿਹਤ</string>
+    <string name="cat_others">ਹੋਰ</string>
+</resources>

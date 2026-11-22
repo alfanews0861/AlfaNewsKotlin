@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { RssFeed, TS_DISTRICTS, AP_DISTRICTS } from '../types';
+import { RssFeed } from '../types';
+import { ALL_STATE_CODES, EDITIONS, StateCode } from '../data/editions';
 import { db, app } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
 import * as _functions from 'firebase/functions';
@@ -137,16 +138,17 @@ const RssScrapingPage: React.FC = () => {
                         </select>
                     </div>
                     <div className="space-y-1">
-                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-2">రాష్ట్రం</label>
-                        <select value={state} onChange={e => setState(e.target.value)} className="w-full border p-4 rounded-2xl text-lg font-bold bg-gray-50 outline-none">
-                            <option value="AP">Andhra Pradesh</option>
-                            <option value="TS">Telangana</option>
+                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-2">రాష్ట్రం (State)</label>
+                        <select value={state} onChange={e => { const s = e.target.value as StateCode; setState(s); setDistrict(EDITIONS[s]?.districts[0] || ''); }} className="w-full border p-4 rounded-2xl text-lg font-bold bg-gray-50 outline-none">
+                            {ALL_STATE_CODES.map(code => (
+                                <option key={code} value={code}>{EDITIONS[code].nameNative} ({EDITIONS[code].nameEn})</option>
+                            ))}
                         </select>
                     </div>
                     <div className="space-y-1">
-                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-2">జిల్లా</label>
+                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-2">జిల్లా (District)</label>
                         <select value={district} onChange={e => setDistrict(e.target.value)} className="w-full border p-4 rounded-2xl text-lg font-bold bg-gray-50 outline-none">
-                            {(state === 'TS' ? TS_DISTRICTS : AP_DISTRICTS).map(d => <option key={d} value={d}>{d}</option>)}
+                            {(EDITIONS[state as StateCode]?.districts || EDITIONS.AP.districts).map(d => <option key={d} value={d}>{d}</option>)}
                         </select>
                     </div>
                 </div>

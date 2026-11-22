@@ -7,6 +7,7 @@ import CommentSection from '../CommentSection';
 import { VerifiedBadge } from '../VerifiedBadge';
 import { isReporterVerified } from '../../services/reporterVerification';
 import { getNewsUrl } from '../../utils/router';
+import { getCollectionForEdition, resolveStateCode } from '../../data/editions';
 
 interface ArticleViewModalProps {
   post: NewsPost;
@@ -418,6 +419,7 @@ export const ArticleViewModal: React.FC<ArticleViewModalProps> = ({
             <div className="mb-10 bg-gray-50 p-4 sm:p-6 rounded-2xl border border-gray-200">
               <CommentSection
                 postId={post.id}
+                collectionName={getCollectionForEdition(resolveStateCode((post as any).stateCode || post.state, post.district) || 'AP', (post as any).language)}
                 initialCommentCount={post.comments || 0}
                 currentUser={currentUser}
                 onClose={() => setShowComments(false)}

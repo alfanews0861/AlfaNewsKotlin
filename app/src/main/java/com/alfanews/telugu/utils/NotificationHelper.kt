@@ -145,8 +145,52 @@ object NotificationHelper {
             } else {
                 prefs.subscribedDistrictTopic = null
             }
+            // 4. ఆయా రాష్ట్ర & భాష ఎడిషన్ టాపిక్ సింక్ (9 States × 5 Languages)
+            syncEditionTopic(context)
         } catch (e: Exception) {
             android.util.Log.e("NotificationHelper", "Error in syncDistrictTopic: ${e.message}")
+        }
+    }
+
+    /**
+     * యూజర్ ఎంచుకున్న రాష్ట్రం మరియు భాషకు అనుగుణంగా FCM ఎడిషన్ టాపిక్‌కు సబ్‌స్క్రయిబ్ చేస్తుంది.
+     * - AP/TS యూజర్లు legacy `all_users` + `breaking_news` + `edition_te_ap`/`edition_te_ts` లో ఉంటారు.
+     * - కొత్త 7 రాష్ట్రాల యూజర్లు (UP/PB/UK/GA/MN/HP/GJ) తమ స్థానిక భాష టాపిక్ (`edition_hi_up`, `edition_pa_pb`, `edition_gu_gj` మొ.)
+     *   లో మాత్రమే సబ్‌స్క్రయిబ్ అవుతారు మరియు తెలుగు `all_users` నుండి అన్‌సబ్‌స్క్రయిబ్ అవుతారు.
+     */
+    suspend fun syncEditionTopic(
+        context: Context,
+        stateCode: StateCode? = null,
+        language: com.alfanews.telugu.models.Language? = null
+    ) {
+        val prefs = PreferenceManager.getInstance(context)
+        if (!prefs.isNotificationsEnabled) return
+        val messaging = FirebaseMessaging.getInstance()
+        val resolvedState = stateCode ?: prefs.getEffectiveStateCode()
+        val edition = EditionRegistry.EDITIONS[resolvedState] ?: return
+        val primaryTopic = EditionRegistry.getEditionTopic(resolvedState, edition.primaryLanguage)
+        val prevEditionTopic = prefs.subscribedEditionTopic
+
+        try {
+            if (!prevEditionTopic.isNullOrBlank() && prevEditionTopic != primaryTopic) {
+                try { messaging.unsubscribeFromTopic(prevEditionTopic).await() } catch (_: Exception) {}
+            }
+
+            messaging.subscribeToTopic(primaryTopic).await()
+            prefs.subscribedEditionTopic = primaryTopic
+
+            val isLegacyTeluguState = resolvedState == StateCode.AP || resolvedState == StateCode.TS
+            if (isLegacyTeluguState) {
+                try { messaging.subscribeToTopic("all_users").await() } catch (_: Exception) {}
+                try { messaging.subscribeToTopic("breaking_news").await() } catch (_: Exception) {}
+            } else {
+                // Prevent Telugu AP/TS scheduled pushes from reaching UP/PB/UK/GA/MN/HP/GJ readers
+                try { messaging.unsubscribeFromTopic("all_users").await() } catch (_: Exception) {}
+                try { messaging.unsubscribeFromTopic("breaking_news").await() } catch (_: Exception) {}
+            }
+            android.util.Log.d("NotificationHelper", "Synced edition topic: $primaryTopic (state=${resolvedState.code})")
+        } catch (e: Exception) {
+            android.util.Log.e("NotificationHelper", "Error in syncEditionTopic: ${e.message}")
         }
     }
 }

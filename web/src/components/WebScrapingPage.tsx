@@ -1,12 +1,31 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { ScrapingSource, TS_DISTRICTS, AP_DISTRICTS } from '../types';
+import { ScrapingSource } from '../types';
+import {
+    ALL_STATE_CODES,
+    EDITIONS,
+    StateCode,
+    LanguageCode,
+    resolveStateCode,
+    validateLanguageForState,
+    getCollectionForEdition,
+} from '../data/editions';
 import { db, app } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
 import * as _functions from 'firebase/functions';
 
 const { collection, getDocs, addDoc, doc, updateDoc, deleteDoc, query, orderBy, Timestamp } = _firestore as any;
 const { getFunctions, httpsCallable } = _functions as any;
+
+const LANGUAGE_LABELS: Record<LanguageCode, string> = {
+    te: 'తెలుగు (te)',
+    hi: 'हिन्दी (hi)',
+    pa: 'ਪੰਜਾਬੀ (pa)',
+    gu: 'ગુજરાતી (gu)',
+    en: 'English (en)',
+};
+
+const ALL_LANGUAGES: LanguageCode[] = ['te', 'hi', 'pa', 'gu', 'en'];
 
 const EditIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" /><path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" /></svg>;
 const DeleteIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clipRule="evenodd" /></svg>;
@@ -25,7 +44,8 @@ const WebScrapingPage: React.FC = () => {
     const [siteUrl, setSiteUrl] = useState('');
     const [siteName, setSiteName] = useState('');
     const [category, setCategory] = useState('జిల్లా వార్తలు');
-    const [state, setState] = useState('TS');
+    const [state, setState] = useState<StateCode | 'NATIONAL'>('TS');
+    const [language, setLanguage] = useState<LanguageCode>('te');
     const [district, setDistrict] = useState('హైదరాబాద్');
     const [scrapeGroup, setScrapeGroup] = useState('1');
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -61,8 +81,22 @@ const WebScrapingPage: React.FC = () => {
         setSiteUrl(''); 
         setSiteName(''); 
         setCategory('జిల్లా వార్తలు'); 
+        setState('TS');
+        setLanguage('te');
+        setDistrict('హైదరాబాద్');
         setScrapeGroup('1');
         setEditingId(null); 
+    };
+
+    const resolveCollectionForForm = (st: StateCode | 'NATIONAL', lang: LanguageCode): string => {
+        if (st === 'NATIONAL') {
+            if (lang === 'hi') return 'news_hi';
+            if (lang === 'pa') return 'news_pa';
+            if (lang === 'gu') return 'news_gu';
+            if (lang === 'en') return 'news_en';
+            return 'news';
+        }
+        return getCollectionForEdition(st, lang);
     };
 
     const handleSubmit = async (e: React.FormEvent) => { 
@@ -74,18 +108,24 @@ const WebScrapingPage: React.FC = () => {
 
         setIsSubmitting(true); 
         try { 
-            const isDistrictNews = category === 'జిల్లా వార్తలు' || category === 'స్థానిక' || category === 'జిల్లా వార్త';
+            const isNational = state === 'NATIONAL';
+            const effectiveLang: LanguageCode = isNational ? language : validateLanguageForState(state, language);
+            const targetCol = resolveCollectionForForm(state, effectiveLang);
+            const effectiveDistrict = !isNational && district ? district : null;
             const payload: any = { 
                 url: siteUrl.trim(), 
                 siteName: siteName.trim(), 
                 category, 
                 group: parseInt(scrapeGroup, 10) || 1,
-                state: isDistrictNews ? state : null, 
-                district: isDistrictNews ? district : null 
+                state: isNational ? null : state,
+                stateCode: isNational ? null : state,
+                language: effectiveLang,
+                targetCollection: targetCol,
+                district: effectiveDistrict,
             };
 
-            if (isDistrictNews) {
-                payload.meta = { location: district || state };
+            if (effectiveDistrict || !isNational) {
+                payload.meta = { location: effectiveDistrict || state };
             }
 
             if (editingId) {
@@ -167,8 +207,13 @@ const WebScrapingPage: React.FC = () => {
         if (searchFilter && !src.siteName.toLowerCase().includes(searchFilter.toLowerCase()) && !src.url.toLowerCase().includes(searchFilter.toLowerCase())) {
             return false;
         }
-        if (stateFilter !== 'ALL' && src.state !== stateFilter) {
-            return false;
+        if (stateFilter !== 'ALL') {
+            const resolvedSrcState = resolveStateCode(src.stateCode || src.state || src.district);
+            if (stateFilter === 'NATIONAL') {
+                if (resolvedSrcState) return false;
+            } else if (resolvedSrcState !== stateFilter) {
+                return false;
+            }
         }
         if (groupFilter !== 'ALL' && (src.group || 1).toString() !== groupFilter) {
             return false;
@@ -253,7 +298,7 @@ const WebScrapingPage: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
                     <div className="space-y-1">
                         <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">కేటగిరి (Category)</label>
                         <select 
@@ -270,13 +315,42 @@ const WebScrapingPage: React.FC = () => {
                         <select 
                             value={state} 
                             onChange={e => {
-                                setState(e.target.value);
-                                setDistrict(e.target.value === 'TS' ? TS_DISTRICTS[0] : AP_DISTRICTS[0]);
+                                const nextState = e.target.value as StateCode | 'NATIONAL';
+                                setState(nextState);
+                                if (nextState === 'NATIONAL') {
+                                    setDistrict('');
+                                } else {
+                                    const ed = EDITIONS[nextState];
+                                    setLanguage(ed.primaryLanguage);
+                                    setDistrict('');
+                                }
                             }} 
                             className="w-full border border-gray-300 p-3.5 rounded-2xl text-base font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-purple-500"
                         >
-                            <option value="TS">తెలంగాణ (TS)</option>
-                            <option value="AP">ఆంధ్రప్రదేశ్ (AP)</option>
+                            <option value="NATIONAL">🌐 జాతీయ / సాధారణ (National)</option>
+                            {ALL_STATE_CODES.map(code => {
+                                const ed = EDITIONS[code];
+                                return (
+                                    <option key={code} value={code}>
+                                        {ed.nativeName} ({ed.code})
+                                    </option>
+                                );
+                            })}
+                        </select>
+                    </div>
+
+                    <div className="space-y-1">
+                        <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">భాష (Language)</label>
+                        <select 
+                            value={language} 
+                            onChange={e => setLanguage(e.target.value as LanguageCode)} 
+                            className="w-full border border-gray-300 p-3.5 rounded-2xl text-base font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-purple-500"
+                        >
+                            {(state === 'NATIONAL' ? ALL_LANGUAGES : EDITIONS[state].supportedLanguages).map(lang => (
+                                <option key={lang} value={lang}>
+                                    {LANGUAGE_LABELS[lang]}
+                                </option>
+                            ))}
                         </select>
                     </div>
 
@@ -285,9 +359,11 @@ const WebScrapingPage: React.FC = () => {
                         <select 
                             value={district} 
                             onChange={e => setDistrict(e.target.value)} 
-                            className="w-full border border-gray-300 p-3.5 rounded-2xl text-base font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-purple-500"
+                            disabled={state === 'NATIONAL'}
+                            className="w-full border border-gray-300 p-3.5 rounded-2xl text-base font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50"
                         >
-                            {(state === 'TS' ? TS_DISTRICTS : AP_DISTRICTS).map(d => (
+                            <option value="">రాష్ట్ర స్థాయి / సాధారణ (All Districts)</option>
+                            {state !== 'NATIONAL' && EDITIONS[state].districts.map(d => (
                                 <option key={d} value={d}>{d}</option>
                             ))}
                         </select>
@@ -307,6 +383,17 @@ const WebScrapingPage: React.FC = () => {
                             <option value="5">Group 5</option>
                         </select>
                     </div>
+                </div>
+
+                <div className="text-xs text-gray-600 bg-purple-50 border border-purple-100 rounded-xl px-3.5 py-2 flex flex-wrap items-center gap-2">
+                    <span>🎯 టార్గెట్ కలెక్షన్:</span>
+                    <span className="font-mono bg-white px-2 py-0.5 rounded border border-purple-200 text-purple-800">
+                        {resolveCollectionForForm(state, state === 'NATIONAL' ? language : validateLanguageForState(state, language))}
+                    </span>
+                    <span>• భాష: <strong>{LANGUAGE_LABELS[state === 'NATIONAL' ? language : validateLanguageForState(state, language)]}</strong></span>
+                    {state !== 'NATIONAL' && (
+                        <span>• రాష్ట్రం: <strong>{EDITIONS[state].nativeName} ({state})</strong></span>
+                    )}
                 </div>
 
                 <div className="pt-2 flex flex-col sm:flex-row gap-3">
@@ -351,8 +438,12 @@ const WebScrapingPage: React.FC = () => {
                             className="border border-gray-300 px-3 py-1.5 rounded-xl text-sm bg-white font-semibold outline-none"
                         >
                             <option value="ALL">అన్ని రాష్ట్రాలు</option>
-                            <option value="TS">తెలంగాణ</option>
-                            <option value="AP">ఆంధ్రప్రదేశ్</option>
+                            <option value="NATIONAL">🌐 జాతీయ (National)</option>
+                            {ALL_STATE_CODES.map(code => (
+                                <option key={code} value={code}>
+                                    {EDITIONS[code].nativeName} ({code})
+                                </option>
+                            ))}
                         </select>
                         <select 
                             value={groupFilter} 
@@ -412,9 +503,15 @@ const WebScrapingPage: React.FC = () => {
                                                 {src.category}
                                             </span>
 
-                                            {src.district && (
+                                            {(src.stateCode || src.state || src.district) && (
                                                 <span className="text-[10px] bg-blue-100 text-blue-800 px-2.5 py-0.5 rounded-full font-bold">
-                                                    {src.state ? `${src.state} - ` : ''}{src.district}
+                                                    {src.stateCode || src.state || ''}{src.district ? ` - ${src.district}` : ''}
+                                                </span>
+                                            )}
+
+                                            {src.language && (
+                                                <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full font-bold uppercase">
+                                                    {src.language}{src.targetCollection ? ` → ${src.targetCollection}` : ''}
                                                 </span>
                                             )}
 
@@ -458,8 +555,15 @@ const WebScrapingPage: React.FC = () => {
                                                 setSiteName(src.siteName); 
                                                 setSiteUrl(src.url); 
                                                 setCategory(src.category || 'జిల్లా వార్తలు');
-                                                if (src.state) setState(src.state);
-                                                if (src.district) setDistrict(src.district);
+                                                const resolvedSt = resolveStateCode(src.stateCode || src.state || src.district);
+                                                if (resolvedSt) {
+                                                    setState(resolvedSt);
+                                                    setLanguage(validateLanguageForState(resolvedSt, src.language));
+                                                } else {
+                                                    setState('NATIONAL');
+                                                    setLanguage((src.language as LanguageCode) || 'te');
+                                                }
+                                                setDistrict(src.district || '');
                                                 setScrapeGroup((src.group || 1).toString());
                                                 window.scrollTo({ top: 0, behavior: 'smooth' });
                                             }} 

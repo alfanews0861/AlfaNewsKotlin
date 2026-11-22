@@ -250,8 +250,10 @@ fun AdminReporterMessagingView(
                                             if (res.isSuccess) {
                                                 val data = res.getOrNull()
                                                 val scanned = data?.get("reportersScanned") ?: 0
-                                                val acted = data?.get("inactiveActedOn") ?: 0
-                                                Toast.makeText(context, "స్కాన్ పూర్తయింది! మొత్తం: $scanned, హెచ్చరికలు: $acted", Toast.LENGTH_LONG).show()
+                                                val day3 = data?.get("day3RemindersSent") ?: 0
+                                                val day7 = data?.get("day7RemindersSent") ?: 0
+                                                val adminAlerts = data?.get("adminAlertsSent") ?: 0
+                                                Toast.makeText(context, "పుష్ తనిఖీ పూర్తయింది — మొత్తం: $scanned · 3d: $day3 · 7d: $day7 · అడ్మిన్: $adminAlerts", Toast.LENGTH_LONG).show()
                                             } else {
                                                 Toast.makeText(context, "స్కాన్ లోపం: ${res.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
                                             }

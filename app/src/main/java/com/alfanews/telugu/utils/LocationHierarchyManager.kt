@@ -250,7 +250,19 @@ object LocationHierarchyManager {
 
         if (districtConstituencies != null) {
             for ((constituency, mandals) in districtConstituencies) {
-                if (mandals.any { normalizePlaceName(it) == normalizedMandal || it.contains(normalizedMandal) || normalizedMandal.contains(it) }) {
+                if (mandals.any { normalizePlaceName(it) == normalizedMandal || it.contains(normalizedMandal, ignoreCase = true) || normalizedMandal.contains(it, ignoreCase = true) }) {
+                    return constituency
+                }
+            }
+        }
+
+        // 1b. Check 7 expansion states' Tehsil/Taluka/Sub-Division -> Constituency map
+        val expansionDistrictMap = EditionRegistry.EXPANSION_CONSTITUENCY_MAP[district]
+            ?: EditionRegistry.EXPANSION_CONSTITUENCY_MAP.entries.find { it.key.equals(district, ignoreCase = true) || it.key.contains(district, ignoreCase = true) || district.contains(it.key, ignoreCase = true) }?.value
+
+        if (expansionDistrictMap != null) {
+            for ((constituency, subDistricts) in expansionDistrictMap) {
+                if (subDistricts.any { normalizePlaceName(it) == normalizedMandal || it.contains(normalizedMandal, ignoreCase = true) || normalizedMandal.contains(it, ignoreCase = true) }) {
                     return constituency
                 }
             }
@@ -259,7 +271,15 @@ object LocationHierarchyManager {
         // 2. ఒకవేళ ఏ జిల్లాలోనూ దొరకకపోతే అన్ని జిల్లాల్లో సెర్చ్ చేయడం
         for ((_, constMap) in CONSTITUENCY_MAP) {
             for ((constituency, mandals) in constMap) {
-                if (mandals.any { normalizePlaceName(it) == normalizedMandal || it.contains(normalizedMandal) || normalizedMandal.contains(it) }) {
+                if (mandals.any { normalizePlaceName(it) == normalizedMandal || it.contains(normalizedMandal, ignoreCase = true) || normalizedMandal.contains(it, ignoreCase = true) }) {
+                    return constituency
+                }
+            }
+        }
+
+        for ((_, constMap) in EditionRegistry.EXPANSION_CONSTITUENCY_MAP) {
+            for ((constituency, subDistricts) in constMap) {
+                if (subDistricts.any { normalizePlaceName(it) == normalizedMandal || it.contains(normalizedMandal, ignoreCase = true) || normalizedMandal.contains(it, ignoreCase = true) }) {
                     return constituency
                 }
             }
@@ -279,10 +299,12 @@ object LocationHierarchyManager {
 
         val districtConstituencies = CONSTITUENCY_MAP[district]
             ?: CONSTITUENCY_MAP.entries.find { it.key.contains(district, ignoreCase = true) || district.contains(it.key, ignoreCase = true) }?.value
+            ?: EditionRegistry.EXPANSION_CONSTITUENCY_MAP[district]
+            ?: EditionRegistry.EXPANSION_CONSTITUENCY_MAP.entries.find { it.key.equals(district, ignoreCase = true) || it.key.contains(district, ignoreCase = true) || district.contains(it.key, ignoreCase = true) }?.value
 
         if (districtConstituencies != null) {
             val mandals = districtConstituencies[constituency]
-                ?: districtConstituencies.entries.find { normalizePlaceName(it.key) == normalizedConst || it.key.contains(normalizedConst) }?.value
+                ?: districtConstituencies.entries.find { normalizePlaceName(it.key) == normalizedConst || it.key.contains(normalizedConst, ignoreCase = true) }?.value
             if (mandals != null) return mandals
         }
 
@@ -294,13 +316,25 @@ object LocationHierarchyManager {
      * వార్తా పోస్ట్ నుండి మండలాన్ని గుర్తించి (Extract) రిటర్న్ చేస్తుంది.
      */
     fun extractMandalFromPost(post: NewsPost, district: String?): String? {
-        val allDistrictMandals = district?.let { Constants.MANDAL_DATA[it] } ?: emptyList()
+        val allDistrictMandals = district?.let {
+            Constants.MANDAL_DATA[it] ?: EditionRegistry.getSubDistrictsForDistrict(it)
+        } ?: emptyList()
+
+        // 0. Explicit post.mandal field (populated by 9-state reporter submissions & scraper)
+        val explicitMandal = post.mandal?.trim()
+        if (!explicitMandal.isNullOrBlank()) {
+            val matchedExplicit = allDistrictMandals.find {
+                normalizePlaceName(it) == normalizePlaceName(explicitMandal) || it.equals(explicitMandal, ignoreCase = true)
+            }
+            if (matchedExplicit != null) return matchedExplicit
+            return explicitMandal
+        }
 
         // 1. post.location చెక్ చేయడం (రిపోర్టర్ ఎంచుకున్న మండలం)
         val loc = post.location.trim()
         if (loc.isNotBlank()) {
             val matchedInDistrict = allDistrictMandals.find { 
-                normalizePlaceName(it) == normalizePlaceName(loc) || it.contains(loc) || loc.contains(it) 
+                normalizePlaceName(it) == normalizePlaceName(loc) || it.contains(loc, ignoreCase = true) || loc.contains(it, ignoreCase = true) 
             }
             if (matchedInDistrict != null) return matchedInDistrict
 
@@ -309,20 +343,27 @@ object LocationHierarchyManager {
             if (allDistMatch != null) return allDistMatch
         }
 
-        // 2. post.entities.locations చెక్ చేయడం (AI గుర్తించిన లొకేషన్లు)
+        // 2. post.entities.locations చెక్ చేయడం
         for (entityLoc in post.entities.locations) {
             val matched = allDistrictMandals.find { 
-                normalizePlaceName(it) == normalizePlaceName(entityLoc) || it.contains(entityLoc) || entityLoc.contains(it) 
+                normalizePlaceName(it) == normalizePlaceName(entityLoc) || it.contains(entityLoc, ignoreCase = true) || entityLoc.contains(it, ignoreCase = true) 
             }
             if (matched != null) return matched
         }
 
-        // 3. పోస్ట్ హెడ్‌లైన్ లో మండల పేరు ఉందో లేదో వెతకడం (Fast Substring Check)
-        val headlineTe = post.headline.telugu
-        if (headlineTe.isNotBlank() && allDistrictMandals.isNotEmpty()) {
+        // 3. పోస్ట్ హెడ్‌లైన్ లో మండల/తహసీల్/తాలూకా పేరు ఉందో లేదో వెతకడం (Fast Substring Check)
+        val combinedHeadline = listOf(
+            post.headline.telugu,
+            post.headline.local,
+            post.headline.hi,
+            post.headline.pa,
+            post.headline.gu,
+            post.headline.english
+        ).filter { it.isNotBlank() }.joinToString(" ")
+        if (combinedHeadline.isNotBlank() && allDistrictMandals.isNotEmpty()) {
             val headlineMatch = allDistrictMandals.find { mandal ->
                 // కనీసం 3 అక్షరాలు ఉన్న మండల పేర్లను మాత్రమే హెడ్‌లైన్ లో చూస్తాం (తప్పుడు పాజిటివ్‌లు నివారించడానికి)
-                mandal.length >= 3 && headlineTe.contains(mandal)
+                mandal.length >= 3 && combinedHeadline.contains(mandal, ignoreCase = true)
             }
             if (headlineMatch != null) return headlineMatch
         }
@@ -344,7 +385,7 @@ object LocationHierarchyManager {
     fun findMatchingMandal(district: String?, placeName: String?): String? {
         if (district.isNullOrBlank() || placeName.isNullOrBlank()) return null
 
-        val districtMandals = Constants.MANDAL_DATA[district] ?: emptyList()
+        val districtMandals = Constants.MANDAL_DATA[district] ?: EditionRegistry.getSubDistrictsForDistrict(district)
         val cleanPlace = normalizePlaceName(placeName)
 
         // 1. ఖచ్చితమైన సమానత్వం లేదా సబ్‌స్ట్రింగ్ చెక్
@@ -375,6 +416,15 @@ object LocationHierarchyManager {
             }
             if (match != null) return match
         }
+        for ((_, constMap) in EditionRegistry.EXPANSION_CONSTITUENCY_MAP) {
+            for ((_, subDistricts) in constMap) {
+                val match = subDistricts.find {
+                    val cm = normalizePlaceName(it)
+                    cm == cleanPlace || cm.contains(cleanPlace) || cleanPlace.contains(cm)
+                }
+                if (match != null) return match
+            }
+        }
         return null
     }
 
@@ -385,7 +435,13 @@ object LocationHierarchyManager {
             .replace("Urban", "", ignoreCase = true)
             .replace("Rural", "", ignoreCase = true)
             .replace("Mandal", "", ignoreCase = true)
+            .replace("Tehsil", "", ignoreCase = true)
+            .replace("Taluka", "", ignoreCase = true)
+            .replace("Sub-Division", "", ignoreCase = true)
             .replace("మండలం", "")
+            .replace("तहसील", "")
+            .replace("ਤਹਿਸੀਲ", "")
+            .replace("તાલુકા", "")
             .trim()
             .lowercase(Locale.getDefault())
     }

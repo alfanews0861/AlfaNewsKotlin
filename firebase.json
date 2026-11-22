@@ -32,6 +32,13 @@
     ],
     "rewrites": [
       {
+        "source": "/api/feed",
+        "function": {
+          "functionId": "getCachedFeed",
+          "region": "asia-south1"
+        }
+      },
+      {
         "source": "/news-card/**",
         "function": {
           "functionId": "getNewsCardImage",

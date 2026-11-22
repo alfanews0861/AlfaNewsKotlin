@@ -101,11 +101,19 @@ data class User(
     val referredBy: String? = null,
     val referralCount: Int = 0,
     
-    // రిపోర్టర్ మానిటరింగ్ ఫీల్డ్స్
+    // రిపోర్టర్ మానిటరింగ్ & యాక్టివిటీ ఫీల్డ్స్
     val warningLevel: Int = 0,
     val lastWarningDate: Long? = null,
     val inProbation: Boolean = false,
-    val lastPostTimestamp: Long? = null
+    val lastPostTimestamp: Long? = null,
+    val totalNewsCount: Int = 0,
+    val exemptFromInactivity: Boolean = false,
+    val inactivityStage: String = "ACTIVE",
+    val dailyCounts: Map<String, Int> = emptyMap(),
+    val lastReminderSentAt: Long? = null,
+    val promotedAt: Long? = null,
+    val rejoinedAt: Long? = null,
+    val createdAt: Long? = null
 ) {
     /**
      * mandal alias for assignedMandal for backwards compatibility and clarity.

@@ -14,7 +14,6 @@ import {
   processVoiceCallTurn, 
   VoiceAgentContext 
 } from "./voice_agent_engine";
-import { calculateDaysInactive, getActualLatestNewsDate, parseToDate } from "./reporter_monitor";
 
 if (admin.apps.length === 0) {
   admin.initializeApp();
@@ -22,116 +21,16 @@ if (admin.apps.length === 0) {
 const db = admin.firestore();
 
 /**
- * Checks if current time is within Indian calling window (10:00 AM - 7:00 PM IST)
- */
-function isWithinCallingHoursIST(): boolean {
-  const now = new Date();
-  // IST is UTC + 5:30
-  const utcHours = now.getUTCHours();
-  const utcMinutes = now.getUTCMinutes();
-  const istMinutesTotal = (utcHours * 60 + utcMinutes + 330) % 1440;
-  const istHour = Math.floor(istMinutesTotal / 60);
-
-  return istHour >= 10 && istHour < 19;
-}
-
-/**
- * Scheduled Outbound Reporter Inactivity Voice Call Trigger.
- * Runs daily at 11:30 AM IST (06:00 UTC).
+ * Retired duplicate inactivity voice-call cron.
+ * Reporter inactivity monitoring is unified exclusively inside monitorReporterActivity (Push-Only).
  */
 export const triggerReporterVoiceCheck = onSchedule({
-  schedule: "30 6 * * *",
+  schedule: "30 11 * * *",
   timeZone: "Asia/Kolkata",
-  memory: "512MiB",
-  timeoutSeconds: 300
+  memory: "256MiB",
+  timeoutSeconds: 60
 }, async () => {
-  console.log("[VOICE_AGENT] Starting daily inactivity voice call evaluation...");
-
-  if (!isWithinCallingHoursIST()) {
-    console.log("[VOICE_AGENT] Outside permitted calling hours (10 AM - 7 PM IST). Skipping.");
-    return;
-  }
-
-  const now = new Date();
-
-  // Find active reporters
-  const snapshot = await db.collection("users")
-    .where("role", "in", [UserRole.REPORTER, "REPORTER", "reporter", 2, 2.0, "2"])
-    .get();
-
-  if (snapshot.empty) {
-    console.log("[VOICE_AGENT] No reporters found.");
-    return;
-  }
-
-  let callsQueued = 0;
-
-  for (const doc of snapshot.docs) {
-    const reporter = doc.data();
-    const reporterId = doc.id;
-    const phone = reporter.phone || reporter.phoneNumber;
-
-    if (!phone) continue;
-
-    // Check actual days inactive
-    const actualNewsDate = await getActualLatestNewsDate(reporterId, reporter.name);
-    const daysInactive = calculateDaysInactive(reporter, now, actualNewsDate);
-
-    // Call only if inactive for 2 or more days
-    if (daysInactive < 2) continue;
-
-    // Throttle: Don't call if already called in last 48 hours
-    const lastCallSnap = await db.collection("voice_calls")
-      .where("reporterId", "==", reporterId)
-      .where("callType", "==", VoiceCallType.INACTIVITY_FOLLOWUP)
-      .orderBy("createdAt", "desc")
-      .limit(1)
-      .get()
-      .catch(() => null);
-
-    if (lastCallSnap && !lastCallSnap.empty) {
-      const lastCall = lastCallSnap.docs[0].data();
-      const lastCallDate = parseToDate(lastCall.createdAt);
-      if (lastCallDate && (now.getTime() - lastCallDate.getTime()) < 48 * 60 * 60 * 1000) {
-        continue;
-      }
-    }
-
-    const context: VoiceAgentContext = {
-      reporterName: reporter.name || "విలేకరి",
-      mandal: reporter.assignedMandal || reporter.mandal || "స్థానిక",
-      district: reporter.district,
-      daysInactive,
-      phoneNumber: phone
-    };
-
-    const initialGreeting = generateInitialGreeting(VoiceCallType.INACTIVITY_FOLLOWUP, context);
-
-    const callRecord: Omit<VoiceCallRecord, "id"> = {
-      callType: VoiceCallType.INACTIVITY_FOLLOWUP,
-      status: VoiceCallStatus.QUEUED,
-      reporterId,
-      reporterName: reporter.name || "విలేకరి",
-      phoneNumber: phone,
-      mandal: reporter.assignedMandal || reporter.mandal,
-      district: reporter.district,
-      turns: [
-        {
-          speaker: "ai",
-          text: initialGreeting,
-          timestamp: Date.now()
-        }
-      ],
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    };
-
-    const callRef = await db.collection("voice_calls").add(callRecord);
-    console.log(`[VOICE_AGENT] Queued follow-up call ${callRef.id} for reporter ${reporter.name} (${phone})`);
-    callsQueued++;
-  }
-
-  console.log(`[VOICE_AGENT] Inactivity check complete. Total calls queued: ${callsQueued}`);
+  console.log("[VOICE_AGENT] Automated inactivity voice calls are disabled; unified push-only monitor handles inactivity.");
 });
 
 /**

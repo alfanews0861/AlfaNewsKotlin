@@ -1,10 +1,12 @@
 import * as admin from "firebase-admin";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
-import { onDocumentWritten, onDocumentCreated } from "firebase-functions/v2/firestore";
+import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as nodemailer from "nodemailer";
-import { REGION } from "./utils";
+import { REGION, enqueueNewsProcessing } from "./utils";
 import { extractDistrictAndMandal, areMandalsMatching } from "./location_data";
+import { recordApprovedNewsForReporter } from "./reporter_tracking";
+import { resolveStateCode, validateLanguageForState, getCollectionForEdition } from "./editions";
 
 const db = admin.firestore();
 
@@ -292,7 +294,6 @@ export async function awardPointsToReporter(reporterId: string, points: number) 
             const reporterUpdates: any = {
                 points: currentPoints,
                 badges: badges,
-                lastPostTimestamp: Date.now(),
                 warningLevel: 0,
                 inProbation: false,
                 role: data.role === 'ADMIN' || data.role === 'EDITOR' ? data.role : 'REPORTER',
@@ -552,24 +553,30 @@ export async function performRestoreAllReporters(): Promise<{ restoredCount: num
                 continue;
             }
 
-            // Fetch all news for this reporter across possible fields
+            // Fetch bounded news for this reporter across their edition collection + legacy 'news'
             const newsDocsMap = new Map<string, any>();
-            const [snapId, snapName, snapOrig] = await Promise.all([
-                db.collection('news').where('reporter.id', '==', candId).get().catch(() => null),
-                db.collection('news').where('reporter.name', '==', candId).get().catch(() => null),
-                db.collection('news').where('originalReporterId', '==', candId).get().catch(() => null)
-            ]);
-            if (snapId) snapId.docs.forEach(d => newsDocsMap.set(d.id, d));
-            if (snapName) snapName.docs.forEach(d => newsDocsMap.set(d.id, d));
-            if (snapOrig) snapOrig.docs.forEach(d => newsDocsMap.set(d.id, d));
+            const repStateCode = resolveStateCode(userData?.stateCode || userData?.state, userData?.district);
+            const repEditionCol = getCollectionForEdition(repStateCode, userData?.language);
+            const targetCols = Array.from(new Set(['news', repEditionCol]));
 
-            if (userId !== candId) {
-                const [snapUid, snapUName] = await Promise.all([
-                    db.collection('news').where('reporter.id', '==', userId).get().catch(() => null),
-                    db.collection('news').where('originalReporterId', '==', userId).get().catch(() => null)
+            for (const col of targetCols) {
+                const [snapId, snapName, snapOrig] = await Promise.all([
+                    db.collection(col).where('reporter.id', '==', candId).limit(100).get().catch(() => null),
+                    db.collection(col).where('reporter.name', '==', candId).limit(100).get().catch(() => null),
+                    db.collection(col).where('originalReporterId', '==', candId).limit(100).get().catch(() => null)
                 ]);
-                if (snapUid) snapUid.docs.forEach(d => newsDocsMap.set(d.id, d));
-                if (snapUName) snapUName.docs.forEach(d => newsDocsMap.set(d.id, d));
+                if (snapId) snapId.docs.forEach(d => newsDocsMap.set(`${col}:${d.id}`, d));
+                if (snapName) snapName.docs.forEach(d => newsDocsMap.set(`${col}:${d.id}`, d));
+                if (snapOrig) snapOrig.docs.forEach(d => newsDocsMap.set(`${col}:${d.id}`, d));
+
+                if (userId !== candId) {
+                    const [snapUid, snapUName] = await Promise.all([
+                        db.collection(col).where('reporter.id', '==', userId).limit(100).get().catch(() => null),
+                        db.collection(col).where('originalReporterId', '==', userId).limit(100).get().catch(() => null)
+                    ]);
+                    if (snapUid) snapUid.docs.forEach(d => newsDocsMap.set(`${col}:${d.id}`, d));
+                    if (snapUName) snapUName.docs.forEach(d => newsDocsMap.set(`${col}:${d.id}`, d));
+                }
             }
 
             const newsDocs = Array.from(newsDocsMap.values());
@@ -779,41 +786,32 @@ export const backfillReporterPoints = onCall(async (request) => {
 });
 
 /**
- * Award points for view milestones
- * Triggered when longViews is updated
+ * Award points for view milestones (invoked by the unified onNewsPostUpdated trigger).
  */
-export const onNewsViewCountUpdated = onDocumentWritten({
-    document: "news/{postId}",
-    region: REGION,
-    memory: "256MiB",
-    timeoutSeconds: 30,
-    maxInstances: 5
-}, async (event) => {
-    const before = event.data?.before.data();
-    const after = event.data?.after.data();
-    if (!after || !after.isReporter) return;
+export async function handleNewsViewCountUpdated(postId: string, before: any, after: any): Promise<boolean> {
+    if (!after || !after.isReporter) return false;
 
     // Instant short-circuit: If longViews was not modified, exit immediately
-    if (before && before.longViews === after.longViews) return;
+    if (before && before.longViews === after.longViews) return false;
 
     const viewsBefore = before?.longViews || 0;
     const viewsAfter = after.longViews || 0;
 
-    // ✅ Quick guard: exit if longViews hasn't increased (saves execution time)
-    // Award points for milestones
+    // Quick guard: exit if longViews hasn't crossed a new milestone
     const milestonesBefore = Math.floor(viewsBefore / MILESTONE_SIZE);
     const milestonesAfter = Math.floor(viewsAfter / MILESTONE_SIZE);
-    if (milestonesAfter <= milestonesBefore) return;
+    if (milestonesAfter <= milestonesBefore) return false;
 
     const reporterId = after.reporter?.id || (typeof after.reporter === 'string' ? after.reporter : null);
-    if (!reporterId || reporterId.startsWith('BOT_') || reporterId.startsWith('SYSTEM_')) return;
+    if (!reporterId || reporterId.startsWith('BOT_') || reporterId.startsWith('SYSTEM_')) return false;
 
     const newMilestones = milestonesAfter - milestonesBefore;
     const totalPointsToAdd = newMilestones * POINTS_PER_MILESTONE;
 
-    console.log(`[MILESTONE] News ${event.params.postId} reached ${viewsAfter} views. Awarding ${totalPointsToAdd} points to ${reporterId}`);
+    console.log(`[MILESTONE] News ${postId} reached ${viewsAfter} views. Awarding ${totalPointsToAdd} points to ${reporterId}`);
     await awardPointsToReporter(reporterId, totalPointsToAdd);
-});
+    return true;
+}
 
 /**
  * 6.1 Process Reporter Submission
@@ -824,8 +822,8 @@ export const processReporterSubmission = onCall(async (request) => {
     try {
         console.log(`[REPORTER_SUBMISSION] Quick acceptance for post: ${postId || 'new'}`);
 
-        const headline = rawHeadline || postData?.headline?.telugu || "";
-        const content = rawContent || postData?.content?.telugu || "";
+        const headline = rawHeadline || postData?.headline?.local || postData?.headline?.telugu || postData?.headline?.hi || postData?.headline?.pa || postData?.headline?.gu || postData?.headline?.english || "";
+        const content = rawContent || postData?.content?.local || postData?.content?.telugu || postData?.content?.hi || postData?.content?.pa || postData?.content?.gu || postData?.content?.english || "";
 
         if (!headline || !content) {
             throw new HttpsError('invalid-argument', 'వార్త శీర్షిక మరియు వివరణ తప్పనిసరి.');
@@ -841,6 +839,8 @@ export const processReporterSubmission = onCall(async (request) => {
 
         // Verify if the caller is an active verified reporter or staff
         let isVerifiedReporter = false;
+        let callerAssignedMandal = "";
+        let callerStateCode = "";
         const callerDoc = await db.collection('users').doc(authUid).get();
         if (callerDoc.exists) {
             const uData = callerDoc.data() || {};
@@ -850,20 +850,48 @@ export const processReporterSubmission = onCall(async (request) => {
                 'REPORTER', 'STAFF_REPORTER', 'REGIONAL_INCHARGE', 'EDITOR', 'ADMIN', 'NEWS_DESK',
                 '2', '2.0', '3', '3.0', '4', '4.0', '5', '5.0', '6', '6.0', '7', '7.0', 2, 3, 4, 5, 6, 7
             ].includes(roleStr);
+            callerAssignedMandal = String(uData.assignedMandal || uData.mandal || '').trim();
+            callerStateCode = String(uData.stateCode || uData.state || '').trim();
         }
 
         const reporterId = authUid;
 
-        const finalData = {
+        // Resolve canonical stateCode, strict state-bound language, and target Firestore edition collection
+        const resolvedStateCode = resolveStateCode(postData?.stateCode || postData?.state || callerStateCode, postData?.district) || 'AP';
+        const resolvedLanguage = validateLanguageForState(resolvedStateCode, postData?.language);
+        const targetCollection = getCollectionForEdition(resolvedStateCode, resolvedLanguage);
+
+        // Cross-Mandal Reporter Attribution Check (Applies identically across all 9 states!)
+        const submittedMandal = String(postData?.mandal || '').trim();
+        const isCrossMandal = Boolean(
+            isVerifiedReporter &&
+            callerAssignedMandal &&
+            submittedMandal &&
+            !areMandalsMatching(submittedMandal, callerAssignedMandal, postData?.district)
+        );
+
+        const localizedHeadline: Record<string, string> = {
+            telugu: resolvedLanguage === 'te' ? headline : (postData?.headline?.telugu || ""),
+            english: resolvedLanguage === 'en' ? headline : (postData?.headline?.english || ""),
+            local: headline,
+        };
+        const localizedContent: Record<string, string> = {
+            telugu: resolvedLanguage === 'te' ? content : (postData?.content?.telugu || ""),
+            english: resolvedLanguage === 'en' ? content : (postData?.content?.english || ""),
+            local: content,
+        };
+        if (resolvedLanguage === 'hi' || resolvedLanguage === 'pa' || resolvedLanguage === 'gu') {
+            localizedHeadline[resolvedLanguage] = headline;
+            localizedContent[resolvedLanguage] = content;
+        }
+
+        const finalData: Record<string, any> = {
             ...postData,
-            headline: {
-                telugu: headline,
-                english: postData?.headline?.english || ""
-            },
-            content: {
-                telugu: content,
-                english: postData?.content?.english || ""
-            },
+            state: postData?.state || resolvedStateCode,
+            stateCode: resolvedStateCode,
+            language: resolvedLanguage,
+            headline: localizedHeadline,
+            content: localizedContent,
             mediaUrl: mediaUrl,
             mediaUrls: mediaUrls,
             isReporter: isVerifiedReporter,
@@ -875,21 +903,16 @@ export const processReporterSubmission = onCall(async (request) => {
             processingType: isVerifiedReporter ? "REPORTER_SUBMISSION" : "CITIZEN_SUBMISSION",
             originalReporterId: reporterId,
             reporterId: reporterId,
+            reporter: isCrossMandal
+                ? { id: 'ALFA_DESK', name: 'Alfa News Desk' }
+                : (postData?.reporter || { id: reporterId, name: callerDoc.data()?.name || 'Alfa News Desk' }),
+            isCrossMandal: isCrossMandal,
             timestamp: postData?.timestamp || admin.firestore.FieldValue.serverTimestamp(),
             lastUpdated: admin.firestore.FieldValue.serverTimestamp()
         };
 
-        if (reporterId && !reporterId.startsWith('BOT_') && !reporterId.startsWith('SYSTEM_')) {
-            await db.collection('users').doc(reporterId).set({
-                lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp(),
-                warningLevel: 0,
-                inProbation: false,
-                lastWarningDate: admin.firestore.FieldValue.delete()
-            }, { merge: true });
-        }
-
         if (postId) {
-            const postRef = db.collection('news').doc(postId);
+            const postRef = db.collection(targetCollection).doc(postId);
             const existingSnap = await postRef.get();
             if (!existingSnap.exists) {
                 throw new HttpsError('not-found', 'వార్త లభించలేదు.');
@@ -902,13 +925,18 @@ export const processReporterSubmission = onCall(async (request) => {
                 // Keep it published and live! Do NOT unpublish, do NOT trigger AI rewrite or video re-encoding!
                 const updatePayload: any = {
                     ...postData,
+                    state: postData?.state || existingData.state || resolvedStateCode,
+                    stateCode: resolvedStateCode,
+                    language: resolvedLanguage,
                     headline: {
-                        telugu: headline,
-                        english: postData?.headline?.english || existingData.headline?.english || ""
+                        ...(existingData.headline || {}),
+                        ...localizedHeadline,
+                        english: postData?.headline?.english || existingData.headline?.english || localizedHeadline.english || ""
                     },
                     content: {
-                        telugu: content,
-                        english: postData?.content?.english || existingData.content?.english || ""
+                        ...(existingData.content || {}),
+                        ...localizedContent,
+                        english: postData?.content?.english || existingData.content?.english || localizedContent.english || ""
                     },
                     fullStory: postData?.fullStory || existingData.fullStory || {
                         telugu: (postData?.fullStory?.telugu !== undefined ? postData.fullStory.telugu : existingData.fullStory?.telugu) || "",
@@ -921,7 +949,6 @@ export const processReporterSubmission = onCall(async (request) => {
                     youtubeUrl: postData?.youtubeUrl !== undefined ? postData.youtubeUrl : (existingData.youtubeUrl || null),
                     location: postData?.location || existingData.location || "",
                     district: postData?.district || existingData.district || "State",
-                    state: postData?.state || existingData.state || "TS",
                     category: postData?.category || existingData.category || "General News",
                     categories: postData?.categories || existingData.categories || [],
                     isGlobal: postData?.isGlobal !== undefined ? postData.isGlobal : (existingData.isGlobal || false),
@@ -944,8 +971,8 @@ export const processReporterSubmission = onCall(async (request) => {
                 if (existingData.type) updatePayload.type = existingData.type;
 
                 await postRef.update(updatePayload);
-                console.log(`[REPORTER_EDIT_PUBLISHED] Post ${postId} updated directly without unpublishing.`);
-                return { success: true, postId: postId, message: "వార్త విజయవంతంగా నవీకరించబడింది." };
+                console.log(`[REPORTER_EDIT_PUBLISHED] Post ${postId} in ${targetCollection} updated directly without unpublishing.`);
+                return { success: true, postId: postId, collection: targetCollection, message: "వార్త విజయవంతంగా నవీకరించబడింది." };
             } else {
                 // Editing a PENDING or REJECTED post:
                 const updatePayload: any = {
@@ -956,12 +983,15 @@ export const processReporterSubmission = onCall(async (request) => {
                     timestamp: existingData.timestamp || admin.firestore.FieldValue.serverTimestamp()
                 };
                 await postRef.update(updatePayload);
-                console.log(`[REPORTER_EDIT_PENDING] Post ${postId} updated and queued for re-processing.`);
-                return { success: true, postId: postId, message: "వార్త అప్‌డేట్ అవుతోంది (నేపథ్యంలో)..." };
+                if (targetCollection === 'news') {
+                    await enqueueNewsProcessing(postId, "REPROCESS", "REPORTER_EDIT_PENDING", true);
+                }
+                console.log(`[REPORTER_EDIT_PENDING] Post ${postId} in ${targetCollection} updated and queued for editorial review.`);
+                return { success: true, postId: postId, collection: targetCollection, message: "వార్త అప్‌డేట్ అవుతోంది (నేపథ్యంలో)..." };
             }
         } else {
-            const newDocRef = await db.collection('news').add(finalData);
-            return { success: true, postId: newDocRef.id, message: "వార్త ప్రచురించబడుతోంది (నేపథ్యంలో)..." };
+            const newDocRef = await db.collection(targetCollection).add(finalData);
+            return { success: true, postId: newDocRef.id, collection: targetCollection, message: "వార్త ప్రచురించబడుతోంది (నేపథ్యంలో)..." };
         }
     } catch (e: any) {
         console.error(`[REPORTER_SUBMISSION] Critical Error:`, e.message);
@@ -1167,11 +1197,16 @@ export async function auditExistingReporterPerformance(
     let latestPostDate: Date | null = null;
     let reporterPhone = "";
 
+    let reporterStateCode = resolveStateCode(undefined, district);
+    let reporterLang: string | undefined;
+
     try {
         const userDoc = await db.collection('users').doc(reporterId).get();
         if (userDoc.exists) {
             const uData = userDoc.data() || {};
             reporterPhone = uData.phone || "";
+            reporterStateCode = resolveStateCode(uData.stateCode || uData.state, uData.district || district) || reporterStateCode;
+            reporterLang = uData.language;
             if (uData.lastPostTimestamp) {
                 const lp = uData.lastPostTimestamp;
                 if (typeof lp.toDate === 'function') latestPostDate = lp.toDate();
@@ -1183,43 +1218,49 @@ export async function auditExistingReporterPerformance(
         console.warn(`[PERF_AUDIT] User fetch warn for ${reporterId}:`, e.message);
     }
 
-    // Query news collection for posts by this reporter created in current month
+    // Query reporter's edition collection (plus legacy 'news' if different) for posts in current month (strictly bounded)
     try {
         const queryFields = ['reporter.id', 'originalReporterId'];
         const processedDocIds = new Set<string>();
+        const editionCol = getCollectionForEdition(reporterStateCode, reporterLang);
+        const colsToScan = Array.from(new Set([editionCol, 'news']));
 
-        for (const field of queryFields) {
-            const snap = await db.collection('news')
-                .where(field, '==', reporterId)
-                .where('timestamp', '>=', startOfMonth)
-                .get()
-                .catch(() => null);
+        for (const colName of colsToScan) {
+            for (const field of queryFields) {
+                const snap = await db.collection(colName)
+                    .where(field, '==', reporterId)
+                    .where('timestamp', '>=', startOfMonth)
+                    .limit(100)
+                    .get()
+                    .catch(() => null);
 
-            if (snap && !snap.empty) {
-                for (const doc of snap.docs) {
-                    if (processedDocIds.has(doc.id)) continue;
-                    processedDocIds.add(doc.id);
+                if (snap && !snap.empty) {
+                    for (const doc of snap.docs) {
+                        const dedupKey = `${colName}:${doc.id}`;
+                        if (processedDocIds.has(dedupKey)) continue;
+                        processedDocIds.add(dedupKey);
 
-                    const data = doc.data();
-                    if (data.status === 'rejected' || data.isPostRejected === true) continue;
+                        const data = doc.data();
+                        if (data.status === 'rejected' || data.isPostRejected === true) continue;
 
-                    totalPostsThisMonth++;
+                        totalPostsThisMonth++;
 
-                    const postLocation = (data.location || data.mandal || data.assignedMandal || "").trim();
-                    const postDistrict = (data.district || "").trim();
+                        const postLocation = (data.location || data.mandal || data.assignedMandal || "").trim();
+                        const postDistrict = (data.district || "").trim();
 
-                    const isOwnMandal = areMandalsMatching(postLocation, mandal, district || postDistrict) ||
-                        postLocation.toLowerCase().includes(mandal.toLowerCase()) ||
-                        mandal.toLowerCase().includes(postLocation.toLowerCase());
+                        const isOwnMandal = areMandalsMatching(postLocation, mandal, district || postDistrict) ||
+                            postLocation.toLowerCase().includes(mandal.toLowerCase()) ||
+                            mandal.toLowerCase().includes(postLocation.toLowerCase());
 
-                    if (isOwnMandal) {
-                        ownMandalPostsThisMonth++;
-                    }
+                        if (isOwnMandal) {
+                            ownMandalPostsThisMonth++;
+                        }
 
-                    const postDate = data.timestamp?.toDate ? data.timestamp.toDate() : (data.timestamp ? new Date(data.timestamp) : null);
-                    if (postDate && !isNaN(postDate.getTime())) {
-                        if (!latestPostDate || postDate.getTime() > latestPostDate.getTime()) {
-                            latestPostDate = postDate;
+                        const postDate = data.timestamp?.toDate ? data.timestamp.toDate() : (data.timestamp ? new Date(data.timestamp) : null);
+                        if (postDate && !isNaN(postDate.getTime())) {
+                            if (!latestPostDate || postDate.getTime() > latestPostDate.getTime()) {
+                                latestPostDate = postDate;
+                            }
                         }
                     }
                 }
@@ -2623,46 +2664,8 @@ async function executeJuly25ApprovalAndCleanup(dryRun: boolean = false) {
     return report;
 }
 
-/**
- * Update reporter's last post timestamp when a post is approved
- */
-export const onNewsPostApproved = onDocumentWritten({
-    document: "news/{postId}",
-    region: REGION,
-    memory: "256MiB",
-    timeoutSeconds: 30,
-    maxInstances: 5
-}, async (event) => {
-    const before = event.data?.before.data();
-    const after = event.data?.after.data();
-
-    // Trigger only if status changes to published or approved becomes true
-    if (!after || after.approved !== true || before?.approved === true) return;
-
-    // Fast bypass if already handled by direct onNewsPostCreated pipeline to prevent duplicate DB writes
-    if (after.pipelineHandled === true || after.pointsAwarded === true) return;
-
-    const assignedReporterId = (typeof after.reporter === 'string' ? after.reporter : after.reporter?.id) || after.reporterId;
-    const originalReporterId = after.originalReporterId;
-
-    const reporterIdsToUpdate = new Set<string>();
-    if (assignedReporterId && !assignedReporterId.startsWith('BOT_') && !assignedReporterId.startsWith('SYSTEM_')) {
-        reporterIdsToUpdate.add(assignedReporterId);
-    }
-    if (originalReporterId && !originalReporterId.startsWith('BOT_') && !originalReporterId.startsWith('SYSTEM_')) {
-        reporterIdsToUpdate.add(originalReporterId);
-    }
-
-    for (const rId of reporterIdsToUpdate) {
-        console.log(`[POST_APPROVED] Updating lastPostTimestamp and clearing warnings for reporter: ${rId}`);
-        await db.collection('users').doc(rId).set({
-            lastPostTimestamp: after.timestamp || admin.firestore.FieldValue.serverTimestamp(),
-            warningLevel: 0,
-            inProbation: false,
-            lastWarningDate: admin.firestore.FieldValue.delete()
-        }, { merge: true });
-    }
-});
+// Note: Standalone onNewsPostApproved trigger was consolidated into the unified
+// onNewsPostCreated / onNewsPostUpdated triggers in news_handler.ts to prevent 5x trigger storms.
 
 /**
  * Helper to reset warning levels and set promotion timestamps when a user is assigned/upgraded/re-joined to REPORTER.
@@ -2672,6 +2675,7 @@ export const onNewsPostApproved = onDocumentWritten({
 export async function syncUserRoleUpgrade(userId: string, userRef?: admin.firestore.DocumentReference) {
     try {
         const ref = userRef || db.collection('users').doc(userId);
+        const nowMs = Date.now();
         await ref.update({
             warningLevel: 0,
             inProbation: false,
@@ -2680,9 +2684,10 @@ export async function syncUserRoleUpgrade(userId: string, userRef?: admin.firest
             suspended: false,
             downgradedReason: admin.firestore.FieldValue.delete(),
             downgradedAt: admin.firestore.FieldValue.delete(),
-            promotedAt: admin.firestore.FieldValue.serverTimestamp(),
-            lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp(),
-            rejoinedAt: admin.firestore.FieldValue.serverTimestamp()
+            promotedAt: nowMs,
+            rejoinedAt: nowMs,
+            'reporterActivity.inactivityStage': 'ACTIVE',
+            'reporterActivity.lastReminderStage': null
         });
 
         // Also sync any SUSPENDED applications back to JOINED

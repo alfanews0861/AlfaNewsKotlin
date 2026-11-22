@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, ChangeEvent } from 'react';
-import { User, UserRole, TS_DISTRICTS, AP_DISTRICTS } from '../types';
+import { User, UserRole } from '../types';
+import { ALL_STATE_CODES, EDITIONS } from '../data/editions';
 import { db } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
 import {
@@ -409,17 +410,14 @@ const AppInstallsPage: React.FC<AppInstallsPageProps> = () => {
               onChange={e => setSelectedDistrict(e.target.value)}
               className="border border-gray-300 rounded-xl py-2 px-3 text-sm font-bold text-gray-700 focus:ring-2 focus:ring-teal-500 bg-white outline-none"
             >
-              <option value="ALL">అన్ని జిల్లాలు (All Districts)</option>
-              <optgroup label="తెలంగాణ (TS)">
-                {TS_DISTRICTS.map(d => (
-                  <option key={d} value={d}>{d}</option>
-                ))}
-              </optgroup>
-              <optgroup label="ఆంధ్రప్రదేశ్ (AP)">
-                {AP_DISTRICTS.map(d => (
-                  <option key={d} value={d}>{d}</option>
-                ))}
-              </optgroup>
+              <option value="ALL">అన్ని జిల్లాలు (All 9 States)</option>
+              {ALL_STATE_CODES.map(code => (
+                <optgroup key={code} label={`${EDITIONS[code].nameNative} (${code})`}>
+                  {EDITIONS[code].districts.map(d => (
+                    <option key={`${code}_${d}`} value={d}>{d}</option>
+                  ))}
+                </optgroup>
+              ))}
             </select>
           </div>
         </div>

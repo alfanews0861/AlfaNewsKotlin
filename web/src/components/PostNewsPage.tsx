@@ -5,12 +5,18 @@ import * as _functions from 'firebase/functions';
 import {
   User,
   NewsPost,
-  TS_DISTRICTS,
-  AP_DISTRICTS,
-  MANDAL_DATA,
   CATEGORIES,
   UserRole
 } from '../types';
+import {
+  ALL_EDITIONS_LIST,
+  EDITIONS,
+  getConstituencyForSubDistrict,
+  getDistrictDisplayName,
+  getMandalsForDistrict,
+  resolveStateCode,
+  type StateCode,
+} from '../data/editions';
 import { extractYoutubeVideoId } from './NewsCard';
 import { Upload, Video as VideoIcon, X, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 
@@ -162,16 +168,19 @@ const PostNewsPage: React.FC<PostNewsPageProps> = ({ user, postToEdit, onActionC
     user.email === 'alfanews0861@gmail.com' ||
     user.email === 'alfanewsservice@gmail.com';
 
+  const resolvedStateCode: StateCode = resolveStateCode(state) || 'TS';
+  const activeEdition = EDITIONS[resolvedStateCode];
+
   const districts = React.useMemo(() => {
-    const base = state === 'TS' ? TS_DISTRICTS : AP_DISTRICTS;
+    const base = activeEdition.districts;
     if (user.role === UserRole.REGIONAL_INCHARGE && user.assignedDistricts?.length) {
       return base.filter((d) => user.assignedDistricts?.includes(d));
     }
     return base;
-  }, [state, user]);
+  }, [activeEdition, user]);
 
   const mandals = React.useMemo(() => {
-    return district ? MANDAL_DATA[district] || [] : [];
+    return district ? getMandalsForDistrict(district) : [];
   }, [district]);
 
   // Keep district aligned with state
@@ -347,11 +356,15 @@ const PostNewsPage: React.FC<PostNewsPageProps> = ({ user, postToEdit, onActionC
         mediaTypes: finalMediaTypes,
         youtubeUrl: youtubeUrl.trim(),
         location: location || district || 'General',
+        mandal: location || '',
+        constituency: getConstituencyForSubDistrict(district, location) || '',
         categories: finalCategories,
         reporter: reporterData,
         category: category,
         district: isGlobalNews ? 'State' : district,
-        state: state,
+        state: activeEdition.name,
+        stateCode: resolvedStateCode,
+        language: activeEdition.primaryLanguage,
         isGlobal: isGlobalNews,
         likes: postToEdit?.likes || 0,
         comments: postToEdit?.comments || 0,
@@ -473,7 +486,7 @@ const PostNewsPage: React.FC<PostNewsPageProps> = ({ user, postToEdit, onActionC
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1">రాష్ట్రం (State)</label>
                   <select
-                    value={state}
+                    value={resolvedStateCode}
                     onChange={(e) => {
                       setState(e.target.value);
                       setDistrict('');
@@ -481,13 +494,16 @@ const PostNewsPage: React.FC<PostNewsPageProps> = ({ user, postToEdit, onActionC
                     }}
                     className="w-full border-2 border-gray-300 p-3 rounded-xl text-base text-gray-900 bg-white focus:border-red-500 outline-none"
                   >
-                    <option value="TS">తెలంగాణ (Telangana)</option>
-                    <option value="AP">ఆంధ్ర ప్రదేశ్ (Andhra Pradesh)</option>
+                    {ALL_EDITIONS_LIST.map((ed) => (
+                      <option key={ed.code} value={ed.code}>
+                        {ed.nativeName} ({ed.name})
+                      </option>
+                    ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1">
+                  <label className="block text-sm text-gray-700 mb-1">
                     జిల్లా (District) <span className="text-red-500">*</span>
                   </label>
                   <select
@@ -502,7 +518,7 @@ const PostNewsPage: React.FC<PostNewsPageProps> = ({ user, postToEdit, onActionC
                     <option value="">జిల్లాను ఎంచుకోండి</option>
                     {districts.map((d) => (
                       <option key={d} value={d}>
-                        {d}
+                        {getDistrictDisplayName(d, activeEdition.primaryLanguage)}
                       </option>
                     ))}
                   </select>
@@ -510,8 +526,8 @@ const PostNewsPage: React.FC<PostNewsPageProps> = ({ user, postToEdit, onActionC
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">
-                  మండలం / ప్రాంతం (Mandal / Location)
+                <label className="block text-sm text-gray-700 mb-1">
+                  {activeEdition.subDistrictNativeLabel} / {activeEdition.subDistrictLabel}
                 </label>
                 {mandals.length > 0 ? (
                   <select
@@ -519,7 +535,7 @@ const PostNewsPage: React.FC<PostNewsPageProps> = ({ user, postToEdit, onActionC
                     onChange={(e) => setLocation(e.target.value)}
                     className="w-full border-2 border-gray-300 p-3 rounded-xl text-base text-gray-900 bg-white focus:border-red-500 outline-none"
                   >
-                    <option value="">మండలాన్ని ఎంచుకోండి (ఐచ్ఛికం)</option>
+                    <option value="">{activeEdition.subDistrictLabel} (Optional)</option>
                     {mandals.map((m) => (
                       <option key={m} value={m}>
                         {m}
@@ -531,7 +547,7 @@ const PostNewsPage: React.FC<PostNewsPageProps> = ({ user, postToEdit, onActionC
                     type="text"
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
-                    placeholder="గ్రామం / ప్రాంతం పేరు..."
+                    placeholder={`${activeEdition.subDistrictLabel} / Location...`}
                     className="w-full border-2 border-gray-300 p-3 rounded-xl text-base text-gray-900 focus:border-red-500 outline-none"
                   />
                 )}

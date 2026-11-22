@@ -1,12 +1,30 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { SocialFeed, TS_DISTRICTS, AP_DISTRICTS } from '../types';
+import { SocialFeed } from '../types';
+import {
+    ALL_STATE_CODES,
+    EDITIONS,
+    StateCode,
+    LanguageCode,
+    resolveStateCode,
+    validateLanguageForState,
+    getCollectionForEdition,
+} from '../data/editions';
 import { db, app } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
 import * as _functions from 'firebase/functions';
 
 const { collection, getDocs, addDoc, doc, updateDoc, deleteDoc, query, orderBy, Timestamp, where, limit, writeBatch } = _firestore as any;
 const { getFunctions, httpsCallable } = _functions as any;
+
+const SOCIAL_LANG_LABELS: Record<LanguageCode, string> = {
+    te: 'తెలుగు (te)',
+    hi: 'हिन्दी (hi)',
+    pa: 'ਪੰਜਾਬੀ (pa)',
+    gu: 'ગુજરાતી (gu)',
+    en: 'English (en)',
+};
+const ALL_SOCIAL_LANGUAGES: LanguageCode[] = ['te', 'hi', 'pa', 'gu', 'en'];
 
 // Icons
 const EditIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" /><path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" /></svg>;
@@ -27,12 +45,13 @@ const SocialMediaFeedsPage: React.FC = () => {
     const [platform, setPlatform] = useState<'Twitter' | 'Facebook' | 'Instagram'>('Twitter');
     const [category, setCategory] = useState('రాజకీయం');
     const [state, setState] = useState('');
+    const [language, setLanguage] = useState<LanguageCode>('te');
     const [district, setDistrict] = useState('');
     const [editingId, setEditingId] = useState<string | null>(null);
 
     // Search, Filter & Sort State
     const [searchQuery, setSearchQuery] = useState('');
-    const [filterState, setFilterState] = useState<'ALL' | 'AP' | 'TS' | 'GENERAL'>('ALL');
+    const [filterState, setFilterState] = useState<string>('ALL');
     const [filterDistrict, setFilterDistrict] = useState<string>('ALL');
     const [filterCategory, setFilterCategory] = useState<string>('ALL');
     const [filterStatus, setFilterStatus] = useState<'ALL' | 'ACTIVE' | 'ERROR' | 'HAS_TODAY'>('ALL');
@@ -70,6 +89,7 @@ const SocialMediaFeedsPage: React.FC = () => {
         setPlatform('Twitter'); 
         setCategory('రాజకీయం'); 
         setState('');
+        setLanguage('te');
         setDistrict('');
         setEditingId(null); 
     };
@@ -78,12 +98,21 @@ const SocialMediaFeedsPage: React.FC = () => {
         e.preventDefault(); 
         setIsSubmitting(true); 
         try { 
+            const resolvedSt = resolveStateCode(state) || resolveStateCode(district);
+            const effectiveLang: LanguageCode = resolvedSt ? validateLanguageForState(resolvedSt, language) : language;
+            const targetCol = resolvedSt
+                ? getCollectionForEdition(resolvedSt, effectiveLang)
+                : (effectiveLang === 'hi' ? 'news_hi' : effectiveLang === 'pa' ? 'news_pa' : effectiveLang === 'gu' ? 'news_gu' : effectiveLang === 'en' ? 'news_en' : 'news');
+            const stateLabel = resolvedSt ? EDITIONS[resolvedSt].name : (state || null);
             const payload: any = { 
                 url: url.trim(), 
                 sourceName: sourceName.trim(), 
                 platform, 
                 category,
-                state: state ? state : null,
+                state: stateLabel,
+                stateCode: resolvedSt || null,
+                language: effectiveLang,
+                targetCollection: targetCol,
                 district: district ? district : null
             };
             if (editingId) await updateDoc(doc(db, 'social_feeds', editingId), payload); 
@@ -296,15 +325,14 @@ const SocialMediaFeedsPage: React.FC = () => {
                 if (!matches) return false;
             }
 
-            // 2. State Filter
-            if (filterState === 'AP') {
-                const isAP = feed.state === 'Andhra Pradesh' || (feed.district && AP_DISTRICTS.includes(feed.district));
-                if (!isAP) return false;
-            } else if (filterState === 'TS') {
-                const isTS = feed.state === 'Telangana' || (feed.district && TS_DISTRICTS.includes(feed.district));
-                if (!isTS) return false;
-            } else if (filterState === 'GENERAL') {
-                if (feed.state || feed.district) return false;
+            // 2. State Filter (All 9 States + General)
+            if (filterState !== 'ALL') {
+                const feedStateCode = resolveStateCode(feed.stateCode || feed.state || feed.district);
+                if (filterState === 'GENERAL') {
+                    if (feedStateCode || feed.state || feed.district) return false;
+                } else if (feedStateCode !== filterState) {
+                    return false;
+                }
             }
 
             // 3. District Filter
@@ -578,25 +606,50 @@ const SocialMediaFeedsPage: React.FC = () => {
                         )}
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div className="space-y-1">
                             <label className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-2">రాష్ట్రం (State)</label>
                             <select 
-                                value={state} 
+                                value={resolveStateCode(state) || ''} 
                                 onChange={e => { 
-                                    const newState = e.target.value;
-                                    setState(newState); 
-                                    if (newState === 'Telangana' && district && !TS_DISTRICTS.includes(district)) {
+                                    const code = e.target.value as StateCode | '';
+                                    if (!code) {
+                                        setState('');
                                         setDistrict('');
-                                    } else if (newState === 'Andhra Pradesh' && district && !AP_DISTRICTS.includes(district)) {
-                                        setDistrict('');
+                                    } else {
+                                        const ed = EDITIONS[code];
+                                        setState(ed.name);
+                                        setLanguage(ed.primaryLanguage);
+                                        if (district && !ed.districts.includes(district)) {
+                                            setDistrict('');
+                                        }
                                     }
                                 }} 
                                 className="w-full border p-4 rounded-2xl text-lg font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500"
                             >
-                                <option value="">రాష్ట్రం ఎంచుకోండి (ఐచ్ఛికం - None / All)</option>
-                                <option value="Andhra Pradesh">ఆంధ్ర ప్రదేశ్ (Andhra Pradesh)</option>
-                                <option value="Telangana">తెలంగాణ (Telangana)</option>
+                                <option value="">రాష్ట్రం ఎంచుకోండి (ఐచ్ఛికం - National / All)</option>
+                                {ALL_STATE_CODES.map(code => {
+                                    const ed = EDITIONS[code];
+                                    return (
+                                        <option key={code} value={code}>
+                                            {ed.nativeName} ({ed.name})
+                                        </option>
+                                    );
+                                })}
+                            </select>
+                        </div>
+                        <div className="space-y-1">
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-2">భాష (Language)</label>
+                            <select 
+                                value={language} 
+                                onChange={e => setLanguage(e.target.value as LanguageCode)} 
+                                className="w-full border p-4 rounded-2xl text-lg font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                                {(resolveStateCode(state) ? EDITIONS[resolveStateCode(state)!].supportedLanguages : ALL_SOCIAL_LANGUAGES).map(lang => (
+                                    <option key={lang} value={lang}>
+                                        {SOCIAL_LANG_LABELS[lang]}
+                                    </option>
+                                ))}
                             </select>
                         </div>
                         <div className="space-y-1">
@@ -607,29 +660,24 @@ const SocialMediaFeedsPage: React.FC = () => {
                                     const selDistrict = e.target.value;
                                     setDistrict(selDistrict);
                                     if (selDistrict) {
-                                        if (TS_DISTRICTS.includes(selDistrict)) {
-                                            setState('Telangana');
-                                        } else if (AP_DISTRICTS.includes(selDistrict)) {
-                                            setState('Andhra Pradesh');
+                                        const inferred = resolveStateCode(selDistrict);
+                                        if (inferred) {
+                                            setState(EDITIONS[inferred].name);
+                                            setLanguage(validateLanguageForState(inferred, language));
                                         }
                                     }
                                 }} 
                                 className="w-full border p-4 rounded-2xl text-lg font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500"
                             >
                                 <option value="">జిల్లా లేదు / సాధారణ (None / General)</option>
-                                {state === 'Telangana' ? (
-                                    TS_DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)
-                                ) : state === 'Andhra Pradesh' ? (
-                                    AP_DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)
+                                {resolveStateCode(state) ? (
+                                    EDITIONS[resolveStateCode(state)!].districts.map(d => <option key={d} value={d}>{d}</option>)
                                 ) : (
-                                    <>
-                                        <optgroup label={`── ఆంధ్ర ప్రదేశ్ జిల్లాలు (${AP_DISTRICTS.length}) ──`}>
-                                            {AP_DISTRICTS.map(d => <option key={`ap-${d}`} value={d}>{d}</option>)}
+                                    ALL_STATE_CODES.map(code => (
+                                        <optgroup key={code} label={`── ${EDITIONS[code].nativeName} (${EDITIONS[code].districts.length}) ──`}>
+                                            {EDITIONS[code].districts.map(d => <option key={`${code}-${d}`} value={d}>{d}</option>)}
                                         </optgroup>
-                                        <optgroup label={`── తెలంగాణ జిల్లాలు (${TS_DISTRICTS.length}) ──`}>
-                                            {TS_DISTRICTS.map(d => <option key={`ts-${d}`} value={d}>{d}</option>)}
-                                        </optgroup>
-                                    </>
+                                    ))
                                 )}
                             </select>
                         </div>
@@ -743,9 +791,15 @@ const SocialMediaFeedsPage: React.FC = () => {
                                 className="w-full border py-2 px-3 rounded-xl text-xs font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                             >
                                 <option value="ALL">అన్ని రాష్ట్రాలు ({feeds.length})</option>
-                                <option value="AP">🏛️ ఆంధ్రప్రదేశ్ ({feeds.filter(f => f.state === 'Andhra Pradesh' || (f.district && AP_DISTRICTS.includes(f.district))).length})</option>
-                                <option value="TS">🏛️ తెలంగాణ ({feeds.filter(f => f.state === 'Telangana' || (f.district && TS_DISTRICTS.includes(f.district))).length})</option>
-                                <option value="GENERAL">🌐 సాధారణ / జాతీయ ({feeds.filter(f => !f.state && !f.district).length})</option>
+                                {ALL_STATE_CODES.map(code => {
+                                    const count = feeds.filter(f => resolveStateCode(f.stateCode || f.state || f.district) === code).length;
+                                    return (
+                                        <option key={code} value={code}>
+                                            🏛️ {EDITIONS[code].nativeName} ({count})
+                                        </option>
+                                    );
+                                })}
+                                <option value="GENERAL">🌐 సాధారణ / జాతీయ ({feeds.filter(f => !f.stateCode && !f.state && !f.district).length})</option>
                             </select>
                         </div>
 
@@ -761,31 +815,24 @@ const SocialMediaFeedsPage: React.FC = () => {
                                 <option value="WITH_DISTRICT">📍 జిల్లా కేటాయించినవి ({feeds.filter(f => !!f.district).length})</option>
                                 <option value="WITHOUT_DISTRICT">🌐 జిల్లా లేనివి ({feeds.filter(f => !f.district).length})</option>
 
-                                {filterState === 'AP' ? (
-                                    AP_DISTRICTS.map(d => {
+                                {ALL_STATE_CODES.includes(filterState as StateCode) ? (
+                                    EDITIONS[filterState as StateCode].districts.map(d => {
                                         const count = feeds.filter(f => f.district === d).length;
-                                        return count > 0 ? <option key={`ap-f-${d}`} value={d}>{d} ({count})</option> : null;
-                                    })
-                                ) : filterState === 'TS' ? (
-                                    TS_DISTRICTS.map(d => {
-                                        const count = feeds.filter(f => f.district === d).length;
-                                        return count > 0 ? <option key={`ts-f-${d}`} value={d}>{d} ({count})</option> : null;
+                                        return count > 0 ? <option key={`st-f-${d}`} value={d}>{d} ({count})</option> : null;
                                     })
                                 ) : (
-                                    <>
-                                        <optgroup label="── ఆంధ్రప్రదేశ్ జిల్లాలు ──">
-                                            {AP_DISTRICTS.map(d => {
-                                                const count = feeds.filter(f => f.district === d).length;
-                                                return count > 0 ? <option key={`all-ap-${d}`} value={d}>{d} ({count})</option> : null;
-                                            })}
-                                        </optgroup>
-                                        <optgroup label="── తెలంగాణ జిల్లాలు ──">
-                                            {TS_DISTRICTS.map(d => {
-                                                const count = feeds.filter(f => f.district === d).length;
-                                                return count > 0 ? <option key={`all-ts-${d}`} value={d}>{d} ({count})</option> : null;
-                                            })}
-                                        </optgroup>
-                                    </>
+                                    ALL_STATE_CODES.map(code => {
+                                        const distsWithFeeds = EDITIONS[code].districts.filter(d => feeds.some(f => f.district === d));
+                                        if (distsWithFeeds.length === 0) return null;
+                                        return (
+                                            <optgroup key={`all-${code}`} label={`── ${EDITIONS[code].nativeName} ──`}>
+                                                {distsWithFeeds.map(d => {
+                                                    const count = feeds.filter(f => f.district === d).length;
+                                                    return <option key={`all-${code}-${d}`} value={d}>{d} ({count})</option>;
+                                                })}
+                                            </optgroup>
+                                        );
+                                    })
                                 )}
                             </select>
                         </div>
@@ -996,6 +1043,11 @@ const SocialMediaFeedsPage: React.FC = () => {
                                                 🌐 సాధారణ / జిల్లా లేదు
                                             </span>
                                         )}
+                                        {feed.language && (
+                                            <span className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-full font-black uppercase">
+                                                {feed.language}{feed.targetCollection ? ` → ${feed.targetCollection}` : ''}
+                                            </span>
+                                        )}
                                     </div>
                                     <p className="text-gray-400 text-xs truncate font-bold bg-gray-50 p-2 rounded-xl mb-4 border border-gray-100">{feed.url}</p>
                                     
@@ -1022,7 +1074,10 @@ const SocialMediaFeedsPage: React.FC = () => {
                                         <button onClick={() => { 
                                             setEditingId(feed.id); setSourceName(feed.sourceName || ''); setUrl(feed.url || (feed as any).handle || ''); 
                                             setPlatform(feed.platform || 'Twitter'); setCategory(feed.category || 'రాజకీయం');
-                                            setState(feed.state || ''); setDistrict(feed.district || '');
+                                            const resolvedSt = resolveStateCode(feed.stateCode || feed.state || feed.district);
+                                            setState(resolvedSt ? EDITIONS[resolvedSt].name : (feed.state || ''));
+                                            setLanguage(resolvedSt ? validateLanguageForState(resolvedSt, feed.language) : ((feed.language as LanguageCode) || 'te'));
+                                            setDistrict(feed.district || '');
                                             window.scrollTo({ top: 0, behavior: 'smooth' });
                                         }} title="సవరించండి (Edit)" className="p-4 bg-blue-50 rounded-2xl text-blue-600 active:scale-90 transition-all hover:bg-blue-100"><EditIcon /></button>
                                         <button onClick={async () => { if (window.confirm("ఈ సోర్స్‌ను తొలగించాలా?")) { await deleteDoc(doc(db, 'social_feeds', feed.id)); fetchFeeds(); } }} title="తొలగించండి (Delete)" className="p-4 bg-red-50 rounded-2xl text-red-600 active:scale-90 transition-all hover:bg-red-100"><DeleteIcon /></button>

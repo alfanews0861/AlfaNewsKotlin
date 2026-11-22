@@ -151,40 +151,48 @@ fun ReporterProfileView(
                 }
             }
             
-            // 2. Fetch posts by this reporter (query both reporter.id and originalReporterId)
-            val newsRef = FirebaseService.db.collection("news")
-            val candidateDocs = mutableListOf<com.google.firebase.firestore.DocumentSnapshot>()
-            try {
-                kotlinx.coroutines.withTimeoutOrNull(10000L) {
-                    val s1 = try { newsRef.whereEqualTo("reporter.id", targetId).limit(50).get().await() } catch (_: Exception) { null }
-                    val s2 = try { newsRef.whereEqualTo("originalReporterId", targetId).limit(50).get().await() } catch (_: Exception) { null }
-                    if (s1 != null) candidateDocs.addAll(s1.documents)
-                    if (s2 != null) candidateDocs.addAll(s2.documents)
-                }
-            } catch (e: Exception) {
-                // Ignore
-            }
-
-            if (candidateDocs.isEmpty()) {
-                try {
-                    kotlinx.coroutines.withTimeoutOrNull(6000L) {
-                        val s3 = newsRef.whereEqualTo("reporter.name", targetId).limit(50).get().await()
-                        candidateDocs.addAll(s3.documents)
-                    }
-                } catch (e: Exception) {
-                    // Ignore
-                }
-            }
-
+            // 2. Fetch posts by this reporter across their edition collection + legacy "news"
             val currentRep = reporter
-            if (candidateDocs.isEmpty() && currentRep != null && currentRep.id != targetId) {
+            val repStateCode = com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(
+                currentRep?.state,
+                currentRep?.district
+            )
+            val repCollection = com.alfanews.telugu.utils.EditionRegistry.getCollectionForEdition(repStateCode, null)
+            val targetCollections = listOf(repCollection, "news").distinct()
+            val candidateDocs = mutableListOf<com.google.firebase.firestore.DocumentSnapshot>()
+            for (colName in targetCollections) {
+                val newsRef = FirebaseService.db.collection(colName)
                 try {
-                    kotlinx.coroutines.withTimeoutOrNull(6000L) {
-                        val s4 = newsRef.whereEqualTo("reporter.id", currentRep.id).limit(50).get().await()
-                        candidateDocs.addAll(s4.documents)
+                    kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                        val s1 = try { newsRef.whereEqualTo("reporter.id", targetId).limit(50).get().await() } catch (_: Exception) { null }
+                        val s2 = try { newsRef.whereEqualTo("originalReporterId", targetId).limit(50).get().await() } catch (_: Exception) { null }
+                        if (s1 != null) candidateDocs.addAll(s1.documents)
+                        if (s2 != null) candidateDocs.addAll(s2.documents)
                     }
-                } catch (e: Exception) {
+                } catch (_: Exception) {
                     // Ignore
+                }
+
+                if (candidateDocs.isEmpty()) {
+                    try {
+                        kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                            val s3 = newsRef.whereEqualTo("reporter.name", targetId).limit(50).get().await()
+                            candidateDocs.addAll(s3.documents)
+                        }
+                    } catch (_: Exception) {
+                        // Ignore
+                    }
+                }
+
+                if (candidateDocs.isEmpty() && currentRep != null && currentRep.id != targetId) {
+                    try {
+                        kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                            val s4 = newsRef.whereEqualTo("reporter.id", currentRep.id).limit(50).get().await()
+                            candidateDocs.addAll(s4.documents)
+                        }
+                    } catch (_: Exception) {
+                        // Ignore
+                    }
                 }
             }
             

@@ -17,8 +17,8 @@ android {
         applicationId = "com.alfanews.telugu"
         minSdk = 24
         targetSdk = 36
-        versionCode = 692
-        versionName = "Sree_6.3.9"
+        versionCode = 693
+        versionName = "Sree_6.4.0"
         multiDexEnabled = true
 
         val properties = Properties()
@@ -30,7 +30,7 @@ android {
         buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        resourceConfigurations += listOf("te", "en")
+        resourceConfigurations += listOf("te", "en", "hi", "pa", "gu")
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -175,6 +175,7 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.runtime:runtime")
     implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.ui:ui-text-google-fonts")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     

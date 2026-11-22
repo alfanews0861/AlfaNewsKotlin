@@ -4,8 +4,17 @@ import { db, auth } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
 import { RefreshCw, Search, Trash2, Edit3 } from 'lucide-react';
 import { navigateTo, getNewsUrl } from '../utils/router';
+import { getCollectionForEdition, resolveStateCode, getLocalizedText, NewsCollectionName } from '../data/editions';
 
 const { collection, query, where, orderBy, limit, getDocs, doc, deleteDoc, Timestamp } = _firestore as any;
+
+const COLLECTION_OPTIONS: Array<{ value: NewsCollectionName; label: string }> = [
+  { value: 'news', label: 'AP / TS (తెలుగు)' },
+  { value: 'news_hi', label: 'UP / UK / HP (हिन्दी)' },
+  { value: 'news_pa', label: 'Punjab (ਪੰਜਾਬੀ)' },
+  { value: 'news_gu', label: 'Gujarat (ગુજરાતી)' },
+  { value: 'news_en', label: 'Goa / Manipur (English)' },
+];
 
 interface ManagePostsPageProps {
   onEditPost: (post: NewsPost) => void;
@@ -19,6 +28,11 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<'ALL' | 'LIVE' | 'PENDING' | 'REJECTED'>('ALL');
     const [selectedStatusPost, setSelectedStatusPost] = useState<NewsPost | null>(null);
+    const defaultCol = getCollectionForEdition(
+        resolveStateCode((currentUser as any)?.stateCode || (currentUser as any)?.state, (currentUser as any)?.district) || 'AP',
+        (currentUser as any)?.language
+    );
+    const [selectedCollection, setSelectedCollection] = useState<NewsCollectionName>(defaultCol);
 
     const isAdmin = Boolean(currentUser && (
         currentUser.role === UserRole.ADMIN ||
@@ -47,7 +61,7 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
     const fetchPosts = useCallback(async () => {
         setLoading(true);
         try {
-            const newsCollectionRef = collection(db, 'news');
+            const newsCollectionRef = collection(db, selectedCollection);
             const shouldFetchAll = isAdmin && viewMode === 'all';
 
             if (shouldFetchAll) {
@@ -137,7 +151,7 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
         } finally { 
             setLoading(false); 
         }
-    }, [isAdmin, viewMode, candidateIds.join(',')]);
+    }, [isAdmin, viewMode, selectedCollection, candidateIds.join(',')]);
 
     useEffect(() => { 
         fetchPosts(); 
@@ -146,7 +160,7 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
     const handleDelete = async (postId: string) => {
         if (!window.confirm("ఈ వార్తను శాశ్వతంగా తొలగించాలా?")) return;
         try {
-            await deleteDoc(doc(db, 'news', postId));
+            await deleteDoc(doc(db, selectedCollection, postId));
             setPosts(prev => prev.filter(p => p.id !== postId));
         } catch (e) {
             alert("తొలగించడం విఫలమైంది.");
@@ -164,7 +178,11 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
         if (statusFilter === 'PENDING' && (isPublished || isRejected || isFailed)) return false;
 
         const q = searchTerm.toLowerCase();
-        return (post.headline?.telugu || '').toLowerCase().includes(q) || 
+        const headlineStr = getLocalizedText(post.headline, (post as any).language || 'te');
+        const contentStr = getLocalizedText(post.content, (post as any).language || 'te');
+        return headlineStr.toLowerCase().includes(q) || 
+            contentStr.toLowerCase().includes(q) ||
+            (post.headline?.telugu || '').toLowerCase().includes(q) || 
             (post.content?.telugu || '').toLowerCase().includes(q) ||
             (post.reporter?.name || '').toLowerCase().includes(q) ||
             (post.reporter?.id || '').toLowerCase().includes(q) ||
@@ -222,6 +240,23 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
                         />
                     </div>
                 </div>
+            </div>
+
+            {/* ఎడిషన్ కలెక్షన్ సెలెక్టర్ (5 Multi-State News Collections) */}
+            <div className="flex items-center gap-2 mb-3 overflow-x-auto pb-1">
+                {COLLECTION_OPTIONS.map((opt) => (
+                    <button
+                        key={opt.value}
+                        onClick={() => setSelectedCollection(opt.value)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap border ${
+                            selectedCollection === opt.value
+                                ? 'bg-red-600 text-white border-red-600 shadow-sm'
+                                : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                        }`}
+                    >
+                        {opt.label}
+                    </button>
+                ))}
             </div>
 
             {/* స్టేటస్ ఫిల్టర్ బటన్లు (Status Filters) */}

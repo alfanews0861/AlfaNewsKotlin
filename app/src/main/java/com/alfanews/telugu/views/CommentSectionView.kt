@@ -58,9 +58,10 @@ fun CommentSectionView(
     currentUser: User?,
     onClose: () -> Unit,
     onCommentPosted: () -> Unit,
-    onLoginRequest: () -> Unit
+    onLoginRequest: () -> Unit,
+    collectionName: String = "news"
 ) {
-    val viewModel: CommentViewModel = remember { CommentViewModel(postId) }
+    val viewModel: CommentViewModel = remember(postId, collectionName) { CommentViewModel(postId, collectionName) }
     val comments by viewModel.comments.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
 
@@ -302,7 +303,10 @@ fun CommentItem(comment: Comment) {
     }
 }
 
-class CommentViewModel(private val postId: String) : ViewModel() {
+class CommentViewModel(
+    private val postId: String,
+    private val collectionName: String = "news"
+) : ViewModel() {
     private val _comments = MutableStateFlow<List<Comment>>(emptyList())
     val comments: StateFlow<List<Comment>> = _comments.asStateFlow()
 
@@ -321,8 +325,9 @@ class CommentViewModel(private val postId: String) : ViewModel() {
             kotlinx.coroutines.delay(2500L)
             _isLoading.value = false
         }
+        val targetCol = collectionName.ifBlank { "news" }
         val commentsRef = FirebaseService.db
-            .collection("news")
+            .collection(targetCol)
             .document(postId)
             .collection("comments")
             .orderBy("timestamp", Query.Direction.ASCENDING)
@@ -365,8 +370,9 @@ class CommentViewModel(private val postId: String) : ViewModel() {
     ) {
         viewModelScope.launch {
             try {
+                val targetCol = collectionName.ifBlank { "news" }
                 FirebaseService.db
-                    .collection("news")
+                    .collection(targetCol)
                     .document(postId)
                     .collection("comments")
                     .add(
@@ -381,7 +387,7 @@ class CommentViewModel(private val postId: String) : ViewModel() {
                     .await()
 
                 FirebaseService.db
-                    .collection("news")
+                    .collection(targetCol)
                     .document(postId)
                     .update("comments", FieldValue.increment(1))
                     .await()

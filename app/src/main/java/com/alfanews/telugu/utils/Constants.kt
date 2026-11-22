@@ -72,7 +72,9 @@ object Constants {
 
     val STATE_NAMES: Set<String> = setOf(
         "Andhra Pradesh", "AndhraPradesh", "AP", "Andhra", "ఆంధ్రప్రదేశ్", "ఆంధ్ర ప్రదేశ్", "ఆంధ్ర", "AP News",
-        "Telangana", "Telangana State", "TS", "TG", "తెలంగాణ", "తెలంగాణా", "Telangana News", "State", "State News", "రాష్ట్రం"
+        "Telangana", "Telangana State", "TS", "TG", "తెలంగాణ", "తెలంగాణా", "Telangana News", "State", "State News", "రాష్ట్రం",
+        "Uttar Pradesh", "UP", "उत्तर प्रदेश", "Punjab", "PB", "ਪੰਜਾਬ", "Uttarakhand", "UK", "उत्तराखंड",
+        "Goa", "GA", "Manipur", "MN", "Himachal Pradesh", "HP", "हिमाचल प्रदेश", "Gujarat", "GJ", "ગુજરાત"
     )
 
     fun isUniversalOrGeneral(districtOrCategory: String?): Boolean {
@@ -94,7 +96,8 @@ object Constants {
         if (isUniversalOrGeneral(clean) || isStateOrGenericDistrict(clean)) return false
         return ALL_DISTRICTS.any { it.equals(clean, ignoreCase = true) } ||
                 TS_IDENTIFIERS.any { it.equals(clean, ignoreCase = true) } ||
-                AP_IDENTIFIERS.any { it.equals(clean, ignoreCase = true) }
+                AP_IDENTIFIERS.any { it.equals(clean, ignoreCase = true) } ||
+                EditionRegistry.isExpansionDistrict(clean)
     }
 
     fun mapDistrictToState(district: String?): String? {
@@ -138,6 +141,12 @@ object Constants {
         for (apId in AP_IDENTIFIERS) {
             if (apId.length >= 3 && clean.contains(apId, ignoreCase = true)) return "Andhra Pradesh"
             if (clean.length >= 4 && apId.contains(clean, ignoreCase = true) && !isUniversalOrGeneral(clean)) return "Andhra Pradesh"
+        }
+
+        // 4. Expansion states (UP, PB, UK, GA, MN, HP, GJ)
+        val expansionCode = EditionRegistry.resolveStateCode(clean, clean)
+        if (expansionCode != null && expansionCode != StateCode.AP && expansionCode != StateCode.TS) {
+            return EditionRegistry.EDITIONS[expansionCode]?.nameEn
         }
 
         return null
@@ -282,6 +291,12 @@ object Constants {
                 list.addAll(listOf("పశ్చిమ గోదావరి", "పశ్చిమగోదావరి", "West Godavari", "భీమవరం", "Bhimavaram"))
             district.contains("కడప") || district.contains("వైఎస్ఆర్") || district.contains("వైఎస్సార్") || district.contains("Kadapa", ignoreCase = true) ->
                 list.addAll(listOf("వైఎస్ఆర్ కడప", "వైఎస్సార్ కడప", "కడప", "YSR Kadapa", "Kadapa"))
+            else -> {
+                val expansionAliases = EditionRegistry.getExpansionDistrictAliases(district)
+                if (expansionAliases.isNotEmpty()) {
+                    list.addAll(expansionAliases)
+                }
+            }
         }
         return list.map { it.trim() }.filter { it.isNotBlank() }.distinct()
     }

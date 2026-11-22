@@ -1,25 +1,27 @@
 import type { NewsPost, User } from '../types.ts';
 import {
+  ALL_DISTRICTS,
   AP_DISTRICTS,
   DISTRICT_ALIASES,
   TS_DISTRICTS,
+  detectPostStateCode,
   getDistrictAliases,
   isDistrictMatch,
 } from './newsFilter.ts';
+import { EDITIONS, resolveStateCode, type StateCode } from '../data/editions.ts';
 
-// ⚡ Precomputed O(1) lookup sets (eliminates O(59*60) nested district alias scans per post!)
+// ⚡ Precomputed O(1) lookup sets across ALL 9 states (236 districts + all aliases!)
 const SPECIFIC_DISTRICT_SET = new Set<string>();
 const AP_DISTRICT_SET = new Set<string>();
 const TS_DISTRICT_SET = new Set<string>();
+for (const d of ALL_DISTRICTS) {
+  SPECIFIC_DISTRICT_SET.add(d.trim().toLowerCase());
+}
 for (const d of AP_DISTRICTS) {
-  const low = d.trim().toLowerCase();
-  SPECIFIC_DISTRICT_SET.add(low);
-  AP_DISTRICT_SET.add(low);
+  AP_DISTRICT_SET.add(d.trim().toLowerCase());
 }
 for (const d of TS_DISTRICTS) {
-  const low = d.trim().toLowerCase();
-  SPECIFIC_DISTRICT_SET.add(low);
-  TS_DISTRICT_SET.add(low);
+  TS_DISTRICT_SET.add(d.trim().toLowerCase());
 }
 for (const [k, aliases] of Object.entries(DISTRICT_ALIASES)) {
   const kLow = k.trim().toLowerCase();
@@ -55,19 +57,19 @@ export interface InterestProfile {
 }
 
 const CANONICAL_FIRESTORE_ALIASES: Record<string, string[]> = {
-  politics: ['రాజకీయం', 'రాజకీయాలు', 'Politics'],
-  cinema: ['సినిమా', 'వినోదం', 'Cinema'],
-  sports: ['క్రీడలు', 'స్పోర్ట్స్', 'Sports'],
-  crime: ['క్రైమ్', 'నేరాలు', 'Crime'],
-  business: ['వ్యాపారం', 'Business'],
-  technology: ['టెక్నాలజీ', 'Technology'],
-  health: ['ఆరోగ్యం', 'Health'],
-  education: ['విద్య/ఉద్యోగాలు', 'విద్య', 'Education'],
-  devotional: ['భక్తి', 'Devotional'],
-  agriculture: ['వ్యవసాయం', 'Agriculture'],
-  national: ['జాతీయం', 'National'],
-  international: ['అంతర్జాతీయం', 'International'],
-  lifestyle: ['లైఫ్ స్టైల్', 'జీవనశైలి', 'Lifestyle'],
+  politics: ['రాజకీయం', 'Politics', 'రాజకీయాలు', 'राजनीति', 'ਰਾਜਨੀਤੀ', 'રાજકારણ'],
+  cinema: ['సినిమా', 'Cinema', 'వినోదం', 'मनोरंजन', 'ਮਨੋਰੰਜਨ', 'મનોરંજન', 'Entertainment'],
+  sports: ['క్రీడలు', 'Sports', 'స్పోర్ట్స్', 'खेल', 'ਖੇਡਾਂ', 'રમતગમત'],
+  crime: ['క్రైమ్', 'Crime', 'నేరాలు', 'अपराध', 'ਅਪਰਾਧ', 'ક્રાઇમ'],
+  business: ['వ్యాపారం', 'Business', 'व्यापार', 'ਵਪਾਰ', 'વેપાર'],
+  technology: ['టెక్నాలజీ', 'Technology', 'टेक्नोलॉजी', 'ਤਕਨਾਲੋਜੀ', 'ટેક્નોલોજી'],
+  health: ['ఆరోగ్యం', 'Health', 'स्वास्थ्य', 'ਸਿਹਤ', 'આરોગ્ય'],
+  education: ['విద్య/ఉద్యోగాలు', 'Education', 'విద్య', 'शिक्षा', 'ਸਿੱਖਿਆ', 'શિક્ષણ'],
+  devotional: ['భక్తి', 'Devotional', 'धर्म', 'ਧਰਮ', 'ભક્તિ'],
+  agriculture: ['వ్యవసాయం', 'Agriculture', 'कृषि', 'ਖੇਤੀਬਾੜੀ', 'ખેતી'],
+  national: ['జాతీయం', 'National', 'राष्ट्रीय', 'ਰਾਸ਼ਟਰੀ', 'રાષ્ટ્રીય'],
+  international: ['అంతర్జాతీయం', 'International', 'अंतर्राष्ट्रीय', 'ਅੰਤਰਰਾਸ਼ਟਰੀ', 'આંતરરાષ્ટ્રીય'],
+  lifestyle: ['లైఫ్ స్టైల్', 'Lifestyle', 'జీవనశైలి', 'लाइफस्टाइल', 'ਜੀਵਨਸ਼ੈਲੀ', 'લાઇફસ્ટાઇલ'],
 };
 
 const NON_TOPICAL_CANONICAL = new Set([
@@ -100,57 +102,66 @@ const CADENCE_40_30_30: PoolType[] = [
 export function normalizeCategoryKey(raw?: string | null): string {
   if (!raw || !raw.trim()) return 'general';
   const s = raw.trim().toLowerCase();
-  if (s.includes('క్రీడలు') || s.includes('స్పోర్ట్స్') || s.includes('sports') || s.includes('cricket') || s.includes('క్రికెట్') || s.includes('ipl')) {
+  if (
+    s.includes('క్రీడలు') || s.includes('స్పోర్ట్స్') || s.includes('खेल') || s.includes('ਖੇਡਾਂ') || s.includes('રમત') ||
+    s.includes('sports') || s.includes('cricket') || s.includes('క్రికెట్') || s.includes('ipl')
+  ) {
     return 'sports';
   }
   if (
-    s.includes('సినిమా') ||
-    s.includes('వినోదం') ||
-    s.includes('cinema') ||
-    s.includes('entertainment') ||
-    s.includes('movies') ||
-    s.includes('ఓటీటీ') ||
-    s.includes('ott') ||
-    s.includes('చిత్రసీమ') ||
-    s.includes('టాలీవుడ్') ||
-    s.includes('tollywood')
+    s.includes('సినిమా') || s.includes('వినోదం') || s.includes('मनोरंजन') || s.includes('ਮਨੋਰੰਜਨ') || s.includes('મનોરંજન') ||
+    s.includes('cinema') || s.includes('entertainment') || s.includes('movies') || s.includes('bollywood') ||
+    s.includes('ఓటీటీ') || s.includes('ott') || s.includes('చిత్రసీమ') || s.includes('టాలీవుడ్') || s.includes('tollywood')
   ) {
     return 'cinema';
   }
-  if (s.includes('రాజకీయం') || s.includes('రాజకీయాలు') || s.includes('రాజకీయ') || s.includes('politics') || s.includes('political')) {
+  if (
+    s.includes('రాజకీయం') || s.includes('రాజకీయాలు') || s.includes('రాజకీయ') ||
+    s.includes('राजनीति') || s.includes('ਰਾਜਨੀਤੀ') || s.includes('રાજકારણ') ||
+    s.includes('politics') || s.includes('political')
+  ) {
     return 'politics';
   }
-  if (s.includes('క్రైమ్') || s.includes('నేరాలు') || s.includes('crime') || s.includes('పోలీస్') || s.includes('police')) {
+  if (
+    s.includes('క్రైమ్') || s.includes('నేరాలు') || s.includes('अपराध') || s.includes('ਅਪਰਾਧ') || s.includes('ક્રાઇમ') ||
+    s.includes('crime') || s.includes('పోలీస్') || s.includes('police')
+  ) {
     return 'crime';
   }
-  if (s.includes('వ్యాపారం') || s.includes('బిజినెస్') || s.includes('business') || s.includes('మార్కెట్') || s.includes('బంగారం')) {
+  if (
+    s.includes('వ్యాపారం') || s.includes('బిజినెస్') || s.includes('व्यापार') || s.includes('ਵਪਾਰ') || s.includes('વેપાર') ||
+    s.includes('business') || s.includes('మార్కెట్') || s.includes('బంగారం')
+  ) {
     return 'business';
   }
-  if (s.includes('టెక్నాలజీ') || s.includes('technology') || s.includes('tech')) {
+  if (s.includes('టెక్నాలజీ') || s.includes('टेक्नोलॉजी') || s.includes('ਤਕਨਾਲੋਜੀ') || s.includes('ટેક્નોલોજી') || s.includes('technology') || s.includes('tech')) {
     return 'technology';
   }
-  if (s.includes('ఆరోగ్యం') || s.includes('health')) {
+  if (s.includes('ఆరోగ్యం') || s.includes('स्वास्थ्य') || s.includes('ਸਿਹਤ') || s.includes('આરોગ્ય') || s.includes('health')) {
     return 'health';
   }
-  if (s.includes('విద్య') || s.includes('education') || s.includes('ఉద్యోగాలు') || s.includes('jobs')) {
+  if (s.includes('విద్య') || s.includes('शिक्षा') || s.includes('ਸਿੱਖਿਆ') || s.includes('શિક્ષણ') || s.includes('education') || s.includes('ఉద్యోగాలు') || s.includes('jobs')) {
     return 'education';
   }
-  if (s.includes('భక్తి') || s.includes('ఆధ్యాత్మికం') || s.includes('devotional')) {
+  if (s.includes('భక్తి') || s.includes('ఆధ్యాత్మికం') || s.includes('धर्म') || s.includes('ਧਰਮ') || s.includes('ભક્તિ') || s.includes('devotional')) {
     return 'devotional';
   }
-  if (s.includes('వ్యవసాయం') || s.includes('agriculture')) {
+  if (s.includes('వ్యవసాయం') || s.includes('कृषि') || s.includes('ਖੇਤੀ') || s.includes('ખેતી') || s.includes('agriculture')) {
     return 'agriculture';
   }
-  if (s.includes('అంతర్జాతీయం') || s.includes('international') || s.includes('ప్రపంచం') || s.includes('world')) {
+  if (s.includes('అంతర్జాతీయం') || s.includes('अंतर्राष्ट्रीय') || s.includes('ਅੰਤਰਰਾਸ਼ਟਰੀ') || s.includes('આંતરરાષ્ટ્રીય') || s.includes('international') || s.includes('ప్రపంచం') || s.includes('world')) {
     return 'international';
   }
-  if (s.includes('జాతీయం') || s.includes('national') || s.includes('భారతదేశం')) {
+  if (s.includes('జాతీయం') || s.includes('राष्ट्रीय') || s.includes('ਰਾਸ਼ਟਰੀ') || s.includes('રાષ્ટ્રીય') || s.includes('national') || s.includes('భారతదేశం')) {
     return 'national';
   }
-  if (s.includes('జీవనశైలి') || s.includes('లైఫ్‌స్టైల్') || s.includes('లైఫ్ స్టైల్') || s.includes('lifestyle')) {
+  if (s.includes('జీవనశైలి') || s.includes('లైఫ్‌స్టైల్') || s.includes('లైఫ్ స్టైల్') || s.includes('लाइफस्टाइल') || s.includes('ਜੀਵਨਸ਼ੈਲੀ') || s.includes('લાઇફસ્ટાઇલ') || s.includes('lifestyle')) {
     return 'lifestyle';
   }
-  if (s.includes('జిల్లా') || s.includes('స్థానిక') || s.includes('local')) {
+  if (
+    s.includes('జిల్లా') || s.includes('స్థానిక') || s.includes('जिला') || s.includes('स्थानीय') ||
+    s.includes('ਜ਼ਿਲ੍ਹਾ') || s.includes('જિલ્લા') || s.includes('local')
+  ) {
     return 'local_district';
   }
   if (
@@ -175,71 +186,46 @@ export function isSpecificDistrict(district?: string | null): boolean {
   return SPECIFIC_DISTRICT_SET.has(district.trim().toLowerCase());
 }
 
-export function mapDistrictToState(districtOrState?: string | null): 'Telangana' | 'Andhra Pradesh' | null {
-  if (!districtOrState || !districtOrState.trim()) return null;
-  const clean = districtOrState.trim().toLowerCase();
-  if (
-    clean === 'telangana' ||
-    clean === 'ts' ||
-    clean === 'tg' ||
-    clean === 'తెలంగాణ' ||
-    clean === 'telangana state' ||
-    TS_DISTRICT_SET.has(clean)
-  ) {
-    return 'Telangana';
-  }
-  if (
-    clean === 'andhra pradesh' ||
-    clean === 'andhrapradesh' ||
-    clean === 'ap' ||
-    clean === 'ఆంధ్రప్రదేశ్' ||
-    clean === 'andhra' ||
-    clean === 'ఆంధ్ర' ||
-    AP_DISTRICT_SET.has(clean)
-  ) {
-    return 'Andhra Pradesh';
-  }
-  return null;
+export function mapDistrictToState(districtOrState?: string | null): string | null {
+  const code = resolveStateCode(districtOrState);
+  if (!code) return null;
+  return EDITIONS[code].name;
 }
 
 /**
  * Strict Home Feed eligibility filter (matches Android's isPostAllowedForHomeFeed):
- * - Allows universal/general categories & user's own state/district.
- * - Rejects OTHER districts' local news & strict OTHER state news.
+ * - Phase 1 (AP vs TS Strict Split): AP users NEVER see Telangana state or district news; TS users NEVER see AP state or district news.
+ * - Phase 2 (9-State Isolation): UP users NEVER see UK/HP news; Goa users NEVER see Manipur news; etc.
+ * - Allows universal/national categories (National, International, Cinema, Sports, Business, Tech, Health, Devotional, Lifestyle) and user's own state + own district.
+ * - Rejects OTHER districts' local news strictly.
  */
-export function isPostAllowedForHomeFeed(post: NewsPost, userDistrict?: string | null): boolean {
-  const userState = mapDistrictToState(userDistrict);
-
-  // 1. State check
-  if (userState) {
-    const postState = mapDistrictToState(post.state) || mapDistrictToState(post.district);
-    if (postState && postState !== userState && !post.isGlobal) {
-      const otherStateAliases =
-        userState === 'Telangana'
-          ? ['andhra pradesh', 'andhrapradesh', 'ap', 'ఆంధ్రప్రదేశ్']
-          : ['telangana', 'ts', 'tg', 'తెలంగాణ'];
-      const dLow = (post.district || '').trim().toLowerCase();
-      const sLow = (post.state || '').trim().toLowerCase();
-      if (otherStateAliases.includes(dLow) || otherStateAliases.includes(sLow)) {
-        return false;
-      }
-    }
-  }
-
-  // 2. Special posts
+export function isPostAllowedForHomeFeed(
+  post: NewsPost,
+  userDistrict?: string | null,
+  userStateCode?: StateCode | string | null
+): boolean {
+  // 1. Special editorial cards (greetings / history / cartoon)
   if (post.type === 'greeting' || post.type === 'history' || post.type === 'cartoon') {
     return true;
   }
 
-  // 3. District check
+  const effectiveUserState: StateCode | null =
+    resolveStateCode(userStateCode) || resolveStateCode(userDistrict);
+
+  // 2. Strict State Boundary Check (AP vs TS, UP vs UK vs HP, GA vs MN, etc.)
+  // Never allow another state's posts even if isGlobal=true; truly universal/national posts have postStateCode === null.
+  if (effectiveUserState) {
+    const postStateCode = detectPostStateCode(post);
+    if (postStateCode && postStateCode !== effectiveUserState) {
+      return false;
+    }
+  }
+
+  // 3. District check (own district ONLY; block all other 235 districts)
   const postDist = post.district?.trim();
   const hasLocalCategory =
-    post.category?.trim() === 'జిల్లా వార్త' ||
-    post.category?.trim() === 'స్థానిక' ||
-    (post.categories || []).some((c) => {
-      const t = c.trim();
-      return t === 'జిల్లా వార్త' || t.toLowerCase() === 'local' || t === 'స్థానిక';
-    });
+    normalizeCategoryKey(post.category) === 'local_district' ||
+    (post.categories || []).some((c) => normalizeCategoryKey(c) === 'local_district');
 
   const postHasSpecificDist = Boolean(postDist && isSpecificDistrict(postDist));
 
@@ -322,24 +308,34 @@ export function getPostCategoryTag(post: NewsPost, userDistrict?: string | null)
 }
 
 export function expandCategoriesForFirestoreQuery(rawPreferred: string[], maxLimit = 10): string[] {
-  const result: string[] = [];
-  const seen = new Set<string>();
+  const aliasLists: string[][] = [];
+  const seenCanonical = new Set<string>();
   for (const raw of rawPreferred) {
-    if (result.length >= maxLimit) break;
     const canonical = normalizeCategoryKey(raw);
-    if (NON_TOPICAL_CANONICAL.has(canonical)) continue;
+    if (NON_TOPICAL_CANONICAL.has(canonical) || seenCanonical.has(canonical)) continue;
+    seenCanonical.add(canonical);
     const aliases = CANONICAL_FIRESTORE_ALIASES[canonical];
     if (aliases) {
-      for (const alias of aliases) {
-        if (result.length >= maxLimit) break;
+      aliasLists.push(aliases);
+    } else if (raw.trim()) {
+      aliasLists.push([raw.trim()]);
+    }
+  }
+
+  const result: string[] = [];
+  const seen = new Set<string>();
+  const maxDepth = aliasLists.reduce((max, list) => Math.max(max, list.length), 0);
+  for (let depth = 0; depth < maxDepth; depth++) {
+    if (result.length >= maxLimit) break;
+    for (const aliases of aliasLists) {
+      if (result.length >= maxLimit) break;
+      if (depth < aliases.length) {
+        const alias = aliases[depth];
         if (!seen.has(alias)) {
           seen.add(alias);
           result.push(alias);
         }
       }
-    } else if (raw.trim() && !seen.has(raw.trim())) {
-      seen.add(raw.trim());
-      result.push(raw.trim());
     }
   }
   return result.slice(0, maxLimit);
@@ -681,6 +677,7 @@ export function blendHomeFeed(params: {
   fastPathAnchors?: NewsPost[];
   tailPrefix?: NewsPost[];
   userDistrict?: string | null;
+  userStateCode?: StateCode | string | null;
   profile: InterestProfile;
   nowMs?: number;
 }): NewsPost[] {
@@ -689,6 +686,7 @@ export function blendHomeFeed(params: {
     fastPathAnchors = [],
     tailPrefix = [],
     userDistrict = null,
+    userStateCode = null,
     profile,
     nowMs = Date.now(),
   } = params;
@@ -698,7 +696,7 @@ export function blendHomeFeed(params: {
   const uniqueRemaining: NewsPost[] = [];
   for (const post of posts) {
     if (!post?.id || anchorIds.has(post.id) || seenIds.has(post.id)) continue;
-    if (!isPostAllowedForHomeFeed(post, userDistrict)) continue;
+    if (!isPostAllowedForHomeFeed(post, userDistrict, userStateCode)) continue;
     seenIds.add(post.id);
     uniqueRemaining.push(post);
   }

@@ -97,16 +97,29 @@ fun ManagePostsPageView(
         ).distinct()
     }
     val primaryReporterId = authUid.ifBlank { userId }.ifBlank { prefUserId }
+    val resolvedRole = currentUser?.role ?: UserRole.fromStringSafe(prefs.userRole) ?: UserRole.REPORTER
+    val isAdminOrDesk = resolvedRole == UserRole.ADMIN || resolvedRole == UserRole.EDITOR || resolvedRole == UserRole.NEWS_DESK
+    val defaultCollection = remember(currentUser?.state, currentUser?.district) {
+        val st = com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(currentUser?.state, currentUser?.district)
+            ?: prefs.getEffectiveStateCode()
+        com.alfanews.telugu.utils.EditionRegistry.getCollectionForEdition(st, null)
+    }
+    var selectedCollection by remember(defaultCollection) { mutableStateOf(defaultCollection) }
 
     // ⚡ INSTANT NEW POST DISPLAY: Fetch the just-published post directly by ID in < 100ms
-    LaunchedEffect(newlyCreatedPostId) {
+    LaunchedEffect(newlyCreatedPostId, selectedCollection) {
         if (!newlyCreatedPostId.isNullOrBlank()) {
             try {
-                val doc = FirebaseService.db.collection("news").document(newlyCreatedPostId).get().await()
-                if (doc.exists()) {
-                    val p = mapMapToNewsPost(doc.id, doc.data ?: emptyMap())
-                    posts = (listOf(p) + posts).distinctBy { it.id }.take(5)
-                    loading = false
+                val cols = (listOf(selectedCollection, "news") + com.alfanews.telugu.utils.EditionRegistry.ALL_COLLECTIONS).distinct()
+                for (col in cols) {
+                    val doc = FirebaseService.db.collection(col).document(newlyCreatedPostId).get().await()
+                    if (doc.exists()) {
+                        selectedCollection = col
+                        val p = mapMapToNewsPost(doc.id, doc.data ?: emptyMap(), prefs.language)
+                        posts = (listOf(p) + posts).distinctBy { it.id }.take(5)
+                        loading = false
+                        break
+                    }
                 }
             } catch (_: Exception) {}
             onPostConsumed()
@@ -114,10 +127,10 @@ fun ManagePostsPageView(
     }
 
     // ⚡ SERVER FAST PATH (< 300ms direct query): Top 5 fresh reporter news on screen instantly (NO CACHE - Live Server)
-    LaunchedEffect(currentUser, primaryReporterId, refreshTrigger) {
-        val role = currentUser?.role ?: UserRole.fromStringSafe(prefs.userRole) ?: UserRole.REPORTER
+    LaunchedEffect(currentUser, primaryReporterId, refreshTrigger, selectedCollection) {
+        val role = resolvedRole
         try {
-            val baseQuery = FirebaseService.db.collection("news")
+            val baseQuery = FirebaseService.db.collection(selectedCollection)
             val targetQuery = when {
                 role == UserRole.REGIONAL_INCHARGE && currentUser?.assignedDistricts?.isNotEmpty() == true -> {
                     baseQuery.whereEqualTo("isReporter", true)
@@ -166,9 +179,9 @@ fun ManagePostsPageView(
     }
 
     // ✅ REAL-TIME LISTENER: 5 తాజా వార్తలను లైవ్‌గా సింక్ చేయడం (Limit: 5)
-    DisposableEffect(currentUser, primaryReporterId, refreshTrigger) {
-        val role = currentUser?.role ?: UserRole.fromStringSafe(prefs.userRole) ?: UserRole.REPORTER
-        val baseQuery = FirebaseService.db.collection("news")
+    DisposableEffect(currentUser, primaryReporterId, refreshTrigger, selectedCollection) {
+        val role = resolvedRole
+        val baseQuery = FirebaseService.db.collection(selectedCollection)
         val liveQuery = when {
             role == UserRole.REGIONAL_INCHARGE && currentUser?.assignedDistricts?.isNotEmpty() == true -> {
                 baseQuery.whereEqualTo("isReporter", true)
@@ -218,7 +231,7 @@ fun ManagePostsPageView(
     fun confirmDelete(postId: String) {
         scope.launch {
             try {
-                FirebaseService.db.collection("news")
+                FirebaseService.db.collection(selectedCollection)
                     .document(postId)
                     .delete()
                     .await()
@@ -237,13 +250,22 @@ fun ManagePostsPageView(
             isBroadcasting = post.id
             try {
                 val isSilent = channelId != "breaking_news"
-                val title = if (isSilent) post.headline.telugu else "🔴 బ్రేకింగ్ న్యూస్"
+                val postLang = post.language?.let { com.alfanews.telugu.models.Language.fromCode(it) } ?: prefs.language
+                val postState = com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(post.stateCode ?: post.state, post.district)
+                val localizedHeadline = post.headline.getForLanguage(postLang).ifBlank { post.headline.telugu }
+                val title = if (isSilent) localizedHeadline else "🔴 బ్రేకింగ్ న్యూస్"
+                val targetTopic = if (postState != null && postState != com.alfanews.telugu.utils.StateCode.AP && postState != com.alfanews.telugu.utils.StateCode.TS) {
+                    val primaryLang = com.alfanews.telugu.utils.EditionRegistry.EDITIONS[postState]?.primaryLanguage ?: postLang
+                    com.alfanews.telugu.utils.EditionRegistry.getEditionTopic(postState, primaryLang)
+                } else {
+                    "all_users"
+                }
 
                 val result = FirebaseFunctionsService.triggerPushBroadcast(
                     title = title,
-                    body = post.headline.telugu,
+                    body = localizedHeadline,
                     actionUrl = "#/s/${post.id}",
-                    topic = "all_users",
+                    topic = targetTopic,
                     silent = isSilent,
                     channelId = channelId
                 )
@@ -301,6 +323,36 @@ fun ManagePostsPageView(
                     contentDescription = "Refresh",
                     tint = MaterialTheme.colorScheme.primary
                 )
+            }
+        }
+
+        if (isAdminOrDesk) {
+            val collectionOptions = listOf(
+                "news" to "AP/TS (TE)",
+                "news_hi" to "UP/UK/HP (HI)",
+                "news_pa" to "PB (PA)",
+                "news_gu" to "GJ (GU)",
+                "news_en" to "GA/MN (EN)"
+            )
+            androidx.compose.foundation.lazy.LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(collectionOptions) { (colKey, label) ->
+                    FilterChip(
+                        selected = selectedCollection == colKey,
+                        onClick = {
+                            if (selectedCollection != colKey) {
+                                selectedCollection = colKey
+                                posts = emptyList()
+                                loading = true
+                            }
+                        },
+                        label = { Text(label, fontSize = 12.sp) }
+                    )
+                }
             }
         }
 

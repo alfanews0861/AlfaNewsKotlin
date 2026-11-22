@@ -35,11 +35,12 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    strictPort: true,
     host: '0.0.0.0',
     allowedHosts: true,
     hmr: process.env.DISABLE_HMR !== 'true',
     watch: {
-      usePolling: true,
+      ignored: ['**/node_modules/**', '**/dist/**', '**/app/**'],
     },
   },
   build: {

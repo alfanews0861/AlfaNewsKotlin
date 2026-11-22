@@ -17,7 +17,8 @@ const {
   onSnapshot,
   increment,
   writeBatch,
-  serverTimestamp
+  serverTimestamp,
+  limit
 } = _firestore as any;
 
 const { getFunctions, httpsCallable } = _functions as any;
@@ -149,7 +150,21 @@ const AdminReporterMessagingPage: React.FC<AdminReporterMessagingPageProps> = ({
     const fetchReporters = async () => {
       try {
         const usersRef = collection(db, 'users');
-        const q = query(usersRef, where('role', 'in', [UserRole.REPORTER, 'REPORTER', 'reporter', 2, '2']));
+        const q = query(
+          usersRef,
+          where('role', 'in', [
+            UserRole.REPORTER,
+            'REPORTER',
+            'reporter',
+            UserRole.STAFF_REPORTER,
+            'STAFF_REPORTER',
+            UserRole.REGIONAL_INCHARGE,
+            'REGIONAL_INCHARGE',
+            2,
+            '2',
+          ]),
+          limit(500)
+        );
         const snap = await getDocs(q);
         const list = snap.docs.map((d: any) => ({
           id: d.id,
@@ -163,6 +178,36 @@ const AdminReporterMessagingPage: React.FC<AdminReporterMessagingPageProps> = ({
 
     fetchReporters();
   }, [isAdmin]);
+
+  // 3b. Ensure direct open via initialReporterId works even if reporter has no prior conversation thread
+  useEffect(() => {
+    if (!isAdmin || !initialReporterId) return;
+    if (activeReporter?.reporterId === initialReporterId) return;
+
+    const existingConv = conversations.find((c) => c.reporterId === initialReporterId);
+    if (existingConv) {
+      setActiveReporter(existingConv);
+      return;
+    }
+
+    const matchedUser = allReporters.find((u) => u.id === initialReporterId);
+    if (matchedUser) {
+      setActiveReporter({
+        id: matchedUser.id,
+        reporterId: matchedUser.id,
+        reporterName: matchedUser.name || 'రిపోర్టర్',
+        reporterDistrict: matchedUser.district || '',
+        reporterPhone: matchedUser.phone || '',
+        reporterPhotoUrl: matchedUser.photoUrl || '',
+        lastMessage: '',
+        lastMessageTime: Date.now(),
+        lastSenderRole: 'ADMIN',
+        unreadCountForAdmin: 0,
+        unreadCountForReporter: 0,
+        updatedAt: Date.now(),
+      });
+    }
+  }, [isAdmin, initialReporterId, conversations, allReporters, activeReporter?.reporterId]);
 
   // 4. Real-Time Messages Listener for Active Reporter Conversation
   useEffect(() => {

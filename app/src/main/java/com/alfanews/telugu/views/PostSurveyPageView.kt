@@ -205,21 +205,29 @@ fun PostSurveyPageView(
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium
                         )
-                        Row(
+                        androidx.compose.foundation.lazy.LazyRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            val statesList = listOf("ALL", "Andhra Pradesh", "Telangana")
-                            statesList.forEach { stateName ->
-                                val label = when (stateName) {
-                                    "Andhra Pradesh" -> "ఆంధ్రప్రదేశ్"
-                                    "Telangana" -> "తెలంగాణ"
-                                    else -> "రెండు రాష్ట్రాలు"
-                                }
+                            item {
                                 FilterChip(
-                                    selected = targetState == stateName,
-                                    onClick = { targetState = stateName },
-                                    label = { Text(label, fontSize = 12.sp) }
+                                    selected = targetState == "ALL",
+                                    onClick = { targetState = "ALL" },
+                                    label = { Text("AP / TS (అన్నీ)", fontSize = 12.sp) }
+                                )
+                            }
+                            items(com.alfanews.telugu.utils.EditionRegistry.ALL_EDITIONS_LIST.size) { idx ->
+                                val ed = com.alfanews.telugu.utils.EditionRegistry.ALL_EDITIONS_LIST[idx]
+                                val isSelected = targetState == ed.nameEn || targetState == ed.stateCode.code
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = {
+                                        targetState = ed.nameEn
+                                        if (district.isNotBlank() && !ed.districts.contains(district)) {
+                                            district = ed.districts.firstOrNull().orEmpty()
+                                        }
+                                    },
+                                    label = { Text("${ed.nameNative} (${ed.stateCode.code})", fontSize = 12.sp) }
                                 )
                             }
                         }
@@ -232,6 +240,14 @@ fun PostSurveyPageView(
                     }
 
                     if (!isGlobal) {
+                        val selectedStateObj = com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(
+                            if (targetState == "ALL") null else targetState,
+                            null
+                        )
+                        val availableDistricts = selectedStateObj?.let {
+                            com.alfanews.telugu.utils.EditionRegistry.EDITIONS[it]?.districts
+                        } ?: com.alfanews.telugu.utils.EditionRegistry.getAllDistricts()
+
                         Box(modifier = Modifier.fillMaxWidth()) {
                             OutlinedTextField(
                                 value = district,
@@ -250,7 +266,7 @@ fun PostSurveyPageView(
                                 onDismissRequest = { districtExpanded = false },
                                 modifier = Modifier.fillMaxWidth(0.9f)
                             ) {
-                                Constants.ALL_DISTRICTS.forEach { distName: String ->
+                                availableDistricts.forEach { distName: String ->
                                     DropdownMenuItem(
                                         text = { Text(distName) },
                                         onClick = {
@@ -527,30 +543,58 @@ fun PostSurveyPageView(
                     } else {
                         user.state
                     }
+                    val resolvedStateCode = com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(
+                        calculatedState,
+                        if (isGlobal) null else district
+                    )
+                    val targetLang = resolvedStateCode?.let {
+                        com.alfanews.telugu.utils.EditionRegistry.EDITIONS[it]?.primaryLanguage
+                    } ?: com.alfanews.telugu.models.Language.TELUGU
+                    val targetCollection = if (surveyToEdit != null) {
+                        com.alfanews.telugu.utils.EditionRegistry.getCollectionForPost(surveyToEdit)
+                    } else {
+                        com.alfanews.telugu.utils.EditionRegistry.getCollectionForEdition(resolvedStateCode, targetLang)
+                    }
+                    val localizedHeadlineMap = mutableMapOf<String, Any>(
+                        "telugu" to headlineTe,
+                        "english" to if (targetLang == com.alfanews.telugu.models.Language.ENGLISH) headlineTe else "",
+                        "local" to headlineTe
+                    ).apply {
+                        if (targetLang != com.alfanews.telugu.models.Language.TELUGU && targetLang != com.alfanews.telugu.models.Language.ENGLISH) {
+                            put(targetLang.code, headlineTe)
+                        }
+                    }
+                    val localizedContentMap = mutableMapOf<String, Any>(
+                        "telugu" to contentTe,
+                        "english" to if (targetLang == com.alfanews.telugu.models.Language.ENGLISH) contentTe else "",
+                        "local" to contentTe
+                    ).apply {
+                        if (targetLang != com.alfanews.telugu.models.Language.TELUGU && targetLang != com.alfanews.telugu.models.Language.ENGLISH) {
+                            put(targetLang.code, contentTe)
+                        }
+                    }
 
                     if (surveyToEdit != null) {
                         // EDIT MODE: Update existing document
                         val updateData = mutableMapOf<String, Any>(
-                            "headline" to mapOf(
-                                "telugu" to headlineTe,
-                                "english" to ""
-                            ),
-                            "content" to mapOf(
-                                "telugu" to contentTe,
-                                "english" to ""
-                            ),
+                            "headline" to localizedHeadlineMap,
+                            "content" to localizedContentMap,
                             "surveyQuestions" to surveyQuestionsList,
                             "isMultiPage" to isMultiPage,
                             "isGlobal" to isGlobal,
                             "district" to (if (isGlobal) "State" else district),
                             "expiryTimestamp" to System.currentTimeMillis() + (durationDays * 24L * 60L * 60L * 1000L),
-                            "categories" to listOf("సర్వే", if (isGlobal) "రాష్ట్రం" else district)
+                            "categories" to listOf("సర్వే", if (isGlobal) "రాష్ట్రం" else district),
+                            "language" to targetLang.code
                         )
                         if (calculatedState != null) {
                             updateData["state"] = calculatedState
                         }
+                        if (resolvedStateCode != null) {
+                            updateData["stateCode"] = resolvedStateCode.code
+                        }
 
-                        FirebaseService.db.collection("news").document(surveyToEdit.id)
+                        FirebaseService.db.collection(targetCollection).document(surveyToEdit.id)
                             .update(updateData)
                             .addOnSuccessListener {
                                 Toast.makeText(context, "సర్వే విజ‌య‌వంతంగా నవీకరించబడింది (Updated)!", Toast.LENGTH_LONG).show()
@@ -567,14 +611,8 @@ fun PostSurveyPageView(
                         val randomStartFakeVotes = 11000 + (100..900).random()
 
                         val surveyData = mutableMapOf<String, Any>(
-                            "headline" to mapOf(
-                                "telugu" to headlineTe,
-                                "english" to ""
-                            ),
-                            "content" to mapOf(
-                                "telugu" to contentTe,
-                                "english" to ""
-                            ),
+                            "headline" to localizedHeadlineMap,
+                            "content" to localizedContentMap,
                             "type" to "survey",
                             "approved" to isStaff,
                             "status" to (if (isStaff) "PUBLISHED" else "PENDING"),
@@ -597,13 +635,17 @@ fun PostSurveyPageView(
                             "likes" to 0,
                             "comments" to 0,
                             "shares" to 0,
-                            "categories" to listOf("సర్వే", if (isGlobal) "రాష్ట్రం" else district)
+                            "categories" to listOf("సర్వే", if (isGlobal) "రాష్ట్రం" else district),
+                            "language" to targetLang.code
                         )
                         if (calculatedState != null) {
                             surveyData["state"] = calculatedState
                         }
+                        if (resolvedStateCode != null) {
+                            surveyData["stateCode"] = resolvedStateCode.code
+                        }
 
-                        FirebaseService.db.collection("news")
+                        FirebaseService.db.collection(targetCollection)
                             .add(surveyData)
                             .addOnSuccessListener {
                                 Toast.makeText(context, "సర్వే విజయవంతంగా పోస్ట్ చేయబడింది!", Toast.LENGTH_LONG).show()

@@ -5,9 +5,23 @@ import AdMobCard from './AdMobCard';
 import AppDownloadPopup from './AppDownloadPopup';
 import SwipeHintOverlay from './SwipeHintOverlay';
 import { preloadImages } from '../utils/imageHelper';
-import { NewsPost, Language, User, TS_DISTRICTS, AP_DISTRICTS } from '../types';
+import { NewsPost, Language, User } from '../types';
 import { db } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
+import {
+  ALL_EDITIONS_LIST,
+  EDITIONS,
+  getBodyFontClass,
+  getCollectionForEdition,
+  getDistrictDisplayName,
+  getSiblingMandalsInConstituency,
+  getStoredStateCode,
+  resolveStateCode,
+  type StateCode,
+} from '../data/editions';
+import { getDistrictAliases } from '../utils/newsFilter';
+import { t } from '../utils/translations';
+import { fetchCachedLocalFeed } from '../services/feedCacheService';
 
 const { collection, query, where, orderBy, limit, getDocs, startAfter } = _firestore as any;
 
@@ -17,6 +31,7 @@ interface LocalNewsFeedProps {
   currentUser: User | null;
   onLoadComplete?: () => void;
   onReporterClick: (id: string) => void;
+  selectedState?: StateCode | null;
   selectedDistrict?: string | null;
   hideHeader?: boolean;
 }
@@ -27,6 +42,7 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({
   currentUser,
   onLoadComplete,
   onReporterClick,
+  selectedState,
   selectedDistrict,
   hideHeader = false,
 }) => {
@@ -86,19 +102,37 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({
   }, [selectedDistrict]);
 
   const [showSelector, setShowSelector] = useState(false);
-  const [tempState, setTempState] = useState<'AP' | 'TS'>(() => {
-      const savedDistrict = currentUser?.district || localStorage.getItem('user_local_district');
-      if (savedDistrict && AP_DISTRICTS.includes(savedDistrict)) return 'AP';
-      return 'TS';
+  const [tempState, setTempState] = useState<StateCode>(() => {
+      return (
+          resolveStateCode(selectedState) ||
+          resolveStateCode(currentUser?.district || localStorage.getItem('user_local_district')) ||
+          getStoredStateCode()
+      );
   });
+
+  useEffect(() => {
+    const nextState =
+      resolveStateCode(selectedState) ||
+      resolveStateCode(activeDistrict) ||
+      resolveStateCode(currentUser?.stateCode) ||
+      resolveStateCode(currentUser?.state);
+    if (nextState && nextState !== tempState) {
+      setTempState(nextState);
+    }
+  }, [selectedState, activeDistrict, currentUser?.stateCode, currentUser?.state]);
 
   useEffect(() => {
     if (currentUser?.district && currentUser.district !== activeDistrict) {
       setActiveDistrict(currentUser.district);
       localStorage.setItem('user_local_district', currentUser.district);
-      setTempState(AP_DISTRICTS.includes(currentUser.district) ? 'AP' : 'TS');
+      const st = resolveStateCode(currentUser.district);
+      if (st) setTempState(st);
     }
   }, [currentUser?.district]);
+
+  const effectiveState: StateCode = resolveStateCode(selectedState) || resolveStateCode(activeDistrict) || tempState;
+  const targetCollection = getCollectionForEdition(effectiveState, language);
+  const userPreferredMandal = (currentUser?.assignedMandal || currentUser?.mandal || localStorage.getItem('user_local_mandal') || '').trim();
 
   const getTimestampValue = (timestamp: any) => {
       if (!timestamp) return Date.now();
@@ -107,69 +141,41 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({
       return Date.now();
   };
 
-  const detectLocation = useCallback(async () => {
-    if (!navigator.geolocation || activeDistrict) return;
-    setIsDetecting(true);
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-      try {
-        const { latitude, longitude } = pos.coords;
-        // Use free Nominatim reverse geocoding instead of Gemini to avoid API key issues on client
-        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10&addressdetails=1`);
-        const data = await response.json();
-        
-        const districtName = data.address?.state_district || data.address?.county || '';
-        
-        // Simple mapping logic (can be expanded)
-        const districtList = [...TS_DISTRICTS, ...AP_DISTRICTS];
-        let detected = null;
-        
-        for (const d of districtList) {
-            // Basic matching, assuming Nominatim returns english names like "Hyderabad District"
-            // This is a simplified fallback since we removed Gemini
-            if (districtName.toLowerCase().includes('hyderabad')) detected = 'హైదరాబాద్';
-            else if (districtName.toLowerCase().includes('rangareddy')) detected = 'రంగారెడ్డి';
-            else if (districtName.toLowerCase().includes('visakhapatnam')) detected = 'విశాఖపట్నం';
-            else if (districtName.toLowerCase().includes('vijayawada') || districtName.toLowerCase().includes('krishna')) detected = 'కృష్ణా';
-            // Add more mappings as needed, or just default to a known one if matched
-        }
+  /**
+   * 3-Tier Local Priority (ALL 9 States):
+   * Tier 1: User's own Mandal / Tehsil / Taluka / Sub-Division
+   * Tier 2: Sibling Mandals / Tehsils in the same Assembly Constituency
+   * Tier 3: Rest of the District (ordered by recency)
+   */
+  const sortByThreeTierLocality = useCallback((posts: NewsPost[]): NewsPost[] => {
+      if (!userPreferredMandal || !activeDistrict) {
+          return [...posts].sort((a, b) => b.timestamp - a.timestamp);
+      }
+      const mandalLow = userPreferredMandal.toLowerCase();
+      const siblingSet = new Set(
+          getSiblingMandalsInConstituency(activeDistrict, userPreferredMandal).map((m) => m.toLowerCase())
+      );
 
-        if (detected) {
-            setActiveDistrict(detected);
-            localStorage.setItem('user_local_district', detected);
-        }
-      } catch (err) { console.error(err); } finally { setIsDetecting(false); }
-    }, () => setIsDetecting(false), { timeout: 10000 });
-  }, [activeDistrict]);
+      const getTier = (p: NewsPost): number => {
+          const pMandal = (p.mandal || p.location || '').toLowerCase();
+          if (pMandal && (pMandal === mandalLow || pMandal.includes(mandalLow))) return 0;
+          if (pMandal && Array.from(siblingSet).some((sib) => pMandal.includes(sib))) return 1;
+          return 2;
+      };
+
+      return [...posts].sort((a, b) => {
+          const tierDiff = getTier(a) - getTier(b);
+          if (tierDiff !== 0) return tierDiff;
+          return b.timestamp - a.timestamp;
+      });
+  }, [activeDistrict, userPreferredMandal]);
 
   const fetchLocalNews = useCallback(async (isInitial = false) => {
     if (fetchingRef.current || (!isInitial && !hasMoreRef.current)) return;
     fetchingRef.current = true;
-    
-    const cacheKey = `alfa_local_news_cache_${activeDistrict || 'none'}`;
 
+    // Direct fresh live server news ONLY — zero news disk/session cache!
     if (isInitial) {
-        const cachedStr = sessionStorage.getItem(cacheKey);
-        if (cachedStr) {
-            try {
-                const cached = JSON.parse(cachedStr);
-                // 3-minute TTL
-                if (Date.now() - cached.timestamp < 3 * 60 * 1000) {
-                    setNews(cached.news);
-                    lastVisible.current = cached.cursor;
-                    setLoading(false);
-                    fetchingRef.current = false;
-                    setHasMore(true); // Assume more might exist
-                    if (onLoadComplete) {
-                        onLoadComplete();
-                        setTimeout(() => { if (feedRef.current) feedRef.current.scrollTop = 0; }, 100);
-                    }
-                    return; // Skip server fetch
-                }
-            } catch (e) {
-                console.error("Cache parse error", e);
-            }
-        }
-
         setLoading(true);
         lastVisible.current = null;
         setHasMore(true);
@@ -177,22 +183,52 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({
     }
 
     try {
-        const newsRef = collection(db, 'news');
-        const FETCH_LIMIT = 10;
+        // 🌐 PHASE 2: Server-Side Edge Cache (/api/feed?type=local) on Page 1 — Zero Firestore Egress!
+        if (isInitial) {
+            const cachedLocal = await fetchCachedLocalFeed({
+                col: targetCollection,
+                state: effectiveState,
+                district: activeDistrict,
+                limit: 15,
+            });
+            if (cachedLocal && cachedLocal.posts.length > 0) {
+                lastVisible.current =
+                    cachedLocal.cursors?.lastTs ??
+                    cachedLocal.posts[cachedLocal.posts.length - 1]?.timestamp ??
+                    null;
+                const sorted = sortByThreeTierLocality(cachedLocal.posts);
+                setNews(sorted);
+                if (cachedLocal.posts.length < 10) setHasMore(false);
+                return;
+            }
+        }
+
+        const newsRef = collection(db, targetCollection);
+        const FETCH_LIMIT = 15;
+        const distAliases = activeDistrict
+            ? Array.from(new Set([activeDistrict, ...getDistrictAliases(activeDistrict)])).slice(0, 10)
+            : [];
+
+        const distConstraint = activeDistrict
+            ? (distAliases.length > 1
+                ? [where('approved', '==', true), where('district', 'in', distAliases)]
+                : [where('approved', '==', true), where('district', '==', activeDistrict)])
+            : [where('approved', '==', true)];
+
         let q = query(
-            newsRef, 
-            ...(activeDistrict ? [where('district', '==', activeDistrict)] : []),
-            orderBy('timestamp', 'desc'), 
+            newsRef,
+            ...distConstraint,
+            orderBy('timestamp', 'desc'),
             limit(FETCH_LIMIT)
         );
 
         if (!isInitial && lastVisible.current) {
             const ts = _firestore.Timestamp.fromMillis(lastVisible.current);
             q = query(
-                newsRef, 
-                ...(activeDistrict ? [where('district', '==', activeDistrict)] : []),
-                orderBy('timestamp', 'desc'), 
-                startAfter(ts), 
+                newsRef,
+                ...distConstraint,
+                orderBy('timestamp', 'desc'),
+                startAfter(ts),
                 limit(FETCH_LIMIT)
             );
         }
@@ -212,13 +248,8 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({
             setNews(prev => {
                 const seenIds = new Set(prev.map((p) => p.id));
                 const uniqueNew = fetchedPosts.filter((p: NewsPost) => !seenIds.has(p.id));
-                uniqueNew.sort((a: NewsPost, b: NewsPost) => b.timestamp - a.timestamp);
-                
-                const finalNews = isInitial ? uniqueNew : [...prev, ...uniqueNew];
-                
-                // Direct server news: Zero disk cache
-                
-                return finalNews;
+                const sortedNew = sortByThreeTierLocality(uniqueNew);
+                return isInitial ? sortedNew : [...prev, ...sortedNew];
             });
 
             if (snap.docs.length < FETCH_LIMIT) setHasMore(false);
@@ -231,14 +262,12 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({
           setTimeout(() => { if (feedRef.current) feedRef.current.scrollTop = 0; }, 100);
         }
     }
-  }, [activeDistrict, onLoadComplete]);
+  }, [activeDistrict, targetCollection, sortByThreeTierLocality, onLoadComplete]);
 
-  useEffect(() => { detectLocation(); }, [detectLocation]);
-  
-  useEffect(() => { 
-    fetchLocalNews(true); 
+  useEffect(() => {
+    fetchLocalNews(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeDistrict]); // Intentionally omitting fetchLocalNews
+  }, [activeDistrict, effectiveState, targetCollection]);
 
   useEffect(() => {
     if (loading || !hasMore) return;
@@ -285,32 +314,38 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({
               {showSelector && (
                   <div className="absolute top-full right-0 mt-3 bg-zinc-900/95 backdrop-blur-2xl border border-white/10 rounded-2xl p-4 shadow-2xl w-56 flex flex-col gap-4 animate-fade-in origin-top-right">
                       <div className="flex flex-col gap-1.5">
-                          <label className="text-[11px] text-gray-400 font-bold uppercase tracking-wider">రాష్ట్రం (State)</label>
+                          <label className="text-[11px] text-gray-400 uppercase tracking-wider">{t(language, 'select_state')}</label>
                           <select 
                               value={tempState} 
-                              onChange={(e) => setTempState(e.target.value as 'AP' | 'TS')}
-                              className="bg-black/50 border border-white/10 text-white text-sm rounded-lg p-2.5 outline-none font-mallanna appearance-none focus:border-red-500 transition-colors"
+                              onChange={(e) => setTempState(e.target.value as StateCode)}
+                              className={`bg-black/50 border border-white/10 text-white text-sm rounded-lg p-2.5 outline-none ${getBodyFontClass(language)} appearance-none focus:border-red-500 transition-colors`}
                           >
-                              <option value="TS" className="text-black bg-white">తెలంగాణ</option>
-                              <option value="AP" className="text-black bg-white">ఆంధ్ర ప్రదేశ్</option>
+                              {ALL_EDITIONS_LIST.map((ed) => (
+                                  <option key={ed.code} value={ed.code} className="text-black bg-white">
+                                      {ed.nativeName} ({ed.name})
+                                  </option>
+                              ))}
                           </select>
                       </div>
                       <div className="flex flex-col gap-1.5">
-                          <label className="text-[11px] text-gray-400 font-bold uppercase tracking-wider">జిల్లా (District)</label>
+                          <label className="text-[11px] text-gray-400 uppercase tracking-wider">{t(language, 'select_district')}</label>
                           <select 
                               value={activeDistrict || ''} 
                               onChange={(e) => {
                                   const val = e.target.value;
                                   setActiveDistrict(val || null);
+                                  localStorage.setItem('user_selected_state', tempState);
                                   if (val) localStorage.setItem('user_local_district', val);
                                   else localStorage.removeItem('user_local_district');
                                   setShowSelector(false);
                               }}
-                              className="bg-black/50 border border-white/10 text-white text-sm rounded-lg p-2.5 outline-none font-mallanna appearance-none focus:border-red-500 transition-colors"
+                              className={`bg-black/50 border border-white/10 text-white text-sm rounded-lg p-2.5 outline-none ${getBodyFontClass(language)} appearance-none focus:border-red-500 transition-colors`}
                           >
-                              <option value="" className="text-black bg-white">అన్ని ప్రాంతాలు</option>
-                              {(tempState === 'TS' ? TS_DISTRICTS : AP_DISTRICTS).sort().map(d => (
-                                  <option key={d} value={d} className="text-black bg-white">{d}</option>
+                              <option value="" className="text-black bg-white">{t(language, 'all_districts_state')}</option>
+                              {[...EDITIONS[tempState].districts].sort().map(d => (
+                                  <option key={d} value={d} className="text-black bg-white">
+                                      {getDistrictDisplayName(d, language)}
+                                  </option>
                               ))}
                           </select>
                       </div>
@@ -323,14 +358,14 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({
       {loading && news.length === 0 ? (
            <div className="flex-1 flex flex-col items-center justify-center bg-black">
               <div className="w-10 h-10 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
-              <p className="mt-4 text-gray-500 font-mallanna text-lg">వార్తలను సేకరిస్తున్నాము...</p>
+              <p className={`mt-4 text-gray-400 ${getBodyFontClass(language)} text-lg`}>{t(language, 'news_preparing')}</p>
            </div>
       ) : (
           <div ref={feedRef} className="flex-1 overflow-y-auto snap-y snap-mandatory no-scrollbar bg-black overscroll-none scroll-smooth">
               {news.length === 0 && !loading ? (
-                  <div className="h-full flex flex-col items-center justify-center text-center p-8 text-gray-500">
-                       <p className="font-mallanna text-xl">ప్రస్తుతం వార్తలు ఏవీ లేవు.</p>
-                       <button onClick={() => setShowSelector(true)} className="mt-4 text-red-600 font-bold underline">జిల్లా మార్చండి</button>
+                  <div className="h-full flex flex-col items-center justify-center text-center p-8 text-gray-400">
+                       <div className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+                       <p className={`${getBodyFontClass(language)} text-lg`}>{t(language, 'news_preparing')}</p>
                   </div>
               ) : (
                   <>

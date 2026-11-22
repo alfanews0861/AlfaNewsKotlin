@@ -4,7 +4,15 @@ import { db, storage, app } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
 import * as _storage from 'firebase/storage';
 import * as _functions from 'firebase/functions';
-import { User, TS_DISTRICTS, AP_DISTRICTS } from '../types';
+import { User } from '../types';
+import {
+    ALL_STATE_CODES,
+    EDITIONS,
+    StateCode,
+    getCollectionForEdition,
+    resolveStateCode,
+    getMandalsForDistrict
+} from '../data/editions';
 
 const { collection, addDoc, serverTimestamp } = _firestore as any;
 const { ref, uploadBytes, getDownloadURL } = _storage as any;
@@ -18,10 +26,11 @@ interface CitizenPostPageProps {
 import { MANDAL_DATA } from '../data/mandalData';
 
 const CitizenPostPage: React.FC<CitizenPostPageProps> = ({ user, onClose }) => {
+    const initialState: StateCode = resolveStateCode((user as any)?.stateCode || (user as any)?.state, (user as any)?.district) || 'TS';
     const [content, setContent] = useState('');
     const [mediaFile, setMediaFile] = useState<File | null>(null);
     const [mediaPreview, setMediaPreview] = useState<string | null>(null);
-    const [selectedState, setSelectedState] = useState('TS');
+    const [selectedState, setSelectedState] = useState<StateCode>(initialState);
     const [selectedDistrict, setSelectedDistrict] = useState('');
     const [selectedMandal, setSelectedMandal] = useState('');
     const [isAnonymous, setIsAnonymous] = useState(false);
@@ -91,18 +100,41 @@ const CitizenPostPage: React.FC<CitizenPostPageProps> = ({ user, onClose }) => {
             }
 
             const processedData = res.data.processed;
+            const edition = EDITIONS[selectedState] || EDITIONS.TS;
+            const primaryLang = edition.primaryLanguage;
+            const targetCollection = getCollectionForEdition(selectedState, primaryLang);
+            const headlineLocal = processedData.headline || content.trim().slice(0, 80);
+            const contentLocal = processedData.content || content.trim();
 
-            await addDoc(collection(db, 'news'), {
-                headline: { telugu: processedData.headline, english: processedData.headlineEn },
-                content: { telugu: processedData.content, english: processedData.contentEn },
+            const headlineMap: Record<string, string> = {
+                telugu: primaryLang === 'te' ? headlineLocal : '',
+                english: primaryLang === 'en' ? headlineLocal : (processedData.headlineEn || ''),
+                local: headlineLocal,
+            };
+            const contentMap: Record<string, string> = {
+                telugu: primaryLang === 'te' ? contentLocal : '',
+                english: primaryLang === 'en' ? contentLocal : (processedData.contentEn || ''),
+                local: contentLocal,
+            };
+            if (primaryLang !== 'te' && primaryLang !== 'en') {
+                headlineMap[primaryLang] = headlineLocal;
+                contentMap[primaryLang] = contentLocal;
+            }
+
+            await addDoc(collection(db, targetCollection), {
+                headline: headlineMap,
+                content: contentMap,
                 mediaUrl,
                 mediaType: mediaFile?.type.startsWith('video') ? 'video' : 'image',
                 location: selectedMandal,
+                mandal: selectedMandal,
                 district: selectedDistrict,
                 state: selectedState,
+                stateCode: selectedState,
+                language: primaryLang,
                 category: processedData.category || 'జనరల్',
                 timestamp: serverTimestamp(),
-                reporter: { id: user.id, name: isAnonymous ? 'అజ్ఞాత పౌరుడు' : user.name },
+                reporter: { id: user.id, name: isAnonymous ? (primaryLang === 'te' ? 'అజ్ఞాత పౌరుడు' : 'Citizen Reporter') : user.name },
                 isCitizen: true,
                 userConfirmed: true
             });
@@ -123,7 +155,10 @@ const CitizenPostPage: React.FC<CitizenPostPageProps> = ({ user, onClose }) => {
     const inputClass = "w-full border-2 border-gray-300 rounded-xl p-4 text-xl !text-black !bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all font-semibold shadow-sm";
     const selectClass = "w-full border-2 border-gray-300 rounded-xl p-4 text-xl !text-black !bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all font-semibold shadow-sm appearance-none cursor-pointer";
     
-    const mandalsToDisplay = MANDAL_DATA[selectedDistrict] || MANDAL_DATA['default'];
+    const activeEdition = EDITIONS[selectedState] || EDITIONS.TS;
+    const mandalsToDisplay = selectedDistrict
+        ? (getMandalsForDistrict(selectedDistrict).length > 0 ? getMandalsForDistrict(selectedDistrict) : (MANDAL_DATA[selectedDistrict] || MANDAL_DATA['default']))
+        : MANDAL_DATA['default'];
 
     return (
         <div className="absolute inset-0 bg-white flex flex-col font-mallanna animate-fade-in text-black z-10">
@@ -149,21 +184,24 @@ const CitizenPostPage: React.FC<CitizenPostPageProps> = ({ user, onClose }) => {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                        <label className={labelClass}>రాష్ట్రం</label>
+                        <label className={labelClass}>రాష్ట్రం (State)</label>
                         <div className="relative">
-                            <select className={selectClass} value={selectedState} onChange={e => { setSelectedState(e.target.value); setSelectedDistrict(''); setSelectedMandal(''); }}>
-                                <option value="TS" className="text-black bg-white">తెలంగాణ</option>
-                                <option value="AP" className="text-black bg-white">ఆంధ్రప్రదేశ్</option>
+                            <select className={selectClass} value={selectedState} onChange={e => { setSelectedState(e.target.value as StateCode); setSelectedDistrict(''); setSelectedMandal(''); }}>
+                                {ALL_STATE_CODES.map(code => (
+                                    <option key={code} value={code} className="text-black bg-white">
+                                        {EDITIONS[code].nameNative} ({EDITIONS[code].nameEn})
+                                    </option>
+                                ))}
                             </select>
                             <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none text-gray-500">▼</div>
                         </div>
                     </div>
                     <div className="space-y-2">
-                        <label className={labelClass}>జిల్లా</label>
+                        <label className={labelClass}>జిల్లా (District)</label>
                         <div className="relative">
                             <select className={selectClass} value={selectedDistrict} onChange={e => { setSelectedDistrict(e.target.value); setSelectedMandal(''); }} required>
                                 <option value="" className="text-black bg-white">జిల్లాను ఎంచుకోండి</option>
-                                {(selectedState === 'TS' ? TS_DISTRICTS : AP_DISTRICTS).map(d => (
+                                {activeEdition.districts.map(d => (
                                     <option key={d} value={d} className="text-black bg-white">{d}</option>
                                 ))}
                             </select>
@@ -173,10 +211,10 @@ const CitizenPostPage: React.FC<CitizenPostPageProps> = ({ user, onClose }) => {
                 </div>
 
                 <div className="space-y-2">
-                    <label className={labelClass}>మండలం / పట్టణం</label>
+                    <label className={labelClass}>{activeEdition.subDistrictLabel} / పట్టణం</label>
                     <div className="relative">
                         <select className={selectClass} value={selectedMandal} onChange={e => setSelectedMandal(e.target.value)} required>
-                            <option value="" className="text-black bg-white">మండలాన్ని ఎంచుకోండి</option>
+                            <option value="" className="text-black bg-white">ఎంచుకోండి</option>
                             {mandalsToDisplay.map(m => (
                                 <option key={m} value={m} className="text-black bg-white">{m}</option>
                             ))}

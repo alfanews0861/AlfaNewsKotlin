@@ -93,8 +93,11 @@ object ShareUtil {
         context: Context,
         postId: String,
         postTitle: String,
-        additionalText: String = ""
+        additionalText: String = "",
+        collectionName: String = "news"
     ) {
+        val targetCol = collectionName.ifBlank { "news" }
+        val colSuffix = if (targetCol != "news") "?col=$targetCol" else ""
         generateDynamicLinkForPost(
             postId = postId,
             postTitle = postTitle,
@@ -122,7 +125,7 @@ object ShareUtil {
                 }
                 try {
                     context.startActivity(chooser)
-            com.alfanews.telugu.services.FirebaseService.db.collection("news")
+            com.alfanews.telugu.services.FirebaseService.db.collection(targetCol)
                 .document(postId)
                 .update("shares", com.google.firebase.firestore.FieldValue.increment(1))
                 } catch (e: Exception) {
@@ -142,6 +145,7 @@ object ShareUtil {
                     append("\n\n")
                     append("https://alfanews.app/news/")
                     append(postId)
+                    append(colSuffix)
                 }
 
                 val fallbackIntent = Intent().apply {
@@ -156,7 +160,7 @@ object ShareUtil {
                 }
                 try {
                     context.startActivity(chooser)
-            com.alfanews.telugu.services.FirebaseService.db.collection("news")
+            com.alfanews.telugu.services.FirebaseService.db.collection(targetCol)
                 .document(postId)
                 .update("shares", com.google.firebase.firestore.FieldValue.increment(1))
                 } catch (ex: Exception) {
@@ -175,15 +179,18 @@ object ShareUtil {
         context: Context,
         postId: String,
         headline: String,
-        customText: String? = null
+        customText: String? = null,
+        collectionName: String = "news"
     ) {
-        val shareUrl = "https://alfanews.app/news/$postId"
+        val targetCol = collectionName.ifBlank { "news" }
+        val colSuffix = if (targetCol != "news") "?col=$targetCol" else ""
+        val shareUrl = "https://alfanews.app/news/$postId$colSuffix"
         val shareText = customText ?: shareUrl
 
         // Pre-warm news card image on Google Edge CDN so WhatsApp loads rich preview instantly
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             try {
-                val conn = (java.net.URL("https://alfanews.app/news-card/$postId.jpg").openConnection() as java.net.HttpURLConnection).apply {
+                val conn = (java.net.URL("https://alfanews.app/news-card/$postId.jpg$colSuffix").openConnection() as java.net.HttpURLConnection).apply {
                     requestMethod = "GET"
                     connectTimeout = 8000
                     readTimeout = 8000
@@ -207,7 +214,7 @@ object ShareUtil {
         }
         try {
             context.startActivity(chooser)
-            com.alfanews.telugu.services.FirebaseService.db.collection("news")
+            com.alfanews.telugu.services.FirebaseService.db.collection(targetCol)
                 .document(postId)
                 .update("shares", com.google.firebase.firestore.FieldValue.increment(1))
         } catch (e: Exception) {

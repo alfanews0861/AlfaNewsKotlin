@@ -1,4 +1,5 @@
 // District and Mandal dataset with English and Telugu names for smart mandal extraction and reporter attribution
+import { EXPANSION_DISTRICT_ALIASES, EXPANSION_SUBDISTRICT_LOOKUP } from './editions';
 
 export const TELUGU_DISTRICT_ALIASES: Record<string, string> = {
     "karimnagar": "కరీంనగర్",
@@ -333,6 +334,21 @@ export function areMandalsMatching(mandal1: string, mandal2: string, district?: 
         }
     }
 
+    // 3b. Match via EXPANSION_SUBDISTRICT_LOOKUP (UP, PB, UK, GA, MN, HP, GJ Tehsils/Talukas/Sub-Divisions)
+    for (const entry of EXPANSION_SUBDISTRICT_LOOKUP) {
+        if (district && entry.district.toLowerCase() !== district.toLowerCase()) continue;
+
+        const entryNorm = entry.subDistrict.toLowerCase().replace(/[\s\-_()]/g, '');
+        const matches1 = entryNorm === norm1 ||
+                         entry.keywords.some(kw => lower1 === kw.toLowerCase() || lower1.includes(kw.toLowerCase()) || kw.toLowerCase().includes(lower1));
+        const matches2 = entryNorm === norm2 ||
+                         entry.keywords.some(kw => lower2 === kw.toLowerCase() || lower2.includes(kw.toLowerCase()) || kw.toLowerCase().includes(lower2));
+
+        if (matches1 && matches2) {
+            return true;
+        }
+    }
+
     // 4. Substring / Urban-Rural match (e.g. "పలాస" in "పలాస - కాశీబుగ్గ" or "నెల్లూరు" in "నెల్లూరు అర్బన్")
     if ((norm1.length >= 3 && norm2.includes(norm1)) || (norm2.length >= 3 && norm1.includes(norm2))) {
         return true;
@@ -387,6 +403,29 @@ export function extractDistrictAndMandal(
                 return {
                     district: resolvedDistrict || item.districtTelugu,
                     mandal: item.mandalTelugu
+                };
+            }
+        }
+    }
+
+    // 3b. Check expansion states (UP, PB, UK, GA, MN, HP, GJ) sub-districts & districts
+    if (!resolvedDistrict) {
+        for (const [alias, canonicalDist] of Object.entries(EXPANSION_DISTRICT_ALIASES)) {
+            if (combinedText.includes(alias.toLowerCase())) {
+                resolvedDistrict = canonicalDist;
+                break;
+            }
+        }
+    }
+    for (const entry of EXPANSION_SUBDISTRICT_LOOKUP) {
+        if (resolvedDistrict && entry.district.toLowerCase() !== resolvedDistrict.toLowerCase()) {
+            continue;
+        }
+        for (const kw of entry.keywords) {
+            if (combinedText.includes(kw.toLowerCase())) {
+                return {
+                    district: resolvedDistrict || entry.district,
+                    mandal: entry.subDistrict
                 };
             }
         }

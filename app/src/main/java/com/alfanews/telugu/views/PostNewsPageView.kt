@@ -230,12 +230,13 @@ fun PostNewsPageView(
     
     LaunchedEffect(postToEdit) {
         if (postToEdit != null) {
-            headline = postToEdit.headline.telugu
-            content = postToEdit.content.telugu
+            val activeLang = prefs.language
+            headline = postToEdit.headline.getForLanguage(activeLang)
+            content = postToEdit.content.getForLanguage(activeLang)
             youtubeUrl = postToEdit.youtubeUrl ?: ""
-            location = postToEdit.location.ifEmpty { user.assignedMandal ?: "" }
+            location = postToEdit.mandal?.takeIf { it.isNotBlank() } ?: postToEdit.location.ifEmpty { user.assignedMandal ?: "" }
             category = postToEdit.categories.firstOrNull { !Constants.ALL_DISTRICTS.contains(it) } ?: postToEdit.category ?: "జిల్లా వార్త"
-            state = postToEdit.state ?: user.state ?: "TS"
+            state = postToEdit.stateCode ?: postToEdit.state ?: user.state ?: prefs.getEffectiveStateCode().code
             district = postToEdit.district ?: user.district ?: ""
             isGlobalNews = postToEdit.isGlobal
             existingMediaUrls = postToEdit.mediaUrls.ifEmpty { if (postToEdit.mediaUrl.isNotEmpty()) listOf(postToEdit.mediaUrl) else emptyList() }
@@ -271,9 +272,17 @@ fun PostNewsPageView(
         }
     }
 
-    val districts = remember(state, user, effectiveRole) {
-        val normState = if (state.equals("TS", ignoreCase = true) || state.equals("Telangana", ignoreCase = true) || state.equals("తెలంగాణ", ignoreCase = true)) "TS" else "AP"
-        val baseDistricts = if (normState == "TS") Constants.TS_DISTRICTS else Constants.AP_DISTRICTS
+    val activeStateCode = remember(state, district) {
+        com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(state, district)
+            ?: prefs.getEffectiveStateCode()
+    }
+    val activeEdition = remember(activeStateCode) {
+        com.alfanews.telugu.utils.EditionRegistry.EDITIONS[activeStateCode]
+            ?: com.alfanews.telugu.utils.EditionRegistry.EDITIONS[com.alfanews.telugu.utils.StateCode.TS]!!
+    }
+
+    val districts = remember(activeStateCode, user, effectiveRole) {
+        val baseDistricts = activeEdition.districts
         if (effectiveRole == UserRole.REGIONAL_INCHARGE) {
             val assigned = user.assignedDistricts
             if (assigned.isNotEmpty()) baseDistricts.filter { assigned.contains(it) } else baseDistricts
@@ -290,15 +299,18 @@ fun PostNewsPageView(
         if (district.isBlank()) emptyList()
         else Constants.MANDAL_DATA[district.trim()]
             ?: Constants.MANDAL_DATA.entries.firstOrNull { it.key.trim().equals(district.trim(), ignoreCase = true) }?.value
-            ?: emptyList()
+            ?: com.alfanews.telugu.utils.EditionRegistry.getSubDistrictsForDistrict(district.trim())
     }
 
     val mandalOptions = remember(mandals) {
         mandals.map { it to it }
     }
 
-    val stateOptions = remember(tsString, apString) {
-        listOf("TS" to tsString, "AP" to apString)
+    val stateOptions = remember {
+        com.alfanews.telugu.utils.EditionRegistry.ALL_EDITIONS_LIST.map { ed ->
+            val label = if (ed.nameNative == ed.nameEn) ed.nameEn else "${ed.nameNative} (${ed.nameEn})"
+            ed.stateCode.code to label
+        }
     }
 
     LaunchedEffect(districts) {
@@ -380,6 +392,45 @@ fun PostNewsPageView(
                     )
                 }
 
+                val resolvedStateCode = com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(state, district)
+                    ?: prefs.getEffectiveStateCode()
+                val resolvedLang = com.alfanews.telugu.utils.EditionRegistry.validateLanguageForState(
+                    resolvedStateCode,
+                    prefs.language
+                )
+                val resolvedConstituency = if (!isGlobalNews && district.isNotBlank() && location.isNotBlank()) {
+                    com.alfanews.telugu.utils.LocationHierarchyManager.getConstituencyForMandal(district, location) ?: ""
+                } else ""
+
+                val headlinePayload = hashMapOf<String, String>(
+                    "local" to headline
+                ).apply {
+                    when (resolvedLang) {
+                        com.alfanews.telugu.models.Language.TELUGU -> put("telugu", headline)
+                        com.alfanews.telugu.models.Language.HINDI -> put("hi", headline)
+                        com.alfanews.telugu.models.Language.PUNJABI -> put("pa", headline)
+                        com.alfanews.telugu.models.Language.GUJARATI -> put("gu", headline)
+                        com.alfanews.telugu.models.Language.ENGLISH -> put("english", headline)
+                    }
+                    if (!containsKey("telugu") && (resolvedStateCode == com.alfanews.telugu.utils.StateCode.AP || resolvedStateCode == com.alfanews.telugu.utils.StateCode.TS)) {
+                        put("telugu", headline)
+                    }
+                }
+                val contentPayload = hashMapOf<String, String>(
+                    "local" to content
+                ).apply {
+                    when (resolvedLang) {
+                        com.alfanews.telugu.models.Language.TELUGU -> put("telugu", content)
+                        com.alfanews.telugu.models.Language.HINDI -> put("hi", content)
+                        com.alfanews.telugu.models.Language.PUNJABI -> put("pa", content)
+                        com.alfanews.telugu.models.Language.GUJARATI -> put("gu", content)
+                        com.alfanews.telugu.models.Language.ENGLISH -> put("english", content)
+                    }
+                    if (!containsKey("telugu") && (resolvedStateCode == com.alfanews.telugu.utils.StateCode.AP || resolvedStateCode == com.alfanews.telugu.utils.StateCode.TS)) {
+                        put("telugu", content)
+                    }
+                }
+
                 val postData = hashMapOf(
                     "mediaUrl" to (finalMediaUrls.firstOrNull() ?: ""),
                     "mediaUrls" to finalMediaUrls,
@@ -387,11 +438,15 @@ fun PostNewsPageView(
                     "mediaTypes" to finalMediaTypes,
                     "youtubeUrl" to youtubeUrl,
                     "location" to location,
+                    "mandal" to location,
+                    "constituency" to resolvedConstituency,
                     "categories" to finalCategories,
                     "reporter" to reporterData,
                     "category" to category,
                     "district" to (if (isGlobalNews) "State" else district),
-                    "state" to state,
+                    "state" to resolvedStateCode.code,
+                    "stateCode" to resolvedStateCode.code,
+                    "language" to resolvedLang.code,
                     "isGlobal" to isGlobalNews,
                     "likes" to (postToEdit?.likes ?: 0),
                     "comments" to (postToEdit?.comments ?: 0),
@@ -400,9 +455,9 @@ fun PostNewsPageView(
                     "verificationReason" to "VERIFIED BY REPORTER",
                     "isReporter" to true,
                     "isCitizen" to false,
-                    "meta" to mapOf("location" to location),
-                    "headline" to mapOf("telugu" to headline),
-                    "content" to mapOf("telugu" to content),
+                    "meta" to mapOf("location" to location, "constituency" to resolvedConstituency),
+                    "headline" to headlinePayload,
+                    "content" to contentPayload,
                     "originalReporterId" to (postToEdit?.originalReporterId?.takeIf { it.isNotBlank() } ?: effectiveAuthUid),
                     "reporterId" to (postToEdit?.reporter?.id?.takeIf { it.isNotBlank() } ?: effectiveAuthUid),
                     "userId" to effectiveAuthUid,
@@ -417,6 +472,8 @@ fun PostNewsPageView(
                     
                     val serverMessage = result["message"] as? String
                     val newPostId = result["postId"] as? String ?: postToEdit?.id ?: ""
+                    val targetCollection = (result["collection"] as? String)?.takeIf { it.isNotBlank() }
+                        ?: com.alfanews.telugu.utils.EditionRegistry.getCollectionForEdition(resolvedStateCode, resolvedLang)
 
                     if (district.isNotBlank() && !isGlobalNews) {
                         try {
@@ -443,6 +500,7 @@ fun PostNewsPageView(
 
                             val finalResult = waitForNewsProcessing(
                                 postId = newPostId,
+                                collectionName = targetCollection,
                                 fallbackHeadline = headline,
                                 fallbackContent = content,
                                 fallbackCategory = category,
@@ -580,7 +638,7 @@ fun PostNewsPageView(
                             }
 
                             if (mandals.isNotEmpty()) {
-                                Dropdown(label = mandalLabel, options = mandalOptions, selected = location, onSelected = { l -> location = l }, modifier = Modifier.fillMaxWidth())
+                                Dropdown(label = activeEdition.subDistrictLabel, options = mandalOptions, selected = location, onSelected = { l -> location = l }, modifier = Modifier.fillMaxWidth())
                             } else {
                                 OutlinedTextField(
                                     value = location,
@@ -836,6 +894,7 @@ internal sealed class NewsSubmissionResult {
 
 internal suspend fun waitForNewsProcessing(
     postId: String,
+    collectionName: String = "news",
     fallbackHeadline: String,
     fallbackContent: String,
     fallbackCategory: String,
@@ -851,7 +910,7 @@ internal suspend fun waitForNewsProcessing(
 
     return withTimeoutOrNull(150000L) {
         suspendCancellableCoroutine { continuation ->
-            val docRef = FirebaseService.db.collection("news").document(postId)
+            val docRef = FirebaseService.db.collection(collectionName).document(postId)
             var registration: ListenerRegistration? = null
             registration = docRef.addSnapshotListener { snapshot, error ->
                 if (error != null) {

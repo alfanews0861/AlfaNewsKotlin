@@ -21,8 +21,20 @@ import {
   ALL_DISTRICTS,
   isDistrictMatch,
 } from '../../utils/newsFilter';
+import {
+  EDITIONS,
+  ALL_STATE_CODES,
+  StateCode,
+  getCollectionForEdition,
+  resolveStateCode,
+  getLocalizedText,
+  getHeadlineFontClass,
+  getBodyFontClass,
+  getStateFirestoreAliases,
+} from '../../data/editions';
 import { updatePageSeo, updateHomeSeo, updateCategorySeo, updateDistrictSeo } from '../../utils/seoManager';
 import { useAppRoute, navigateTo, getCategorySlug, getNewsUrl } from '../../utils/router';
+import { fetchCachedPortalFeed } from '../../services/feedCacheService';
 
 const { collection, query, where, orderBy, limit, getDocs, Timestamp, doc, getDoc, startAfter } = _firestore as any;
 
@@ -70,7 +82,8 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
   const [selectedPost, setSelectedPost] = useState<NewsPost | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchModal, setShowSearchModal] = useState(false);
-  const [districtTab, setDistrictTab] = useState<'AP' | 'TS'>('AP');
+  const [districtTab, setDistrictTab] = useState<StateCode>('AP');
+  const [activeEditionState, setActiveEditionState] = useState<StateCode>('AP');
 
   const [hasMoreCategory, setHasMoreCategory] = useState<boolean>(true);
   const [loadingMoreCategory, setLoadingMoreCategory] = useState<boolean>(false);
@@ -110,9 +123,13 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
           return;
         }
 
-        // 🛡️ Web Session Cache (3-minute TTL): Prevents search bots, crawlers, and rapid tab/back navigation from re-querying 75+ Firestore reads
-        const CACHE_KEY = 'portal_home_posts_v5';
-        const CACHE_TIME_KEY = 'portal_home_posts_time_v5';
+        // Resolve active collection for current edition state (AP/TS -> 'news', expansion states -> 'news_hi'/'news_pa'/'news_gu'/'news_en')
+        const activeEdition = EDITIONS[activeEditionState] || EDITIONS.AP;
+        const activeCollection = getCollectionForEdition(activeEditionState, activeEdition.primaryLanguage);
+
+        // 🛡️ Web Session Cache (3-minute TTL): Per-edition cache prevents bots and rapid back navigation from re-querying Firestore
+        const CACHE_KEY = `portal_home_posts_v6_${activeEditionState}`;
+        const CACHE_TIME_KEY = `portal_home_posts_time_v6_${activeEditionState}`;
         const CACHE_TTL = 3 * 60 * 1000; // 3 minutes fresh cache
 
         try {
@@ -138,10 +155,80 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
           }
         } catch (_) {}
 
-        const newsRef = collection(db, 'news');
-        // ⚡ SERVER FAST PATH (<300ms): Fetch top 25 latest approved news and render IMMEDIATELY
+        const newsRef = collection(db, activeCollection);
+        const isExpansionEdition = activeEditionState !== 'AP' && activeEditionState !== 'TS';
+
+        // 🌐 PHASE 2: Server-Side Edge Cache (/api/feed?type=portal) — Single slim cached snapshot (0 Firestore egress!)
+        const cachedPortal = await fetchCachedPortalFeed({
+          col: activeCollection,
+          state: activeEditionState,
+          limit: 30,
+        });
+        if (!isMounted) return;
+
+        if (cachedPortal && cachedPortal.posts.length > 0) {
+          const portalPosts = cachedPortal.posts;
+          setAllPosts(portalPosts);
+          setLoading(false);
+          try {
+            sessionStorage.setItem(CACHE_KEY, JSON.stringify(portalPosts));
+            sessionStorage.setItem(CACHE_TIME_KEY, String(Date.now()));
+          } catch (_) {}
+
+          if (targetId) {
+            const matched = portalPosts.find((p) => p.id === targetId);
+            if (matched) {
+              setSelectedPost(matched);
+              const targetUrl = getNewsUrl(matched);
+              if (typeof window !== 'undefined' && window.location.pathname !== targetUrl && !window.location.pathname.endsWith(`--${targetId}`)) {
+                window.history.replaceState(null, '', targetUrl);
+              }
+            } else {
+              const urlCol = typeof window !== 'undefined'
+                ? new URLSearchParams(window.location.search).get('col')
+                : null;
+              const lookupOrder = Array.from(new Set([
+                ...(urlCol && ['news', 'news_hi', 'news_pa', 'news_gu', 'news_en'].includes(urlCol) ? [urlCol] : []),
+                activeCollection,
+                'news',
+                'news_hi',
+                'news_pa',
+                'news_gu',
+                'news_en',
+              ]));
+              (async () => {
+                for (const colName of lookupOrder) {
+                  try {
+                    const directDoc: any = await getDoc(doc(db, colName, targetId));
+                    if (directDoc.exists() && isMounted) {
+                      const fetched = {
+                        id: directDoc.id,
+                        ...directDoc.data(),
+                        timestamp: getTs(directDoc.data()),
+                      } as NewsPost;
+                      setSelectedPost(fetched);
+                      setAllPosts((prev) => [fetched, ...prev.filter(p => p.id !== fetched.id)]);
+                      const targetUrl = getNewsUrl(fetched);
+                      if (typeof window !== 'undefined' && window.location.pathname !== targetUrl && !window.location.pathname.endsWith(`--${targetId}`)) {
+                        window.history.replaceState(null, '', targetUrl);
+                      }
+                      break;
+                    }
+                  } catch (_) {}
+                }
+              })();
+            }
+          }
+          return;
+        }
+
+        // ⚡ SERVER FAST PATH FALLBACK (<300ms): Fetch top 20 latest approved news and render IMMEDIATELY
         const genSnap = await getDocs(
-          query(newsRef, where('approved', '==', true), orderBy('timestamp', 'desc'), limit(25))
+          isExpansionEdition
+            ? query(newsRef, where('approved', '==', true), where('stateCode', '==', activeEditionState), orderBy('timestamp', 'desc'), limit(20))
+            : query(newsRef, where('approved', '==', true), orderBy('timestamp', 'desc'), limit(20))
+        ).catch(async () =>
+          getDocs(query(newsRef, where('approved', '==', true), orderBy('timestamp', 'desc'), limit(20)))
         );
 
         if (!isMounted) return;
@@ -175,34 +262,59 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
               window.history.replaceState(null, '', targetUrl);
             }
           } else {
-            getDoc(doc(db, 'news', targetId)).then((directDoc: any) => {
-              if (directDoc.exists() && isMounted) {
-                const fetched = {
-                  id: directDoc.id,
-                  ...directDoc.data(),
-                  timestamp: getTs(directDoc.data()),
-                } as NewsPost;
-                setSelectedPost(fetched);
-                setAllPosts((prev) => [fetched, ...prev.filter(p => p.id !== fetched.id)]);
-                const targetUrl = getNewsUrl(fetched);
-                if (typeof window !== 'undefined' && window.location.pathname !== targetUrl && !window.location.pathname.endsWith(`--${targetId}`)) {
-                  window.history.replaceState(null, '', targetUrl);
-                }
+            const urlCol = typeof window !== 'undefined'
+              ? new URLSearchParams(window.location.search).get('col')
+              : null;
+            const lookupOrder = Array.from(new Set([
+              ...(urlCol && ['news', 'news_hi', 'news_pa', 'news_gu', 'news_en'].includes(urlCol) ? [urlCol] : []),
+              activeCollection,
+              'news',
+              'news_hi',
+              'news_pa',
+              'news_gu',
+              'news_en',
+            ]));
+            (async () => {
+              for (const colName of lookupOrder) {
+                try {
+                  const directDoc: any = await getDoc(doc(db, colName, targetId));
+                  if (directDoc.exists() && isMounted) {
+                    const fetched = {
+                      id: directDoc.id,
+                      ...directDoc.data(),
+                      timestamp: getTs(directDoc.data()),
+                    } as NewsPost;
+                    setSelectedPost(fetched);
+                    setAllPosts((prev) => [fetched, ...prev.filter(p => p.id !== fetched.id)]);
+                    const targetUrl = getNewsUrl(fetched);
+                    if (typeof window !== 'undefined' && window.location.pathname !== targetUrl && !window.location.pathname.endsWith(`--${targetId}`)) {
+                      window.history.replaceState(null, '', targetUrl);
+                    }
+                    break;
+                  }
+                } catch (_) {}
               }
-            }).catch(() => {});
+            })();
           }
         }
 
         // 🚀 Background category blending (non-blocking) - Only fetch on homepage when no specific post is targeted, and not a crawler bot!
         const isCrawlerBot = typeof navigator !== 'undefined' && /bot|google|crawler|spider|robot|crawling/i.test(navigator.userAgent || '');
         if (!targetId && !isCrawlerBot) {
-          Promise.allSettled([
-            getDocs(query(newsRef, where('approved', '==', true), where('categories', 'array-contains', 'Politics'), orderBy('timestamp', 'desc'), limit(10))),
-            getDocs(query(newsRef, where('approved', '==', true), where('categories', 'array-contains', 'Cinema'), orderBy('timestamp', 'desc'), limit(10))),
-            getDocs(query(newsRef, where('approved', '==', true), where('categories', 'array-contains', 'Sports'), orderBy('timestamp', 'desc'), limit(10))),
-            getDocs(query(newsRef, where('state', 'in', ['AP', 'Andhra Pradesh', 'Andhra']), orderBy('timestamp', 'desc'), limit(10))),
-            getDocs(query(newsRef, where('state', 'in', ['TS', 'Telangana', 'TG']), orderBy('timestamp', 'desc'), limit(10))),
-          ]).then((results) => {
+          const blendQueries = isExpansionEdition
+            ? [
+                getDocs(query(newsRef, where('approved', '==', true), where('categories', 'array-contains', 'Politics'), orderBy('timestamp', 'desc'), limit(10))),
+                getDocs(query(newsRef, where('approved', '==', true), where('categories', 'array-contains', 'Sports'), orderBy('timestamp', 'desc'), limit(10))),
+                getDocs(query(newsRef, where('approved', '==', true), where('state', 'in', getStateFirestoreAliases(activeEditionState).slice(0, 10)), orderBy('timestamp', 'desc'), limit(15))),
+              ]
+            : [
+                getDocs(query(newsRef, where('approved', '==', true), where('categories', 'array-contains', 'Politics'), orderBy('timestamp', 'desc'), limit(10))),
+                getDocs(query(newsRef, where('approved', '==', true), where('categories', 'array-contains', 'Cinema'), orderBy('timestamp', 'desc'), limit(10))),
+                getDocs(query(newsRef, where('approved', '==', true), where('categories', 'array-contains', 'Sports'), orderBy('timestamp', 'desc'), limit(10))),
+                getDocs(query(newsRef, where('state', 'in', ['AP', 'Andhra Pradesh', 'Andhra']), orderBy('timestamp', 'desc'), limit(10))),
+                getDocs(query(newsRef, where('state', 'in', ['TS', 'Telangana', 'TG']), orderBy('timestamp', 'desc'), limit(10))),
+              ];
+          Promise.allSettled(blendQueries).then((results) => {
             if (!isMounted) return;
             let added = false;
             results.forEach((res) => {
@@ -242,7 +354,7 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [initialPostId]);
+  }, [initialPostId, activeEditionState]);
 
   // 2. React to URL route changes (Back/Forward, direct URL entry, pushState)
   useEffect(() => {
@@ -348,10 +460,13 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
-  const handleSelectDistrict = useCallback((district: string) => {
+  const handleSelectDistrict = useCallback((district: string, stateCode?: StateCode | string) => {
+    const inferredState = resolveStateCode(stateCode) || resolveStateCode(district) || activeEditionState;
+    setDistrictTab(inferredState);
+    setActiveEditionState(inferredState);
     navigateTo(`/district/${encodeURIComponent(district)}`);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
+  }, [activeEditionState]);
 
   const handleBackFromArticle = useCallback(() => {
     if (window.history.length > 1) {
@@ -381,11 +496,17 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
         }
 
         setCategoryLoading(true);
-        const newsRef = collection(db, 'news');
+        const inferredCatState = resolveStateCode(selectedCategory) || activeEditionState;
+        const editionCfg = EDITIONS[inferredCatState] || EDITIONS.AP;
+        const targetCollection = getCollectionForEdition(inferredCatState, editionCfg.primaryLanguage);
+        const newsRef = collection(db, targetCollection);
         let q: any = null;
 
         const isAp = selectedCategory === 'ఆంధ్రప్రదేశ్' || selectedCategory === 'ap';
         const isTs = selectedCategory === 'తెలంగాణ' || selectedCategory === 'ts';
+        const isExpansionState = ALL_STATE_CODES.some(
+          (sc) => sc !== 'AP' && sc !== 'TS' && (selectedCategory === sc || selectedCategory === EDITIONS[sc].name || selectedCategory === EDITIONS[sc].nativeName)
+        );
         const isDistGroup = selectedCategory === 'జిల్లా వార్తలు' || selectedCategory === 'districts_menu';
         const matchedDist = ALL_DISTRICTS.find((d) => isDistrictMatch(d, selectedCategory));
         const catTags = CATEGORY_QUERY_MAP[selectedCategory];
@@ -394,7 +515,7 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
           try {
             const snapAp = await getDocs(
               query(
-                newsRef,
+                collection(db, 'news'),
                 where('approved', '==', true),
                 where('state', 'in', ['AP', 'Andhra Pradesh', 'Andhra']),
                 orderBy('timestamp', 'desc'),
@@ -416,7 +537,7 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
           try {
             const snapTs = await getDocs(
               query(
-                newsRef,
+                collection(db, 'news'),
                 where('approved', '==', true),
                 where('state', 'in', ['TS', 'Telangana', 'TG']),
                 orderBy('timestamp', 'desc'),
@@ -434,19 +555,33 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
           } catch (err) {
             console.warn('TS query fallback:', err);
           }
-        } else if (matchedDist) {
+        } else if (isExpansionState) {
+          const stCode = resolveStateCode(selectedCategory) || activeEditionState;
+          const stEd = EDITIONS[stCode];
+          const stCol = getCollectionForEdition(stCode, stEd.primaryLanguage);
           q = query(
-            newsRef,
+            collection(db, stCol),
+            where('approved', '==', true),
+            where('state', 'in', getStateFirestoreAliases(stCode).slice(0, 10)),
+            orderBy('timestamp', 'desc'),
+            limit(20)
+          );
+        } else if (matchedDist) {
+          const distState = resolveStateCode(matchedDist) || activeEditionState;
+          const distCol = getCollectionForEdition(distState, EDITIONS[distState].primaryLanguage);
+          q = query(
+            collection(db, distCol),
             where('approved', '==', true),
             where('district', '==', matchedDist),
             orderBy('timestamp', 'desc'),
             limit(20)
           );
         } else if (isDistGroup) {
+          const tabCol = getCollectionForEdition(districtTab, EDITIONS[districtTab].primaryLanguage);
           q = query(
-            newsRef,
+            collection(db, tabCol),
             where('approved', '==', true),
-            where('state', '==', districtTab),
+            where('state', 'in', getStateFirestoreAliases(districtTab).slice(0, 10)),
             orderBy('timestamp', 'desc'),
             limit(20)
           );
@@ -517,11 +652,15 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
     try {
       const oldestPost = categoryPosts[categoryPosts.length - 1];
       const oldestTs = oldestPost?.timestamp || Date.now();
-      const newsRef = collection(db, 'news');
+      const catStateCode = resolveStateCode(selectedCategory) || activeEditionState;
+      const targetCol = getCollectionForEdition(catStateCode, EDITIONS[catStateCode]?.primaryLanguage);
+      const newsRef = collection(db, targetCol);
 
       const isAp = selectedCategory === 'ఆంధ్రప్రదేశ్' || selectedCategory === 'ap';
       const isTs = selectedCategory === 'తెలంగాణ' || selectedCategory === 'ts';
-      const matchedDist = ALL_DISTRICTS.find((d) => isDistrictMatch(d, selectedCategory));
+      const resolvedState = resolveStateCode(selectedCategory);
+      const allKnownDistricts = ALL_STATE_CODES.flatMap((c) => EDITIONS[c].districts);
+      const matchedDist = allKnownDistricts.find((d) => isDistrictMatch(d, selectedCategory)) || ALL_DISTRICTS.find((d) => isDistrictMatch(d, selectedCategory));
       const catTags = CATEGORY_QUERY_MAP[selectedCategory];
 
       let fetched: NewsPost[] = [];
@@ -544,6 +683,18 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
             newsRef,
             where('approved', '==', true),
             where('state', 'in', ['TS', 'Telangana', 'TG']),
+            where('timestamp', '<', oldestTs),
+            orderBy('timestamp', 'desc'),
+            limit(30)
+          )
+        );
+        fetched = snap.docs.map((d: any) => ({ id: d.id, ...d.data(), timestamp: getTs(d.data()) } as NewsPost));
+      } else if (resolvedState && resolvedState !== 'AP' && resolvedState !== 'TS') {
+        const snap = await getDocs(
+          query(
+            newsRef,
+            where('approved', '==', true),
+            where('stateCode', '==', resolvedState),
             where('timestamp', '<', oldestTs),
             orderBy('timestamp', 'desc'),
             limit(30)
@@ -600,7 +751,7 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
     } finally {
       setLoadingMoreCategory(false);
     }
-  }, [categoryPosts, hasMoreCategory, loadingMoreCategory, mergePosts, selectedCategory]);
+  }, [activeEditionState, categoryPosts, hasMoreCategory, loadingMoreCategory, mergePosts, selectedCategory]);
 
   // Load More handler for Homepage Feed (Pagination through database)
   const handleLoadMoreHome = useCallback(async () => {
@@ -609,7 +760,8 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
     try {
       const oldestPost = allPosts[allPosts.length - 1];
       const oldestTs = oldestPost?.timestamp || Date.now();
-      const newsRef = collection(db, 'news');
+      const activeCol = getCollectionForEdition(activeEditionState, EDITIONS[activeEditionState]?.primaryLanguage);
+      const newsRef = collection(db, activeCol);
 
       const snap = await getDocs(
         query(
@@ -638,13 +790,15 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
     } finally {
       setLoadingMoreHome(false);
     }
-  }, [allPosts, hasMoreHome, loadingMoreHome, mergePosts]);
+  }, [activeEditionState, allPosts, hasMoreHome, loadingMoreHome, mergePosts]);
 
   // Identify if in district mode
   const isDistrictCategory = selectedCategory === 'జిల్లా వార్తలు' || selectedCategory === 'districts_menu';
 
   // Identify state for district view breadcrumbs
   const districtState = useMemo(() => {
+    const resolved = resolveStateCode(selectedCategory);
+    if (resolved) return resolved;
     if (AP_DISTRICTS.includes(selectedCategory)) return 'AP';
     if (TS_DISTRICTS.includes(selectedCategory)) return 'TS';
     if (isDistrictCategory) return districtTab;
@@ -789,7 +943,13 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
                     {(districtState || isDistrictCategory) && (
                       <>
                         <span>•</span>
-                        <span>{districtTab === 'TS' ? 'తెలంగాణ జిల్లాలు' : 'ఆంధ్రప్రదేశ్ జిల్లాలు'}</span>
+                        <span>
+                          {districtTab === 'TS'
+                            ? 'తెలంగాణ జిల్లాలు'
+                            : districtTab === 'AP'
+                              ? 'ఆంధ్రప్రదేశ్ జిల్లాలు'
+                              : `${EDITIONS[districtTab]?.nativeName || districtTab} Districts`}
+                        </span>
                       </>
                     )}
                   </div>
@@ -816,32 +976,33 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
                 </button>
               </div>
 
-              {/* District Switcher Pills (If in a district view or 'జిల్లా వార్తలు') */}
+              {/* District Switcher Pills (All 9 States) */}
               {(districtState || isDistrictCategory) && (
                 <div className="mt-4 pt-3 border-t border-gray-100 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setDistrictTab('AP')}
-                      className={`text-xs px-3 py-1.5 rounded-lg font-ramabhadra transition-all ${
-                        districtTab === 'AP' ? 'bg-red-600 text-white shadow-sm' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                    >
-                      ఆంధ్రప్రదేశ్ ({AP_DISTRICTS.length} జిల్లాలు)
-                    </button>
-                    <button
-                      onClick={() => setDistrictTab('TS')}
-                      className={`text-xs px-3 py-1.5 rounded-lg font-ramabhadra transition-all ${
-                        districtTab === 'TS' ? 'bg-red-600 text-white shadow-sm' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                    >
-                      తెలంగాణ ({TS_DISTRICTS.length} జిల్లాలు)
-                    </button>
+                  <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+                    {ALL_STATE_CODES.map((sc) => {
+                      const ed = EDITIONS[sc];
+                      return (
+                        <button
+                          key={sc}
+                          onClick={() => {
+                            setDistrictTab(sc);
+                            setActiveEditionState(sc);
+                          }}
+                          className={`text-xs px-3 py-1.5 rounded-lg font-ramabhadra whitespace-nowrap transition-all ${
+                            districtTab === sc ? 'bg-red-600 text-white shadow-sm' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          }`}
+                        >
+                          {ed.nativeName} ({ed.districts.length})
+                        </button>
+                      );
+                    })}
                   </div>
                   <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
-                    {(districtTab === 'AP' ? AP_DISTRICTS : TS_DISTRICTS).map((d) => (
+                    {(EDITIONS[districtTab]?.districts || AP_DISTRICTS).map((d) => (
                       <button
                         key={d}
-                        onClick={() => handleSelectDistrict(d)}
+                        onClick={() => handleSelectDistrict(d, districtTab)}
                         className={`text-xs px-2.5 py-1 rounded-lg font-ramabhadra whitespace-nowrap transition-all ${
                           selectedCategory === d
                             ? 'bg-red-600 text-white shadow-sm'
@@ -871,7 +1032,9 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
                   <>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
                     {categoryPosts.slice(categoryPosts.length >= 3 ? 7 : 0).map((post) => {
-                      const hLine = post.headline?.telugu || post.headline?.english || '';
+                      const postLang = (post.language as any) || EDITIONS[districtTab]?.primaryLanguage || 'te';
+                      const hLine = getLocalizedText(post.headline, postLang);
+                      const bodySnippet = getLocalizedText(post.content, postLang) || getLocalizedText(post.fullStory, postLang);
                       const img = post.mediaUrl || post.mediaUrls?.[0] || FALLBACK_NEWS_IMAGE;
                       return (
                         <div
@@ -903,12 +1066,12 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
                                 )}
                               </div>
 
-                              <h3 className="font-ramabhadra text-base text-gray-900 group-hover:text-red-600 transition-colors line-clamp-2 leading-snug">
+                              <h3 className={`${getHeadlineFontClass(postLang)} text-base text-gray-900 group-hover:text-red-600 transition-colors line-clamp-2 leading-snug`}>
                                 {hLine}
                               </h3>
 
-                              <p className="font-mallanna text-xs sm:text-sm text-gray-600 line-clamp-2 mt-1.5 leading-relaxed">
-                                {post.content?.telugu || post.fullStory?.telugu || ''}
+                              <p className={`${getBodyFontClass(postLang)} text-xs sm:text-sm text-gray-600 line-clamp-2 mt-1.5 leading-relaxed`}>
+                                {bodySnippet}
                               </p>
                             </div>
                           </div>

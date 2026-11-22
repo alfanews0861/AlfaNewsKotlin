@@ -1593,3 +1593,51 @@ export async function generateImageWithRetry(
     console.error(`[IMAGE_GEN_ERROR] Image generation failed after trying ${promptsToTry.length} prompt tier(s).`);
     return null;
 }
+
+export const NEWS_PROCESSING_QUEUE_COLLECTION = "news_processing_queue";
+
+/**
+ * Enqueues a news document for background Phase 2 video upload or explicit reprocessing
+ * without keeping an expensive 2GiB onDocumentWritten trigger attached to news/{postId}.
+ *
+ * Loop-safety:
+ * - VIDEO jobs use a deterministic document ID (`video_${postId}`) with `.create()` so
+ *   duplicate video upload jobs cannot be queued concurrently.
+ * - Queue documents are deleted upon completion inside `onNewsReprocessRequested` (an
+ *   `onDocumentCreated` trigger, so deletions never re-trigger it).
+ */
+export async function enqueueNewsProcessing(
+    postId: string,
+    phase: "VIDEO" | "REPROCESS",
+    reason: string,
+    forceReprocess: boolean = false
+): Promise<boolean> {
+    if (!postId || !postId.trim()) return false;
+    const cleanPostId = postId.trim();
+    const queueCol = admin.firestore().collection(NEWS_PROCESSING_QUEUE_COLLECTION);
+    const payload = {
+        postId: cleanPostId,
+        phase,
+        reason,
+        forceReprocess,
+        requestedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    if (phase === "VIDEO") {
+        const docRef = queueCol.doc(`video_${cleanPostId}`);
+        try {
+            await docRef.create(payload);
+            return true;
+        } catch (err: any) {
+            if (err?.code === 6 || String(err?.message || "").includes("ALREADY_EXISTS")) {
+                console.log(`[QUEUE_DEDUP] Video job already queued for ${cleanPostId}, skipping duplicate.`);
+                return false;
+            }
+            throw err;
+        }
+    }
+
+    await queueCol.add(payload);
+    return true;
+}
+

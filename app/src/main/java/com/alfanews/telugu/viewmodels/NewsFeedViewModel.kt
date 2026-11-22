@@ -207,7 +207,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         } else {
             viewModelScope.launch {
                 try {
-                    val doc = FirebaseService.db.collection("news").document(postId).get().await()
+                    val doc = FirebaseService.db.collection(resolveActiveCollection()).document(postId).get().await()
                     if (doc.exists()) {
                         val post = mapDocumentToNewsPost(doc)
                         if (post != null) {
@@ -227,6 +227,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private var prefCursor: DocumentSnapshot? = null
     private var mainCursor: DocumentSnapshot? = null
     private var localCursor: DocumentSnapshot? = null
+    private var prefCursorTs: Long? = null
+    private var mainCursorTs: Long? = null
+    private var localCursorTs: Long? = null
     @Volatile private var isFetching = false
     val isFetchingState: Boolean get() = isFetching
     @Volatile private var lastFetchStartTime: Long = 0L
@@ -251,23 +254,43 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         return aliases.any { it.equals(postDistrict, ignoreCase = true) || postDistrict.contains(it, ignoreCase = true) || it.contains(postDistrict, ignoreCase = true) }
     }
 
+    private fun resolveActiveStateCode(district: String? = _userDistrict.value): com.alfanews.telugu.utils.StateCode {
+        return com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(prefs.selectedState, district)
+            ?: prefs.getEffectiveStateCode()
+    }
+
+    private fun resolveActiveCollection(district: String? = _userDistrict.value): String {
+        val stateCode = resolveActiveStateCode(district)
+        return com.alfanews.telugu.utils.EditionRegistry.getCollectionForEdition(stateCode, currentLanguage)
+    }
+
     /**
-     * 🛡️ STRICT HOME FEED FILTERING:
-     * - State Match: AP users see AP state news, TS users see TS state news.
-     * - General/Universal News: Allowed (National, International, Cinema, Sports, Politics, Business, Tech, Crime, Education, Health, Devotional, Lifestyle, etc.).
+     * 🛡️ STRICT HOME FEED FILTERING (9-State & AP/TS Strict Isolation):
+     * - Own State + National/Universal ONLY: AP users NEVER see TS posts and TS users NEVER see AP posts (even if isGlobal=true).
+     * - Universal News: National, International, Cinema, Sports, Politics (national), Business, Tech, Crime, Education, Health, Devotional, Lifestyle.
      * - Local District News: ONLY allowed if it matches the user's OWN district.
      * - OTHER DISTRICTS' local news are STRICTLY FILTERED OUT!
      */
     private fun isPostAllowedForHomeFeed(post: NewsPost, userDistrict: String?, userState: String?): Boolean {
-        // 1. State check: TS users shouldn't see AP state news and vice versa (unless universal)
-        if (!userState.isNullOrBlank() && userState != "BOTH") {
-            val postState = Constants.mapDistrictToState(post.state) ?: Constants.mapDistrictToState(post.district)
-            if (postState != null && postState != userState) {
-                val isStrictOtherState = post.state?.equals(if (userState == "Telangana") "Andhra Pradesh" else "Telangana", ignoreCase = true) == true ||
-                        post.district?.equals(if (userState == "Telangana") "Andhra Pradesh" else "Telangana", ignoreCase = true) == true ||
-                        post.district?.equals(if (userState == "Telangana") "AndhraPradesh" else "Telangana", ignoreCase = true) == true ||
-                        post.district?.equals(if (userState == "Telangana") "AP" else "TS", ignoreCase = true) == true
-                if (isStrictOtherState && !post.isGlobal) {
+        val userStateCode = com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(
+            prefs.selectedState ?: userState,
+            userDistrict
+        )
+
+        // 1. Strict State Isolation across all 9 states (including AP vs TS, regardless of isGlobal)
+        if (userStateCode != null && userState != "BOTH") {
+            val postStateCode = com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(
+                post.stateCode ?: post.state,
+                post.district
+            )
+            if (postStateCode != null && postStateCode != userStateCode) {
+                return false
+            }
+            // Fallback inference for legacy AP/TS posts lacking explicit state/district tags
+            if (postStateCode == null && (userStateCode == com.alfanews.telugu.utils.StateCode.AP || userStateCode == com.alfanews.telugu.utils.StateCode.TS)) {
+                val inferred = inferStateFromPost(post)
+                val inferredCode = com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(inferred, null)
+                if (inferredCode != null && inferredCode != userStateCode) {
                     return false
                 }
             }
@@ -275,9 +298,12 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
         // 2. Special posts (Greeting, History, Cartoon)
         if (post.type == "greeting" || post.type == "history" || post.type == "cartoon") {
-            if (post.type == "cartoon" && !userState.isNullOrBlank() && userState != "BOTH") {
-                val cartoonState = Constants.mapDistrictToState(post.state) ?: Constants.mapDistrictToState(post.district)
-                if (cartoonState != null && cartoonState != userState) return false
+            if (post.type == "cartoon" && userStateCode != null && userState != "BOTH") {
+                val cartoonStateCode = com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(
+                    post.stateCode ?: post.state,
+                    post.district
+                )
+                if (cartoonStateCode != null && cartoonStateCode != userStateCode) return false
             }
             return true
         }
@@ -384,28 +410,116 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 prefCursor = null
                 mainCursor = null
                 localCursor = null
+                prefCursorTs = null
+                mainCursorTs = null
+                localCursorTs = null
                 _hasMore.value = true
                 consecutiveEmptyLoads = 0
 
-                val initialTargetPost = if (!initialPostId.isNullOrBlank()) {
-                    try {
-                        val doc = FirebaseService.db.collection("news").document(initialPostId).get().await()
-                        if (doc.exists()) mapDocumentToNewsPost(doc) else null
-                    } catch (_: Exception) { null }
-                } else null
+                val activeStateCode = resolveActiveStateCode(district)
+                val collectionName = com.alfanews.telugu.utils.EditionRegistry.getCollectionForEdition(activeStateCode, currentLanguage)
+                val newsRef = FirebaseService.db.collection(collectionName)
 
-                val newsRef = FirebaseService.db.collection("news")
+                val initialTargetDeferred = async(Dispatchers.IO) {
+                    if (!initialPostId.isNullOrBlank()) {
+                        try {
+                            val doc = newsRef.document(initialPostId).get().await()
+                            if (doc.exists()) mapDocumentToNewsPost(doc) else null
+                        } catch (_: Exception) { null }
+                    } else null
+                }
+
+                // 🚀 PARALLEL SURVEY FETCH: Run concurrently so it never adds serial latency
+                val surveyDeferred = async(Dispatchers.IO) {
+                    if (initialPostId == null) {
+                        try {
+                            fetchActiveSurvey()
+                        } catch (_: Exception) { null }
+                    } else null
+                }
+
+                // 🌐 PHASE 2: Server-Side CDN Edge Cache (/api/feed?type=home) — ~25 KB Gzipped, 0 Firestore Internet Egress, 0 device disk cache!
+                val edgeFeed = com.alfanews.telugu.services.FeedEdgeCacheService.fetchHomeFeed(
+                    collection = collectionName,
+                    stateCode = activeStateCode.name,
+                    district = district,
+                    language = currentLanguage,
+                    limit = 25
+                )
+
+                val initialTargetPost = initialTargetDeferred.await()
+
+                if (edgeFeed != null) {
+                    val edgeMergedMain = (edgeFeed.statePosts + edgeFeed.main).distinctBy { it.id }
+                    val edgeFilteredMain = edgeMergedMain.filter { isPostAllowedForHomeFeed(it, district, userState) }
+                    val edgeFilteredDistrict = edgeFeed.local.filter { isPostAllowedForHomeFeed(it, district, userState) }
+
+                    if (edgeFilteredMain.isNotEmpty() || edgeFilteredDistrict.isNotEmpty()) {
+                        mainCursorTs = edgeFeed.mainLastTs
+                        localCursorTs = edgeFeed.localLastTs
+                        prefCursorTs = edgeFeed.mainLastTs
+
+                        val edgeGreeting = edgeFeed.greeting?.takeIf {
+                            initialPostId == null && prefs.getPostViewCount(it.id) < 2
+                        }
+                        val edgeSurvey = surveyDeferred.await()
+
+                        val edgeBlended = withContext(Dispatchers.Default) {
+                            val fastCandidates = edgeFilteredMain.filter {
+                                it.type != "greeting" && it.type != "history" && it.type != "cartoon" && it.type != "survey"
+                            }
+                            val anchors = com.alfanews.telugu.utils.NewsFeedBlender.pickFastPathTop3(
+                                candidates = fastCandidates,
+                                userDistrict = district,
+                                relevanceScorer = { post -> try { AnalyticsService.calculateRelevanceScore(post) } catch (_: Exception) { post.qualityScore } },
+                                count = 3
+                            )
+                            rankAndBlendPosts(
+                                pref = emptyList(),
+                                main = edgeFilteredMain,
+                                local = edgeFilteredDistrict,
+                                isFirstPage = true,
+                                userDistrict = district,
+                                userState = userState,
+                                activeSurvey = edgeSurvey,
+                                fastPathAnchors = anchors
+                            )
+                        }
+
+                        val pin = pinnedPost ?: initialTargetPost
+                        val finalPosts = (listOfNotNull(pin, edgeGreeting) + edgeBlended).distinctBy { it.id }
+
+                        if (_news.value.isNotEmpty() && !isExplicitScrollToTop) {
+                            val currentNews = _news.value
+                            val olderRemaining = currentNews.filter { cur ->
+                                finalPosts.none { it.id == cur.id } && (cur.id == pin?.id || isPostAllowedForHomeFeed(cur, district, userState))
+                            }
+                            _news.value = (finalPosts + olderRemaining).distinctBy { it.id }
+                        } else {
+                            _news.value = finalPosts
+                        }
+
+                        _hasMore.value = (mainCursorTs != null || finalPosts.size >= 10)
+                        lastRefreshTimeLong = System.currentTimeMillis()
+                        _lastRefreshTime.value = lastRefreshTimeLong
+                        if ((initialPostId == null && isExplicitScrollToTop) || pin != null) {
+                            _shouldScrollToTop.value = true
+                        }
+                        Log.d("NewsFeedVM", "🌐 Edge CDN Feed loaded ${finalPosts.size} posts (0 Firestore egress)")
+                        return@launch
+                    }
+                }
+
                 val shouldRunFastPath = _news.value.isEmpty() || forceRefresh
 
-                // 🚀 LAUNCH ALL QUERIES IN PARALLEL AT T=0ms (Zero serial waterfall lag!):
-                // Fast Path resolves first (< 250ms) and paints Top 3 immediately while main/district/pref are already in flight!
+                // 🚀 FIRESTORE FALLBACK (Phase 1 Bounded Limits — 70%+ egress reduction vs previous 125-doc cold start):
                 val fastDeferred = async(Dispatchers.IO) {
                     if (shouldRunFastPath) {
                         try {
                             withTimeoutOrNull(3000L) {
                                 newsRef.whereEqualTo("approved", true)
                                     .orderBy("timestamp", Query.Direction.DESCENDING)
-                                    .limit(10)
+                                    .limit(6)
                                     .get().await()
                             }
                         } catch (_: Exception) { null }
@@ -414,13 +528,30 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
                 val primaryQuery = newsRef.whereEqualTo("approved", true)
                     .orderBy("timestamp", Query.Direction.DESCENDING)
-                    .limit(60)
+                    .limit(20)
 
                 val mainDeferred = async(Dispatchers.IO) {
                     try {
                         kotlinx.coroutines.withTimeoutOrNull(6000L) { primaryQuery.get().await() }
                     } catch (e: Exception) {
                         Log.w("NewsFeedVM", "Primary query error: ${e.message}")
+                        null
+                    }
+                }
+
+                // 🏛️ OWN-STATE STREAM: Parallel query ensuring strong own-state coverage for AP, TS & all 7 expansion states
+                val stateDeferred = async(Dispatchers.IO) {
+                    try {
+                        val stateAliases = com.alfanews.telugu.utils.EditionRegistry.getStateFirestoreAliases(activeStateCode)
+                        kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                            newsRef.whereEqualTo("approved", true)
+                                .whereIn("state", stateAliases)
+                                .orderBy("timestamp", Query.Direction.DESCENDING)
+                                .limit(10)
+                                .get().await()
+                        }
+                    } catch (e: Exception) {
+                        Log.w("NewsFeedVM", "State query error: ${e.message}")
                         null
                     }
                 }
@@ -438,13 +569,13 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                     newsRef.whereEqualTo("approved", true)
                                         .whereIn("district", aliases)
                                         .orderBy("timestamp", Query.Direction.DESCENDING)
-                                        .limit(15)
+                                        .limit(10)
                                         .get().await()
                                 } else {
                                     newsRef.whereEqualTo("approved", true)
                                         .whereEqualTo("district", aliases.firstOrNull() ?: district)
                                         .orderBy("timestamp", Query.Direction.DESCENDING)
-                                        .limit(15)
+                                        .limit(10)
                                         .get().await()
                                 }
                             }
@@ -462,7 +593,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                 newsRef.whereEqualTo("approved", true)
                                     .whereArrayContainsAny("categories", preferredCats)
                                     .orderBy("timestamp", Query.Direction.DESCENDING)
-                                    .limit(20)
+                                    .limit(10)
                                     .get().await()
                             }
                         } catch (_: Exception) { null }
@@ -478,14 +609,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     } else null
                 }
 
-                // 🚀 PARALLEL SURVEY FETCH: Run concurrently with main queries to eliminate 500-1500ms serial lag
-                val surveyDeferred = async(Dispatchers.IO) {
-                    if (initialPostId == null) {
-                        try {
-                            fetchActiveSurvey()
-                        } catch (_: Exception) { null }
-                    } else null
-                }
+                // surveyDeferred already launched in parallel above before Edge CDN / Firestore split
 
                 // ⚡ SERVER FAST PATH (< 300ms): Await lightweight 10-doc query FIRST & display Top 3 immediately
                 // Anchoring these exact 3 posts prevents UI flicker and keeps Fast Path 3 intact while 40/30/30 blends from index 3+
@@ -523,12 +647,14 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 }
 
                 val mainSnap = mainDeferred.await()
+                val stateSnap = stateDeferred.await()
                 val districtSnap = districtDeferred.await()
                 val prefSnap = prefDeferred.await()
                 val initialGreeting = greetingDeferred.await()
                 val initialSurvey = surveyDeferred.await()
 
                 var freshPosts = mainSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
+                val statePosts = stateSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
                 val districtPosts = districtSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
                 val prefPosts = prefSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
 
@@ -553,8 +679,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     prefCursor = prefSnap.documents.lastOrNull()
                 }
 
-                // 4. 🎯 STRICT DISTRICT FILTERING & TRUE 40/30/30 USER-INTEREST BLENDING (After Fast Path 3!)
-                val filteredMain = freshPosts.filter { isPostAllowedForHomeFeed(it, district, userState) }
+                // 4. 🎯 STRICT STATE & DISTRICT FILTERING + TRUE 40/30/30 USER-INTEREST BLENDING (After Fast Path 3!)
+                val mergedMain = (statePosts + freshPosts).distinctBy { it.id }
+                val filteredMain = mergedMain.filter { isPostAllowedForHomeFeed(it, district, userState) }
                 val filteredDistrict = districtPosts.filter { isPostAllowedForHomeFeed(it, district, userState) }
                 val filteredPref = prefPosts.filter { isPostAllowedForHomeFeed(it, district, userState) }
 
@@ -628,58 +755,65 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 } catch (e: Exception) {
                     emptyList<String>()
                 }
-                val shouldFetchPref = preferredCats.isNotEmpty() && (prefCursor != null)
-                val shouldFetchLocal = localCursor != null && !district.isNullOrBlank()
-                val shouldFetchMain = mainCursor != null
-                val newsRef = FirebaseService.db.collection("news")
+                val shouldFetchPref = preferredCats.isNotEmpty() && (prefCursor != null || prefCursorTs != null)
+                val shouldFetchLocal = (localCursor != null || localCursorTs != null) && !district.isNullOrBlank()
+                val shouldFetchMain = mainCursor != null || mainCursorTs != null
+                val newsRef = FirebaseService.db.collection(resolveActiveCollection(district))
 
                 val prefBatchDeferred = async(Dispatchers.IO) {
-                    if (shouldFetchPref && prefCursor != null) {
+                    if (shouldFetchPref) {
                         try {
-                            val q = newsRef.whereEqualTo("approved", true)
+                            val baseQ = newsRef.whereEqualTo("approved", true)
                                 .whereArrayContainsAny("categories", preferredCats)
                                 .orderBy("timestamp", Query.Direction.DESCENDING)
-                                .startAfter(prefCursor!!)
-                                .limit(12)
-                            kotlinx.coroutines.withTimeoutOrNull(5000L) { q.get().await() }
+                            val q = when {
+                                prefCursor != null -> baseQ.startAfter(prefCursor!!).limit(10)
+                                prefCursorTs != null -> baseQ.startAfter(com.google.firebase.Timestamp(java.util.Date(prefCursorTs!!))).limit(10)
+                                else -> null
+                            }
+                            if (q != null) kotlinx.coroutines.withTimeoutOrNull(5000L) { q.get().await() } else null
                         } catch (_: Exception) { null }
                     } else null
                 }
 
                 val localBatchDeferred = async(Dispatchers.IO) {
-                    if (shouldFetchLocal && localCursor != null && !district.isNullOrBlank()) {
+                    if (shouldFetchLocal && !district.isNullOrBlank()) {
                         try {
                             val aliases = Constants.getDistrictAliases(district)
                                 .map { it.trim() }
                                 .filter { it.isNotBlank() }
                                 .distinct()
                                 .take(10)
-                            val q = if (aliases.size > 1) {
+                            val baseQ = if (aliases.size > 1) {
                                 newsRef.whereEqualTo("approved", true)
                                     .whereIn("district", aliases)
                                     .orderBy("timestamp", Query.Direction.DESCENDING)
-                                    .startAfter(localCursor!!)
-                                    .limit(10)
                             } else {
                                 newsRef.whereEqualTo("approved", true)
                                     .whereEqualTo("district", aliases.firstOrNull() ?: district)
                                     .orderBy("timestamp", Query.Direction.DESCENDING)
-                                    .startAfter(localCursor!!)
-                                    .limit(10)
                             }
-                            kotlinx.coroutines.withTimeoutOrNull(5000L) { q.get().await() }
+                            val q = when {
+                                localCursor != null -> baseQ.startAfter(localCursor!!).limit(10)
+                                localCursorTs != null -> baseQ.startAfter(com.google.firebase.Timestamp(java.util.Date(localCursorTs!!))).limit(10)
+                                else -> null
+                            }
+                            if (q != null) kotlinx.coroutines.withTimeoutOrNull(5000L) { q.get().await() } else null
                         } catch (_: Exception) { null }
                     } else null
                 }
 
                 val mainBatchDeferred = async(Dispatchers.IO) {
-                    if (shouldFetchMain && mainCursor != null) {
+                    if (shouldFetchMain) {
                         try {
-                            val q = newsRef.whereEqualTo("approved", true)
+                            val baseQ = newsRef.whereEqualTo("approved", true)
                                 .orderBy("timestamp", Query.Direction.DESCENDING)
-                                .startAfter(mainCursor!!)
-                                .limit(35)
-                            kotlinx.coroutines.withTimeoutOrNull(6000L) { q.get().await() }
+                            val q = when {
+                                mainCursor != null -> baseQ.startAfter(mainCursor!!).limit(20)
+                                mainCursorTs != null -> baseQ.startAfter(com.google.firebase.Timestamp(java.util.Date(mainCursorTs!!))).limit(20)
+                                else -> null
+                            }
+                            if (q != null) kotlinx.coroutines.withTimeoutOrNull(6000L) { q.get().await() } else null
                         } catch (_: Exception) { null }
                     } else null
                 }
@@ -690,12 +824,15 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
                 if (prefSnap?.documents?.isNotEmpty() == true) {
                     prefCursor = prefSnap.documents.lastOrNull()
+                    prefCursorTs = null
                 }
                 if (localSnap?.documents?.isNotEmpty() == true) {
                     localCursor = localSnap.documents.lastOrNull()
+                    localCursorTs = null
                 }
                 if (mainSnap?.documents?.isNotEmpty() == true) {
                     mainCursor = mainSnap.documents.lastOrNull()
+                    mainCursorTs = null
                 }
 
                 val prefBatch = prefSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
@@ -728,7 +865,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         consecutiveEmptyLoads = 0
                     } else {
                         consecutiveEmptyLoads += 1
-                        if (mainCursor == null && prefCursor == null && localCursor == null) {
+                        if (mainCursor == null && prefCursor == null && localCursor == null &&
+                            mainCursorTs == null && prefCursorTs == null && localCursorTs == null) {
                             _hasMore.value = false
                         } else if (consecutiveEmptyLoads >= 6) {
                             _hasMore.value = false
@@ -736,7 +874,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     }
                 } else {
                     consecutiveEmptyLoads += 1
-                    if (mainCursor == null && prefCursor == null && localCursor == null) {
+                    if (mainCursor == null && prefCursor == null && localCursor == null &&
+                        mainCursorTs == null && prefCursorTs == null && localCursorTs == null) {
                         _hasMore.value = false
                     } else if (consecutiveEmptyLoads >= 6) {
                         _hasMore.value = false
@@ -879,7 +1018,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             return@withContext cachedGreetingPost
         }
         try {
-            val snapshot = FirebaseService.db.collection("news").whereEqualTo("type", "greeting").whereEqualTo("approved", true).orderBy("timestamp", Query.Direction.DESCENDING).limit(1).get().await()
+            val snapshot = FirebaseService.db.collection(resolveActiveCollection()).whereEqualTo("type", "greeting").whereEqualTo("approved", true).orderBy("timestamp", Query.Direction.DESCENDING).limit(1).get().await()
             val doc = snapshot.documents.firstOrNull() ?: return@withContext null
             val post = mapDocumentToNewsPost(doc)
             if (post != null) {
@@ -902,7 +1041,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             // NOTE: whereGreaterThan("timestamp") range filter తో composite index అవసరం
             // కానీ firestore.indexes.json లో లేదు కాబట్టి query fail అవుతుంది.
             // isExpired client-side check ఇప్పటికే expiry handle చేస్తుంది — server-side range filter అవసరం లేదు.
-            val snapshot = FirebaseService.db.collection("news")
+            val snapshot = FirebaseService.db.collection(resolveActiveCollection(currentDist))
                 .whereEqualTo("type", "survey")
                 .whereEqualTo("approved", true)
                 .orderBy("timestamp", Query.Direction.DESCENDING)
@@ -955,155 +1094,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private fun mapDocumentToNewsPost(doc: DocumentSnapshot): NewsPost? {
         return try {
             val data = doc.data ?: return null
-            val rawHeadline = data["headline"]
-            val rawContent = data["content"]
-            
-            val headlineTe = when (rawHeadline) {
-                is Map<*, *> -> rawHeadline["telugu"]?.toString() ?: ""
-                is String -> rawHeadline
-                else -> ""
-            }
-            val headlineEn = when (rawHeadline) {
-                is Map<*, *> -> rawHeadline["english"]?.toString() ?: ""
-                else -> ""
-            }
-            
-            val contentTe = when (rawContent) {
-                is Map<*, *> -> rawContent["telugu"]?.toString() ?: ""
-                is String -> rawContent
-                else -> ""
-            }
-            val contentEn = when (rawContent) {
-                is Map<*, *> -> rawContent["english"]?.toString() ?: ""
-                else -> ""
-            }
-
-            val likesCount = (data["likes"] as? Number)?.toInt() ?: 0
-            val commentsCount = (data["comments"] as? Number)?.toInt() ?: 0
-            val sharesCount = (data["shares"] as? Number)?.toInt() ?: 0
-            val postTimestamp = when (val ts = data["timestamp"]) {
-                is com.google.firebase.Timestamp -> ts.toDate().time
-                is Number -> ts.toLong()
-                is java.util.Date -> ts.time
-                else -> System.currentTimeMillis()
-            }
-            val categoryValue = data["category"]?.toString() ?: "General News"
-            val categoriesList = (data["categories"] as? List<*>)?.mapNotNull { it?.toString() } ?: listOf(categoryValue)
-
-            val rawQuestions = data["surveyQuestions"] as? List<*>
-            val surveyQuestionsList = rawQuestions?.mapNotNull { qObj ->
-                val qMap = qObj as? Map<*, *> ?: return@mapNotNull null
-                val qId = qMap["id"]?.toString() ?: ""
-                
-                val qText = when (val qTextVal = qMap["questionText"]) {
-                    is Map<*, *> -> {
-                        if (currentLanguage == Language.ENGLISH) {
-                            qTextVal["english"]?.toString() ?: qTextVal["telugu"]?.toString() ?: ""
-                        } else {
-                            qTextVal["telugu"]?.toString() ?: qTextVal["english"]?.toString() ?: ""
-                        }
-                    }
-                    else -> qTextVal?.toString() ?: ""
-                }
-                
-                val rawOpts = qMap["options"] as? List<*>
-                val optionsList = rawOpts?.mapNotNull { oObj ->
-                    val oMap = oObj as? Map<*, *> ?: return@mapNotNull null
-                    val oId = oMap["id"]?.toString() ?: ""
-                    
-                    val oText = when (val oTextVal = oMap["text"]) {
-                        is Map<*, *> -> {
-                            if (currentLanguage == Language.ENGLISH) {
-                                oTextVal["english"]?.toString() ?: oTextVal["telugu"]?.toString() ?: ""
-                            } else {
-                                oTextVal["telugu"]?.toString() ?: oTextVal["english"]?.toString() ?: ""
-                            }
-                        }
-                        else -> oTextVal?.toString() ?: ""
-                    }
-                    
-                    val oNext = oMap["nextQuestionId"]?.toString()
-                    SurveyOption(id = oId, text = oText, nextQuestionId = oNext)
-                } ?: emptyList()
-                SurveyQuestion(id = qId, questionText = qText, options = optionsList)
-            } ?: emptyList()
-
-            val isMultiPageVal = data["isMultiPage"] as? Boolean ?: false
-            val fakeVotesBaseVal = (data["fakeVotesBase"] as? Number)?.toInt() ?: 11000
-            val surveyCreatedAtVal = when (val sca = data["surveyCreatedAt"]) {
-                is com.google.firebase.Timestamp -> sca.toDate().time
-                is Number -> sca.toLong()
-                else -> postTimestamp
-            }
-            val votesMap = java.util.HashMap<String, Int>()
-            val vRaw = data["votes"] as? Map<*, *>
-            if (vRaw != null) {
-                for (vEntry in vRaw.entries) {
-                    val vk = vEntry.key?.toString() ?: ""
-                    val vv = (vEntry.value as? Number)?.toInt() ?: 0
-                    votesMap.put(vk, vv)
-                }
-            }
-            val realVotesCountVal = (data["realVotesCount"] as? Number)?.toInt() ?: 0
-            val expiryTimestampVal = when (val exp = data["expiryTimestamp"]) {
-                is com.google.firebase.Timestamp -> exp.toDate().time
-                is Number -> exp.toLong()
-                else -> null
-            }
-            val stateVal = data["state"]?.toString()
-
-            NewsPost(
-                id = doc.id,
-                headline = com.alfanews.telugu.models.Headline(
-                    telugu = headlineTe,
-                    english = headlineEn
-                ),
-                content = com.alfanews.telugu.models.Content(
-                    telugu = contentTe,
-                    english = contentEn
-                ),
-                mediaUrl = data["mediaUrl"]?.toString() ?: "",
-                mediaType = if (data["mediaType"]?.toString() == "VIDEO") com.alfanews.telugu.models.MediaType.VIDEO else com.alfanews.telugu.models.MediaType.IMAGE,
-                youtubeUrl = data["youtubeUrl"]?.toString(),
-                postFormat = if (data["postFormat"]?.toString() == "16:9") com.alfanews.telugu.models.PostFormat.HORIZONTAL else com.alfanews.telugu.models.PostFormat.VERTICAL,
-                reporter = com.alfanews.telugu.models.Reporter(
-                    id = (data["reporter"] as? Map<*, *>)?.get("id")?.toString() ?: "",
-                    name = (data["reporter"] as? Map<*, *>)?.get("name")?.toString() ?: ""
-                ),
-                location = data["location"]?.toString() ?: "",
-                timestamp = postTimestamp,
-                categories = categoriesList,
-                likes = likesCount,
-                comments = commentsCount,
-                shares = sharesCount,
-                originalUrl = data["originalUrl"]?.toString(),
-                district = data["district"]?.toString() ?: "State",
-                verificationStatus = data["verificationStatus"]?.toString() ?: "UNVERIFIED",
-                category = categoryValue,
-                tags = (data["tags"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
-                entities = (data["entities"] as? Map<*, *>)?.let { entitiesMap ->
-                    com.alfanews.telugu.models.Entities(
-                        people = (entitiesMap["people"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
-                        organizations = (entitiesMap["organizations"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
-                        locations = (entitiesMap["locations"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
-                    )
-                } ?: com.alfanews.telugu.models.Entities(),
-                type = data["type"]?.toString() ?: "news",
-                approved = data["approved"] as? Boolean ?: false,
-                aiProcessed = data["aiProcessed"] as? Boolean ?: false,
-                isGlobal = data["isGlobal"] as? Boolean ?: false,
-                isSpecialStory = data["isSpecialStory"] as? Boolean ?: false,
-                qualityScore = (data["qualityScore"] as? Number)?.toDouble() ?: 5.0,
-                isReporter = data["isReporter"] as? Boolean ?: (data["processingType"]?.toString() == "REPORTER_SUBMISSION"),
-                surveyQuestions = surveyQuestionsList,
-                isMultiPage = isMultiPageVal,
-                fakeVotesBase = fakeVotesBaseVal,
-                surveyCreatedAt = surveyCreatedAtVal,
-                votes = votesMap,
-                realVotesCount = realVotesCountVal,
-                expiryTimestamp = expiryTimestampVal,
-                state = stateVal
-            )
+            com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data, currentLanguage)
         } catch (e: Exception) { null }
     }
 
@@ -1165,9 +1156,23 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun setUserDistrict(district: String, currentUser: User?) {
-        prefs.selectedDistrict = district
+        val resolvedState = com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(null, district)
+            ?: prefs.getEffectiveStateCode()
+        val validatedLang = prefs.setEdition(resolvedState, district, currentLanguage)
         _userDistrict.value = district
-        loadNews(Language.TELUGU, currentUser, forceRefresh = true, isExplicitScrollToTop = true)
+        loadNews(validatedLang, currentUser, forceRefresh = true, isExplicitScrollToTop = true)
+    }
+
+    fun setUserEdition(
+        stateCode: com.alfanews.telugu.utils.StateCode,
+        district: String,
+        requestedLanguage: Language,
+        currentUser: User?
+    ) {
+        val validatedLang = prefs.setEdition(stateCode, district, requestedLanguage)
+        _userDistrict.value = district
+        _news.value = emptyList()
+        loadNews(validatedLang, currentUser, forceRefresh = true, isExplicitScrollToTop = true)
     }
 
     fun onAppResume(language: Language, currentUser: User?) {
@@ -1208,7 +1213,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             try {
                 if (!com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())) return@launch
-                val newsRef = FirebaseService.db.collection("news")
+                val newsRef = FirebaseService.db.collection(resolveActiveCollection(district))
                 val fastSnap = withTimeoutOrNull(3000L) {
                     newsRef.whereEqualTo("approved", true)
                         .orderBy("timestamp", Query.Direction.DESCENDING)

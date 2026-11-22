@@ -102,7 +102,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         } else {
             viewModelScope.launch {
                 try {
-                    val doc = FirebaseService.db.collection("news").document(postId).get().await()
+                    val activeStateCode = com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(prefs.selectedState, _activeDistrict.value)
+                        ?: prefs.getEffectiveStateCode()
+                    val collectionName = com.alfanews.telugu.utils.EditionRegistry.getCollectionForEdition(activeStateCode, currentLanguage)
+                    val doc = FirebaseService.db.collection(collectionName).document(postId).get().await()
                     if (doc.exists()) {
                         val post = convertToNewsPost(doc.id, doc.data ?: emptyMap())
                         if (post != null) {
@@ -125,6 +128,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
     private var pinnedPost: NewsPost? = null
     private var lastDocument: DocumentSnapshot? = null
+    private var lastDocumentTs: Long? = null
     private var lastRefreshTimeLong: Long = 0
     private val pageSize = 20
     private var loadJob: Job? = null
@@ -261,36 +265,26 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     }
 
     /**
-     * జిల్లా ఫీడ్‌లో ఇతర రాష్ట్రాల వార్తలు (ఉదా: తెలంగాణ జిల్లాలో విశాఖపట్నం లేదా ఆంధ్రప్రదేశ్ వార్తలు) రాకుండా నిరోధిస్తుంది.
+     * జిల్లా ఫీడ్‌లో ఇతర రాష్ట్రాల వార్తలు (AP vs TS లేదా ఇతర 7 రాష్ట్రాలు) రాకుండా నిరోధిస్తుంది.
      */
     private fun isStateMatch(post: NewsPost, targetDistrict: String?): Boolean {
         if (targetDistrict.isNullOrBlank()) return true
-        val isTargetAp = Constants.isApDistrict(targetDistrict)
-        
-        // 1. పోస్ట్ లోని స్పష్టమైన జిల్లా ఉంటే, అది ప్రస్తుత జిల్లా యొక్క రాష్ట్రానికే చెంది ఉండాలి
-        val postDist = post.district
-        if (!postDist.isNullOrBlank() && postDist != "State" && postDist != "General" && postDist != "రాష్ట్రం") {
-            val isPostAp = Constants.isApDistrict(postDist)
-            if (isTargetAp != isPostAp) return false
+        val targetStateCode = com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(prefs.selectedState, targetDistrict)
+            ?: com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(null, targetDistrict)
+            ?: return true
+
+        // 1. పోస్ట్ యొక్క stateCode / state / district నుండి కచ్చితమైన StateCode గుర్తించడం
+        val postStateCode = com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(
+            post.stateCode ?: post.state,
+            post.district
+        ) ?: if (post.location.isNotBlank()) {
+            com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(null, post.location)
+        } else null
+
+        if (postStateCode != null && postStateCode != targetStateCode) {
+            return false
         }
-        
-        // 2. పోస్ట్ యొక్క లొకేషన్ (ఉదా: "విశాఖపట్నం" vs తెలంగాణ జిల్లా)
-        if (post.location.isNotBlank()) {
-            val isLocAp = Constants.isApDistrict(post.location)
-            val isLocTs = Constants.TS_DISTRICTS.any { it.equals(post.location, ignoreCase = true) } || post.location.contains("తెలంగాణ") || post.location.contains("హైదరాబాద్")
-            if (isTargetAp && isLocTs) return false
-            if (!isTargetAp && isLocAp) return false
-        }
-        
-        // 3. పోస్ట్ యొక్క state ఫీల్డ్ తనిఖీ
-        val postState = post.state?.trim()
-        if (!postState.isNullOrBlank()) {
-            val isPostStateAp = postState.equals("AP", ignoreCase = true) || postState.contains("Andhra", ignoreCase = true) || postState.contains("ఆంధ్ర")
-            val isPostStateTs = postState.equals("TS", ignoreCase = true) || postState.equals("TG", ignoreCase = true) || postState.contains("Telangana", ignoreCase = true) || postState.contains("తెలంగాణ")
-            if (isTargetAp && isPostStateTs) return false
-            if (!isTargetAp && isPostStateAp) return false
-        }
-        
+
         return true
     }
 
@@ -416,11 +410,55 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             _isOnline.value = true
 
             lastDocument = null
+            lastDocumentTs = null
             _hasMore.value = true
             consecutiveEmptyLoads = 0
             
             try {
-                val newsRef = FirebaseService.db.collection("news")
+                val activeStateCode = com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(prefs.selectedState, district)
+                    ?: prefs.getEffectiveStateCode()
+                val collectionName = com.alfanews.telugu.utils.EditionRegistry.getCollectionForEdition(activeStateCode, currentLanguage)
+                val newsRef = FirebaseService.db.collection(collectionName)
+
+                // 🌐 PHASE 2: Server-Side CDN Edge Cache (/api/feed?type=local) on Page 1 — Zero Firestore Egress & 0 device disk cache!
+                val edgeLocal = com.alfanews.telugu.services.FeedEdgeCacheService.fetchLocalFeed(
+                    collection = collectionName,
+                    stateCode = activeStateCode.name,
+                    district = district,
+                    language = currentLanguage,
+                    limit = pageSize
+                )
+                if (edgeLocal != null && edgeLocal.posts.isNotEmpty()) {
+                    val allowedEdge = withContext(Dispatchers.Default) {
+                        edgeLocal.posts.filter { isNormalLocalNews(it) && isStateMatch(it, district) }
+                    }
+                    if (allowedEdge.isNotEmpty()) {
+                        lastDocumentTs = edgeLocal.lastTs ?: allowedEdge.lastOrNull()?.timestamp
+                        _hasMore.value = edgeLocal.posts.size >= 10
+                        val rankedEdge = withContext(Dispatchers.Default) {
+                            rankLocalNews(allowedEdge, district, currentUser)
+                        }
+                        val currentNews = _news.value
+                        val pin = pinnedPost
+                        val olderNews = currentNews.filter { cur ->
+                            cur.id != pin?.id && rankedEdge.none { it.id == cur.id } && isNormalLocalNews(cur) && isStateMatch(cur, district)
+                        }
+                        _news.value = if (pin != null) {
+                            (listOf(pin) + rankedEdge.filter { it.id != pin.id } + olderNews).distinctBy { it.id }
+                        } else {
+                            (rankedEdge + olderNews).distinctBy { it.id }
+                        }
+                        _isOnline.value = com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())
+                        if (isExplicitScrollToTop) _shouldScrollToTop.value = true
+                        _loading.value = false
+                        val currentTime = System.currentTimeMillis()
+                        lastRefreshTimeLong = currentTime
+                        _lastRefreshTime.value = currentTime
+                        Log.d("LocalNewsFeedVM", "🌐 Edge CDN Local Feed loaded ${rankedEdge.size} posts (0 Firestore egress)")
+                        return@launch
+                    }
+                }
+
                 var posts: List<NewsPost> = emptyList()
                 var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
 
@@ -455,15 +493,13 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             }
                         } else emptyList()
 
-                        // 🚀 FAST FALLBACK: If district has zero posts, immediately fetch state news in < 300ms
+                        // 🚀 FAST FALLBACK: If district has zero posts, immediately fetch own-state news in < 300ms
                         // User must NEVER stare at an empty skeleton screen!
                         if (fastPosts.isEmpty()) {
-                            val isAP = Constants.isApDistrict(district)
-                            val stateTags = if (isAP) listOf("Andhra Pradesh", "ఆంధ్రప్రదేశ్", "AP", "State", "రాష్ట్రం")
-                                            else listOf("Telangana", "తెలంగాణ", "TS", "State", "రాష్ట్రం")
+                            val stateTags = com.alfanews.telugu.utils.EditionRegistry.getStateFirestoreAliases(activeStateCode)
                             val fastStateSnap = withTimeoutOrNull(1500L) {
                                 newsRef.whereEqualTo("approved", true)
-                                    .whereIn("district", stateTags)
+                                    .whereIn("state", stateTags)
                                     .orderBy("timestamp", Query.Direction.DESCENDING)
                                     .limit(5)
                                     .get().await()
@@ -631,12 +667,16 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         currentLanguage = language
          val district = _activeDistrict.value ?: return
          val currentLastDoc = lastDocument
-         if (!_hasMore.value || isFetching || currentLastDoc == null) return
+         val currentLastTs = lastDocumentTs
+         if (!_hasMore.value || isFetching || (currentLastDoc == null && currentLastTs == null)) return
          
          viewModelScope.launch {
              isFetching = true
              try {
-                 val newsRef = FirebaseService.db.collection("news")
+                 val activeStateCode = com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(prefs.selectedState, district)
+                     ?: prefs.getEffectiveStateCode()
+                 val collectionName = com.alfanews.telugu.utils.EditionRegistry.getCollectionForEdition(activeStateCode, currentLanguage)
+                 val newsRef = FirebaseService.db.collection(collectionName)
                  var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
                  val districtAliases = getDistrictAliases(district)
                      .map { it.trim() }
@@ -645,20 +685,21 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                  val primaryAliases = if (districtAliases.isNotEmpty()) districtAliases.take(10) else listOf(district)
                  val newPosts = try {
                      var snap: com.google.firebase.firestore.QuerySnapshot? = null
-                     val query = if (primaryAliases.size > 1) {
+                     val baseQuery = if (primaryAliases.size > 1) {
                          newsRef
                              .whereEqualTo("approved", true)
                              .whereIn("district", primaryAliases)
                              .orderBy("timestamp", Query.Direction.DESCENDING)
-                             .startAfter(currentLastDoc)
-                             .limit(pageSize.toLong())
                      } else {
                          newsRef
                              .whereEqualTo("approved", true)
                              .whereEqualTo("district", primaryAliases.firstOrNull() ?: district)
                              .orderBy("timestamp", Query.Direction.DESCENDING)
-                             .startAfter(currentLastDoc)
-                             .limit(pageSize.toLong())
+                     }
+                     val query = if (currentLastDoc != null) {
+                         baseQuery.startAfter(currentLastDoc).limit(pageSize.toLong())
+                     } else {
+                         baseQuery.startAfter(com.google.firebase.Timestamp(java.util.Date(currentLastTs!!))).limit(pageSize.toLong())
                      }
                      
                      val res = withTimeoutOrNull(6000L) { query.get().await() }
@@ -667,12 +708,15 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                      } else {
                          // 🔄 FALLBACK: Try categories array with whereArrayContainsAny
                          val categoryAliases = districtAliases.take(10)
-                         val backupQuery = newsRef
+                         val backupBase = newsRef
                              .whereEqualTo("approved", true)
                              .whereArrayContainsAny("categories", categoryAliases)
                              .orderBy("timestamp", Query.Direction.DESCENDING)
-                             .startAfter(currentLastDoc)
-                             .limit(pageSize.toLong())
+                         val backupQuery = if (currentLastDoc != null) {
+                             backupBase.startAfter(currentLastDoc).limit(pageSize.toLong())
+                         } else {
+                             backupBase.startAfter(com.google.firebase.Timestamp(java.util.Date(currentLastTs!!))).limit(pageSize.toLong())
+                         }
                          val backupRes = withTimeoutOrNull(5000L) { backupQuery.get().await() }
                          if (backupRes != null && !backupRes.isEmpty) {
                              snap = backupRes
@@ -691,6 +735,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                  
                  if (newPosts.isNotEmpty()) {
                      lastDocument = snapshot?.documents?.lastOrNull()
+                     lastDocumentTs = null
                      _hasMore.value = (snapshot?.documents?.size ?: 0) >= 5
                      
                      val currentIds = _news.value.map { it.id }.toSet()
@@ -759,7 +804,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         viewModelScope.launch {
             try {
                 if (!com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())) return@launch
-                val newsRef = FirebaseService.db.collection("news")
+                val activeStateCode = com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(prefs.selectedState, district)
+                    ?: prefs.getEffectiveStateCode()
+                val collectionName = com.alfanews.telugu.utils.EditionRegistry.getCollectionForEdition(activeStateCode, currentLanguage)
+                val newsRef = FirebaseService.db.collection(collectionName)
                 val deltaSnap = withTimeoutOrNull(3000L) {
                     val q = if (primaryAliases.size > 1) {
                         newsRef.whereEqualTo("approved", true)

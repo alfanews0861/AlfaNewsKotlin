@@ -21,6 +21,8 @@ export interface User {
   signatureUrl?: string;
   idCardUrl?: string;
   state?: string;
+  stateCode?: string;
+  language?: string;
   district?: string;
   assignedMandal?: string;
   points?: number;
@@ -29,10 +31,62 @@ export interface User {
   lastWarningDate?: any;
   inProbation?: boolean;
   lastPostTimestamp?: any;
+  totalNewsCount?: number;
+  exemptFromInactivity?: boolean;
+  reporterActivity?: ReporterActivityStats;
   // Hyper-local weather alert fields (optional, set by Android when GPS is available)
   weatherLat?: number;      // User's precise GPS latitude
   weatherLon?: number;      // User's precise GPS longitude
   weatherGridKey?: string;  // FCM topic key e.g. "weather_grid_144_799" (0.1° ≈ 10km cell)
+}
+
+export type ReporterInactivityStage =
+  | 'ACTIVE'
+  | 'REMINDED_3D'
+  | 'REMINDED_7D'
+  | 'ADMIN_ALERTED_10D'
+  | 'EXEMPT';
+
+export type ReporterReminderStage = 'DAY_3' | 'DAY_7';
+
+export interface ReporterActivityStats {
+  totalApprovedPosts: number;
+  lastApprovedPostAt: number | null;
+  dailyCounts: Record<string, number>;
+  inactivityStage: ReporterInactivityStage;
+  lastReminderSentAt: number | null;
+  lastReminderStage: ReporterReminderStage | null;
+  lastAdminAlertAt: number | null;
+  lastSyncedAt: number | null;
+}
+
+export interface ReporterTrackingConfig {
+  enabled: boolean;
+  firstReminderDays: number;
+  secondReminderDays: number;
+  adminAlertDays: number;
+  adminAlertRepeatDays: number;
+  day3Title: string;
+  day3Body: string;
+  day7Title: string;
+  day7Body: string;
+  updatedAt?: number;
+  updatedBy?: string;
+}
+
+export interface ReporterReminderLog {
+  id?: string;
+  reporterId: string;
+  reporterName: string;
+  district: string;
+  mandal: string;
+  stage: 'DAY_3' | 'DAY_7' | 'DAY_10_ADMIN';
+  daysInactive: number;
+  channel: 'PUSH' | 'ADMIN_ALERT';
+  tokensTargeted: number;
+  sentCount: number;
+  status: 'SENT' | 'NO_TOKENS' | 'FAILED';
+  timestamp: number;
 }
 
 export enum PostFormat {
@@ -40,19 +94,40 @@ export enum PostFormat {
   HORIZONTAL = '16:9',
 }
 
+export interface LocalizedTextMap {
+  telugu?: string;
+  english?: string;
+  local?: string;
+  hi?: string;
+  pa?: string;
+  gu?: string;
+}
+
 export interface NewsPost {
   id: string;
   headline: {
     telugu: string;
     english: string;
+    local?: string;
+    hi?: string;
+    pa?: string;
+    gu?: string;
   };
   content: {
     telugu: string;
     english: string;
+    local?: string;
+    hi?: string;
+    pa?: string;
+    gu?: string;
   };
   fullStory?: {
     telugu: string;
     english: string;
+    local?: string;
+    hi?: string;
+    pa?: string;
+    gu?: string;
   };
   mediaUrl: string;
   mediaType: 'image' | 'video';
@@ -64,6 +139,12 @@ export interface NewsPost {
     name: string;
   };
   location: string;
+  state?: string;
+  stateCode?: string;
+  district?: string;
+  constituency?: string;
+  mandal?: string;
+  language?: string;
   timestamp: any; // Allow serverTimestamp
   category: string;
   likes: number;
@@ -105,6 +186,9 @@ export interface SurveyQuestion {
 
 export enum Language {
     TELUGU = 'te',
+    HINDI = 'hi',
+    PUNJABI = 'pa',
+    GUJARATI = 'gu',
     ENGLISH = 'en'
 }
 
@@ -130,7 +214,7 @@ export interface Comment {
 export interface DistrictSocialConfig {
   id: string;
   district: string;
-  state: 'TS' | 'AP';
+  state: 'TS' | 'AP' | 'UP' | 'PB' | 'UK' | 'GA' | 'MN' | 'HP' | 'GJ';
   enabled: boolean;
   facebook?: {
     enabled: boolean;

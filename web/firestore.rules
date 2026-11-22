@@ -109,5 +109,11 @@ service cloud.firestore {
       allow read: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
       allow write: if false; // Only manageable via Cloud Functions and Admin SDK
     }
+
+    // Reporter Automated Reminder Audit Logs (Admin read-only; backend writes via Admin SDK)
+    match /reporter_reminder_logs/{logId} {
+      allow read: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['ADMIN', 'REGIONAL_INCHARGE', 'EDITOR'];
+      allow write: if false;
+    }
   }
 }

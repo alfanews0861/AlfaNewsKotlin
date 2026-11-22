@@ -689,13 +689,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (prefs.isNotificationsEnabled) {
             viewModelScope.launch {
                 try {
-                    val messaging = com.google.firebase.messaging.FirebaseMessaging.getInstance()
-                    messaging.subscribeToTopic("all_users").await()
-                    messaging.subscribeToTopic("breaking_news").await()
-                    
                     val district = prefs.getEffectiveDistrict()
                     NotificationHelper.syncDistrictTopic(getApplication(), district)
-                    
+                    NotificationHelper.syncEditionTopic(getApplication())
+
                     // సబ్‌స్క్రయిబ్ అయినట్లు అనలిటిక్స్ లో లాగ్ చేయడం
                     AnalyticsService.logAnalyticsEvent("default_topics_subscribed")
                 } catch (e: Exception) {
@@ -709,7 +706,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun startNewsListener() {
         newsListener?.remove()
-        newsListener = FirebaseService.db.collection("news")
+        val activeState = prefs.getEffectiveStateCode()
+        val activeCollection = com.alfanews.telugu.utils.EditionRegistry.getCollectionForEdition(
+            activeState,
+            _language.value
+        )
+        newsListener = FirebaseService.db.collection(activeCollection)
             .whereEqualTo("approved", true)
             .orderBy("timestamp", Query.Direction.DESCENDING)
             .limit(1)
@@ -722,12 +724,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (post.timestamp <= appStartTime) return@addSnapshotListener
                 if (_newNewsNotification.value?.id == post.id) return@addSnapshotListener
 
+                // Ensure strict state isolation for shared-language collections (e.g. UP/UK/HP in news_hi)
+                val postState = com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(post.stateCode ?: post.state, post.district)
+                if (activeCollection != "news" && postState != null && postState != activeState) {
+                    return@addSnapshotListener
+                }
+
                 // 🛡️ 15-నిమిషాల కూల్‌డౌన్: యూజర్ వార్తలు చదువుతున్నప్పుడు మాటిమాటికీ బ్యానర్ రాకుండా నియంత్రణ
                 val now = System.currentTimeMillis()
                 if (now - lastInAppNotificationTime < 15 * 60 * 1000L) return@addSnapshotListener
 
                 val userDist = _currentUser.value?.district ?: prefs.getEffectiveDistrict()
-                val isDistrictSpecific = Constants.ALL_DISTRICTS.contains(post.district)
+                val isDistrictSpecific = com.alfanews.telugu.utils.EditionRegistry.getAllDistricts().contains(post.district)
                 
                 if (isDistrictSpecific) {
                     if (post.district == userDist) {
@@ -1373,6 +1381,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _language.value = newLanguage
         prefs.language = newLanguage
         AnalyticsService.setAppLanguage(newLanguage.name)
+        startNewsListener()
+        if (prefs.isNotificationsEnabled) {
+            viewModelScope.launch {
+                NotificationHelper.syncEditionTopic(getApplication())
+            }
+        }
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -1436,7 +1450,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } else if (uid.isNullOrBlank() || uid == "guest") {
                 syncUserFcmToken(null)
             }
-            // ✅ FIX: Update FCM topic subscriptions when district changes
+            // ✅ FIX: Update FCM topic subscriptions & live edition listener when district/state changes
+            startNewsListener()
             if (prefs.isNotificationsEnabled) {
                 NotificationHelper.syncDistrictTopic(getApplication(), district)
             }

@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useCallback, ChangeEvent } from 'react';
-import { User, UserRole, TS_DISTRICTS, AP_DISTRICTS } from '../types';
+import { User, UserRole } from '../types';
+import { ALL_STATE_CODES, EDITIONS, getCollectionForEdition, resolveStateCode } from '../data/editions';
 import { MANDAL_DATA } from '../data/mandalData';
 import { db } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
@@ -282,16 +283,23 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
         setReporterNews([]);
 
         try {
-            const newsRef = collection(db, 'news');
-            const q = query(newsRef, where('reporter.id', '==', reporter.id), orderBy('timestamp', 'desc'));
-            const querySnapshot = await getDocs(q);
-            
-            const newsData = querySnapshot.docs.map((doc: any) => ({
-                id: doc.id,
-                ...doc.data()
-            }));
-            
-            setReporterNews(newsData);
+            const repState = resolveStateCode((reporter as any).stateCode || (reporter as any).state, reporter.district);
+            const repCol = getCollectionForEdition(repState || 'AP', (reporter as any).language);
+            const targetCols = Array.from(new Set([repCol, 'news']));
+            const results = await Promise.allSettled(
+                targetCols.map((col) =>
+                    getDocs(query(collection(db, col), where('reporter.id', '==', reporter.id), orderBy('timestamp', 'desc')))
+                )
+            );
+            const newsMap = new Map<string, any>();
+            results.forEach((r) => {
+                if (r.status === 'fulfilled' && r.value?.docs) {
+                    r.value.docs.forEach((d: any) => {
+                        if (!newsMap.has(d.id)) newsMap.set(d.id, { id: d.id, ...d.data() });
+                    });
+                }
+            });
+            setReporterNews(Array.from(newsMap.values()));
         } catch (error) {
             console.error("Error fetching reporter news:", error);
             alert("వార్తలను పొందడంలో లోపం ఏర్పడింది.");
@@ -505,16 +513,13 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
                                         className="border border-gray-300 rounded-md p-1 text-sm bg-gray-50 font-medium"
                                     >
                                         <option value="">-- జిల్లా ఎంచుకోండి --</option>
-                                        <optgroup label="తెలంగాణ (TS)">
-                                            {TS_DISTRICTS.map(d => (
-                                                <option key={d} value={d}>{d}</option>
-                                            ))}
-                                        </optgroup>
-                                        <optgroup label="ఆంధ్రప్రదేశ్ (AP)">
-                                            {AP_DISTRICTS.map(d => (
-                                                <option key={d} value={d}>{d}</option>
-                                            ))}
-                                        </optgroup>
+                                        {ALL_STATE_CODES.map(code => (
+                                            <optgroup key={code} label={`${EDITIONS[code].nameNative} (${code})`}>
+                                                {EDITIONS[code].districts.map(d => (
+                                                    <option key={`${code}_${d}`} value={d}>{d}</option>
+                                                ))}
+                                            </optgroup>
+                                        ))}
                                     </select>
 
                                     {/* Mandal selector */}

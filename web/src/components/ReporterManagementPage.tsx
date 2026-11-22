@@ -1,1171 +1,424 @@
-
-import React, { useState, useEffect, useCallback, ChangeEvent, useMemo } from 'react';
-import { User, UserRole, TS_DISTRICTS, AP_DISTRICTS } from '../types';
-import { MANDAL_DATA } from '../data/mandalData';
-import { app, db } from '../services/firebase';
-import * as _firestore from 'firebase/firestore';
-import * as _functions from 'firebase/functions';
-import { Phone, MessageSquare, AlertTriangle, CheckCircle, Clock, ShieldAlert, Sparkles, ArrowUpDown, Trash2, UserMinus, MapPin, RefreshCw, Star, Download, Gift, Copy, Check, ExternalLink } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import {
+  AlertCircle,
+  CheckCircle2,
+  ClipboardList,
+  RefreshCw,
+  Sliders,
+  Smartphone,
+  UserCheck,
+  UserX,
+  Users,
+} from 'lucide-react';
+import { User, UserRole } from '../types';
 import { StarReporterPosterModal } from './StarReporterPoster';
 import AppInstallsPage from './AppInstallsPage';
+import ReporterAutomationPanel from './ReporterAutomationPanel';
+import { useReporterManagement } from './reporter-management/useReporterManagement';
+import ReporterApplicationsTab from './reporter-management/ReporterApplicationsTab';
+import ActiveReportersTab from './reporter-management/ActiveReportersTab';
+import FormerReportersTab from './reporter-management/FormerReportersTab';
+import ReporterDetailDrawer from './reporter-management/ReporterDetailDrawer';
+import {
+  ApplicationApprovalModal,
+  ConfirmActionModal,
+  LocationEditModal,
+  ReinstateReporterModal,
+} from './reporter-management/ReporterModals';
+import {
+  ConfirmModalConfig,
+  FormerReporter,
+  ReporterApplication,
+  ReporterTab,
+  ReporterWithCounts,
+} from './reporter-management/types';
+import { ROLE_LABELS_TE } from '../utils/reporterManagementHelpers';
 
-const { collection, getDocs, query, orderBy, doc, updateDoc, setDoc, deleteDoc, where, onSnapshot, limit } = _firestore as any;
-const { getFunctions, httpsCallable } = _functions as any;
-const functions = getFunctions(app, 'asia-south1');
-
-const SearchIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
-    <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
-  </svg>
-);
+export type { ReporterWithCounts };
 
 interface ReporterManagementPageProps {
   currentUser: User;
+  onOpenReporterChat?: (reporterId: string) => void;
 }
 
-export interface ReporterWithCounts extends User {
-  totalNewsCount?: number;
-  lastWeekNewsCount?: number;
-  todayNewsCount?: number;
-  assignedMandal?: string;
-  joinedAt?: number;
-  isNewlyJoined?: boolean;
-  daysSinceJoined?: number;
-  lastPostTimestamp?: number | null;
-  daysInactive?: number;
-  deadlineStatus?: 'ACTIVE' | 'NORMAL' | 'ATTENTION' | 'APPROACHING_DEADLINE' | 'CRITICAL_DEADLINE' | 'NEW_NO_POSTS' | 'INACTIVE_ZERO';
-}
+const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({
+  currentUser,
+  onOpenReporterChat,
+}) => {
+  const vm = useReporterManagement(currentUser);
 
-type SortField = 'state' | 'district' | 'name' | 'totalNewsCount' | 'lastWeekNewsCount' | 'todayNewsCount' | 'joinedAt' | 'lastPostTimestamp' | 'daysInactive' | 'referralCount';
-
-const formatReadableDate = (timestampMs: number | undefined): string => {
-  if (!timestampMs) return 'తేదీ లేదు';
-  try {
-    const d = new Date(timestampMs);
-    return d.toLocaleDateString('te-IN', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      timeZone: 'Asia/Kolkata'
-    });
-  } catch {
-    return 'తేదీ లేదు';
-  }
-};
-
-const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ currentUser }) => {
-  const [selectedTab, setSelectedTab] = useState<'applications' | 'reporters' | 'installs'>('applications');
-
-  // Applications State
-  const [applications, setApplications] = useState<any[]>([]);
-  const [appFilter, setAppFilter] = useState<'PENDING' | 'JOINED' | 'REJECTED' | 'ALL'>('PENDING');
-  const [appSearch, setAppSearch] = useState('');
-  const [loadingApps, setLoadingApps] = useState(true);
-  const [processingAppId, setProcessingAppId] = useState<string | null>(null);
-  const [occupiedMandals, setOccupiedMandals] = useState<Record<string, string>>({});
-
-  // Active Reporters State
-  const [reporters, setReporters] = useState<ReporterWithCounts[]>([]);
-  const [filteredReporters, setFilteredReporters] = useState<ReporterWithCounts[]>([]);
-  const [loadingReporters, setLoadingReporters] = useState(true);
-  const [reporterSearch, setReporterSearch] = useState('');
-  const [updatingReporters, setUpdatingReporters] = useState<Record<string, boolean>>({});
-  const [sortField, setSortField] = useState<SortField>('totalNewsCount');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
-  const [selectedDistrict, setSelectedDistrict] = useState('ALL');
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [editingLocationUser, setEditingLocationUser] = useState<ReporterWithCounts | null>(null);
-  const [editLocDistrict, setEditLocDistrict] = useState('');
-  const [editLocMandal, setEditLocMandal] = useState('');
+  // Modal & Drawer UI State
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalConfig | null>(null);
+  const [approvingApp, setApprovingApp] = useState<ReporterApplication | null>(null);
+  const [editingLocationReporter, setEditingLocationReporter] = useState<ReporterWithCounts | null>(
+    null
+  );
+  const [reinstatingFormer, setReinstatingFormer] = useState<FormerReporter | null>(null);
   const [posterModalUser, setPosterModalUser] = useState<ReporterWithCounts | null>(null);
-  const [recentInstalls, setRecentInstalls] = useState<any[]>([]);
-  const [loadingInstalls, setLoadingInstalls] = useState(false);
-  const [copiedReferralId, setCopiedReferralId] = useState<string | null>(null);
-  const [installSearch, setInstallSearch] = useState('');
-  const [installDistrict, setInstallDistrict] = useState('ALL');
+  const [drawerReporterId, setDrawerReporterId] = useState<string | null>(null);
 
-  const fetchInstallReceipts = useCallback(async () => {
-    setLoadingInstalls(true);
-    try {
-      const q = query(
-        collection(db, 'app_installs'),
-        orderBy('installedAt', 'desc'),
-        limit(50)
-      );
-      const snap = await getDocs(q);
-      const list = snap.docs.map((d: any) => ({
-        id: d.id,
-        ...d.data()
-      }));
-      setRecentInstalls(list);
-    } catch (err) {
-      console.warn('Could not fetch app_installs collection:', err);
-    } finally {
-      setLoadingInstalls(false);
-    }
-  }, []);
+  const selectedDrawerReporter = useMemo(
+    () => (drawerReporterId ? vm.reporters.find((r) => r.id === drawerReporterId) || null : null),
+    [drawerReporterId, vm.reporters]
+  );
 
-  const totalReferralInstalls = useMemo(() => {
-    return reporters.reduce((acc, r) => acc + (r.referralCount || 0), 0);
-  }, [reporters]);
-
-  const activeReferrersCount = useMemo(() => {
-    return reporters.filter(r => (r.referralCount || 0) > 0).length;
-  }, [reporters]);
-
-  const copyReferralLink = (reporterId: string) => {
-    const link = `https://play.google.com/store/apps/details?id=com.alfanews.telugu&referrer=ref_${reporterId}`;
-    navigator.clipboard.writeText(link);
-    setCopiedReferralId(reporterId);
-    setTimeout(() => setCopiedReferralId(null), 2500);
+  const handleOpenDrawer = (reporter: ReporterWithCounts) => {
+    setDrawerReporterId(reporter.id);
+    vm.loadReporterDrawerDetails(reporter.id, false);
   };
 
-  // Fetch Applications and Occupied Mandals
-  const fetchApplications = useCallback(async () => {
-    setLoadingApps(true);
-    try {
-      // 1. Fetch active reporters to map occupied mandals
-      const usersSnap = await getDocs(
-        query(collection(db, 'users'), where('role', 'in', [
-          UserRole.REPORTER, UserRole.STAFF_REPORTER, UserRole.REGIONAL_INCHARGE,
-          'REPORTER', 'reporter', 'STAFF_REPORTER', 'REGIONAL_INCHARGE',
-          2, 2.0, '2', 3, 3.0, '3'
-        ]))
-      );
-      
-      const occMap: Record<string, string> = {};
-      usersSnap.docs.forEach((uDoc: any) => {
-        const u = uDoc.data();
-        if (u.suspended === true || u.previouslyDowngraded === true) return;
-        const dist = (u.district || u.state_district || '').trim();
-        const mandal = (u.assignedMandal || u.mandal || u.mandalam || u.selectedMandal || '').trim();
-        if (dist && mandal) {
-          const phoneStr = u.phone ? ` (${u.phone})` : '';
-          const occupantInfo = `${u.name || 'Active Reporter'}${phoneStr}`;
-          occMap[`${dist}|${mandal}`] = occupantInfo;
-          occMap[`${dist.toLowerCase()}|${mandal.toLowerCase()}`] = occupantInfo;
-          occMap[`${dist.replace(/\s+/g, '')}|${mandal.replace(/\s+/g, '')}`] = occupantInfo;
-        }
-      });
-      setOccupiedMandals(occMap);
-
-      // 2. Fetch applications
-      const appsSnap = await getDocs(collection(db, 'reporter_applications'));
-      const list: any[] = appsSnap.docs.map((d: any) => ({
-        id: d.id,
-        ...d.data()
-      }));
-
-      list.sort((a, b) => {
-        const aTs = a.timestamp?.toMillis ? a.timestamp.toMillis() : (a.timestamp || 0);
-        const bTs = b.timestamp?.toMillis ? b.timestamp.toMillis() : (b.timestamp || 0);
-        return bTs - aTs;
-      });
-
-      setApplications(list);
-    } catch (e: any) {
-      console.error('Error fetching applications:', e);
-    } finally {
-      setLoadingApps(false);
-    }
-  }, []);
-
-  // Fetch Active Reporters
-  const fetchReporters = useCallback(async () => {
-    setLoadingReporters(true);
-    try {
-      const q = query(
-        collection(db, 'users'),
-        where('role', 'in', [
-          UserRole.REPORTER, UserRole.STAFF_REPORTER, UserRole.REGIONAL_INCHARGE,
-          'REPORTER', 'reporter', 'STAFF_REPORTER', 'REGIONAL_INCHARGE',
-          2, 2.0, '2', 3, 3.0, '3'
-        ])
-      );
-
-      const querySnapshot = await getDocs(q);
-      const nowMs = Date.now();
-      const startOfToday = new Date();
-      startOfToday.setHours(0, 0, 0, 0);
-      const startOfTodayMs = startOfToday.getTime();
-
-      const parseReporter = (userDoc: any, todayCounts: Record<string, number> = {}) => {
-        const data = userDoc.data();
-        const userData = {
-          id: userDoc.id,
-          ...data
-        } as ReporterWithCounts;
-
-        const rId = userData.id;
-        const rName = userData.name || '';
-        const todayCount = todayCounts[rId] || (rName ? todayCounts[rName] : 0) || 0;
-
-        // Parse last post timestamp from user doc
-        let userLastPostMs: number | null = null;
-        if (data.lastPostTimestamp?.toMillis) {
-          userLastPostMs = data.lastPostTimestamp.toMillis();
-        } else if (data.lastPostTimestamp?.toDate) {
-          userLastPostMs = data.lastPostTimestamp.toDate().getTime();
-        } else if (typeof data.lastPostTimestamp === 'number') {
-          userLastPostMs = data.lastPostTimestamp > 1e11 ? data.lastPostTimestamp : data.lastPostTimestamp * 1000;
-        }
-
-        const latestMs = userLastPostMs || null;
-        const totalPosts = data.totalNewsCount || data.stats?.totalApprovedNews || (typeof data.points === 'number' && data.points > 0 ? Math.floor(data.points / 10) : todayCount);
-        userData.totalNewsCount = totalPosts;
-        userData.referralCount = typeof data.referralCount === 'number' ? data.referralCount : 0;
-
-        // Compute true join timestamp
-        const rawCreated = data.createdAt?.toMillis ? data.createdAt.toMillis() : (typeof data.createdAt === 'number' ? data.createdAt : null);
-        const rawPromoted = data.promotedAt?.toMillis ? data.promotedAt.toMillis() : (typeof data.promotedAt === 'number' ? data.promotedAt : null);
-        const rawJoined = data.joinedAt?.toMillis ? data.joinedAt.toMillis() : (typeof data.joinedAt === 'number' ? data.joinedAt : null);
-        const rawTimestamp = data.timestamp?.toMillis ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : null);
-
-        const validCandidateDates = [rawCreated, rawPromoted, rawJoined, rawTimestamp, latestMs]
-          .filter((t): t is number => typeof t === 'number' && t > 0 && t <= nowMs);
-
-        const joinedTs = validCandidateDates.length > 0 ? Math.min(...validCandidateDates) : nowMs;
-
-        userData.joinedAt = joinedTs;
-        userData.daysSinceJoined = Math.max(0, Math.floor((nowMs - joinedTs) / (1000 * 60 * 60 * 24)));
-
-        const isSenior = totalPosts > 5 || data.isProtectedSenior === true || (latestMs !== null && (nowMs - latestMs) > 21 * 24 * 60 * 60 * 1000);
-        userData.isNewlyJoined = !isSenior && (userData.daysSinceJoined <= 21);
-
-        userData.todayNewsCount = todayCount;
-        userData.lastWeekNewsCount = 0;
-        userData.lastPostTimestamp = latestMs;
-
-        // Days inactive
-        let daysInactive = 0;
-        if (latestMs) {
-          daysInactive = Math.max(0, Math.floor((nowMs - latestMs) / (1000 * 60 * 60 * 24)));
-        } else {
-          daysInactive = userData.daysSinceJoined;
-        }
-        userData.daysInactive = daysInactive;
-
-        // Deadline Status
-        if (totalPosts === 0 && userData.isNewlyJoined) {
-          userData.deadlineStatus = 'NEW_NO_POSTS';
-        } else if (totalPosts === 0) {
-          userData.deadlineStatus = 'INACTIVE_ZERO';
-        } else if (daysInactive <= 1) {
-          userData.deadlineStatus = 'ACTIVE';
-        } else if (daysInactive <= 2) {
-          userData.deadlineStatus = 'NORMAL';
-        } else if (daysInactive >= 3 && daysInactive < 5) {
-          userData.deadlineStatus = 'ATTENTION';
-        } else if (daysInactive >= 5 && daysInactive < 7) {
-          userData.deadlineStatus = 'APPROACHING_DEADLINE';
-        } else {
-          userData.deadlineStatus = 'CRITICAL_DEADLINE';
-        }
-
-        return userData;
-      };
-
-      // ⚡ FAST PATH: Render all reporters IMMEDIATELY from querySnapshot
-      const initialReporters = querySnapshot.docs.map((docSnap: any) => parseReporter(docSnap));
-      setReporters(initialReporters);
-      setLoadingReporters(false); // ⚡ Dismiss spinner instantly!
-
-      // 🚀 Non-blocking background fetch for today's reporter activity
-      getDocs(
-        query(
-          collection(db, 'news'),
-          where('approved', '==', true),
-          where('isReporter', '==', true),
-          where('timestamp', '>=', startOfToday),
-          limit(500)
-        )
-      ).then((newsSnap: any) => {
-        if (!newsSnap || newsSnap.empty) return;
-        const todayCounts: Record<string, number> = {};
-        newsSnap.docs.forEach((d: any) => {
-          const nData = d.data();
-          const rId = nData.reporter?.id || nData.originalReporterId || (typeof nData.reporter === 'string' ? nData.reporter : null);
-          const rName = nData.reporter?.name;
-          if (!rId && !rName) return;
-          if (rId) todayCounts[rId] = (todayCounts[rId] || 0) + 1;
-          if (rName) todayCounts[rName] = (todayCounts[rName] || 0) + 1;
-        });
-
-        // Smoothly update today's counts without full reload
-        setReporters((prev) =>
-          prev.map((rep) => {
-            const count = todayCounts[rep.id] || (rep.name ? todayCounts[rep.name] : 0) || 0;
-            if (count > 0 && rep.todayNewsCount !== count) {
-              return { ...rep, todayNewsCount: count };
-            }
-            return rep;
-          })
-        );
-      }).catch(() => {});
-      return;
-    } catch (error) {
-      console.error('Error fetching reporters:', error);
-    } finally {
-      setLoadingReporters(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (selectedTab === 'applications') {
-      fetchApplications();
-    } else if (selectedTab === 'reporters') {
-      fetchReporters();
-    } else if (selectedTab === 'installs') {
-      fetchReporters();
-      fetchInstallReceipts();
-    }
-  }, [selectedTab, fetchApplications, fetchReporters, fetchInstallReceipts]);
-
-  // Filter Active Reporters
-  useEffect(() => {
-    const lower = reporterSearch.toLowerCase();
-    let list = reporters.filter(u =>
-      (u.name || '').toLowerCase().includes(lower) ||
-      (u.phone || '').toLowerCase().includes(lower) ||
-      (u.district || '').toLowerCase().includes(lower) ||
-      (u.assignedMandal || '').toLowerCase().includes(lower)
-    );
-
-    if (selectedDistrict !== 'ALL') {
-      list = list.filter(u => (u.district || '').trim() === selectedDistrict.trim());
-    }
-
-    list.sort((a, b) => {
-      let aVal: any = a[sortField];
-      let bVal: any = b[sortField];
-
-      if (sortField === 'name' || sortField === 'state' || sortField === 'district') {
-        aVal = (a[sortField] || '').toString().toLowerCase();
-        bVal = (b[sortField] || '').toString().toLowerCase();
-        return sortDirection === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-      } else {
-        aVal = Number(aVal || 0);
-        bVal = Number(bVal || 0);
-        return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
-      }
+  const handleRejectAppRequest = (app: ReporterApplication) => {
+    setConfirmModal({
+      title: 'దరఖాస్తు తిరస్కరణ',
+      description: `మీరు ఖచ్చితంగా "${app.name || 'ఈ దరఖాస్తుదారు'}" దరఖాస్తును తిరస్కరించాలనుకుంటున్నారా?`,
+      confirmLabel: 'తిరస్కరించు',
+      tone: 'warning',
+      onConfirm: () => vm.rejectApplication(app),
     });
-
-    setFilteredReporters([...list]);
-  }, [reporterSearch, reporters, selectedDistrict, sortField, sortDirection]);
-
-  // Handle Application Approval
-  const handleApproveApp = async (app: any) => {
-    if (!window.confirm(`మీరు ఖచ్చితంగా ${app.name} దరఖాస్తును ఆమోదించి, రిపోర్టర్‌గా నియమించాలనుకుంటున్నారా?`)) return;
-    setProcessingAppId(app.id);
-
-    try {
-      const targetUserId = app.userId || app.id;
-      const targetDistrict = app.district || app.state_district || '';
-      const targetMandal = app.mandal || '';
-
-      // 1. Update user document to REPORTER role
-      await updateDoc(doc(db, 'users', targetUserId), {
-        role: UserRole.REPORTER,
-        district: targetDistrict,
-        assignedMandal: targetMandal,
-        name: app.name || 'Reporter',
-        phone: app.phone || '',
-        promotedAt: Date.now()
-      }).catch(async () => {
-        // Fallback setDoc if user doc doesn't exist
-        await setDoc(doc(db, 'users', targetUserId), {
-          role: UserRole.REPORTER,
-          district: targetDistrict,
-          assignedMandal: targetMandal,
-          name: app.name || 'Reporter',
-          phone: app.phone || '',
-          promotedAt: Date.now()
-        }, { merge: true });
-      });
-
-      // 2. Mark application status as JOINED/APPROVED
-      await updateDoc(doc(db, 'reporter_applications', app.id), {
-        status: 'JOINED',
-        approvedAt: Date.now(),
-        approvedBy: currentUser.name || 'Admin'
-      });
-
-      alert(`${app.name} దరఖాస్తు విజయవంతంగా ఆమోదించబడింది!`);
-      fetchApplications();
-    } catch (e: any) {
-      alert(`ఆమోదించడంలో లోపం: ${e.message}`);
-    } finally {
-      setProcessingAppId(null);
-    }
   };
 
-  // Handle Application Rejection
-  const handleRejectApp = async (app: any) => {
-    if (!window.confirm(`మీరు ఖచ్చితంగా ${app.name} దరఖాస్తును తిరస్కరించాలనుకుంటున్నారా?`)) return;
-    setProcessingAppId(app.id);
-
-    try {
-      await updateDoc(doc(db, 'reporter_applications', app.id), {
-        status: 'REJECTED',
-        rejectedAt: Date.now(),
-        rejectedBy: currentUser.name || 'Admin'
-      });
-      fetchApplications();
-    } catch (e: any) {
-      alert(`తిరస్కరించడంలో లోపం: ${e.message}`);
-    } finally {
-      setProcessingAppId(null);
-    }
-  };
-
-  // Handle Application Deletion
-  const handleDeleteApp = async (appId: string) => {
-    if (!window.confirm('ఈ దరఖాస్తును ఖచ్చితంగా తొలగించాలా?')) return;
-    try {
-      await deleteDoc(doc(db, 'reporter_applications', appId));
-      fetchApplications();
-    } catch (e: any) {
-      alert(`తొలగించడంలో లోపం: ${e.message}`);
-    }
-  };
-
-  // Update Reporter Role
-  const handleUpdateRole = async (userId: string, newRole: UserRole) => {
-    if (!window.confirm('మీరు నిజంగా ఈ యూజర్ హోదా మార్చాలనుకుంటున్నారా?')) return;
-    setUpdatingReporters(prev => ({ ...prev, [userId]: true }));
-    try {
-      await updateDoc(doc(db, 'users', userId), { role: newRole });
-      setReporters(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
-    } catch (e: any) {
-      alert('హోదా అప్‌డేట్ విఫలమైంది: ' + e.message);
-    } finally {
-      setUpdatingReporters(prev => ({ ...prev, [userId]: false }));
-    }
-  };
-
-  // Downgrade Reporter to Subscriber
-  const handleDowngradeReporter = async (userId: string, reporterName: string) => {
-    if (!window.confirm(`మీరు ఖచ్చితంగా "${reporterName}" గారిని రిపోర్టర్ హోదా నుండి తొలగించి సాధారణ సబ్‌స్క్రైబర్‌గా మార్చాలనుకుంటున్నారా?`)) return;
-    setUpdatingReporters(prev => ({ ...prev, [userId]: true }));
-    try {
-      await updateDoc(doc(db, 'users', userId), {
-        role: UserRole.SUBSCRIBER,
-        warningLevel: 0,
-        inProbation: false,
-        downgradedAt: Date.now(),
-        downgradedBy: currentUser.name || 'Admin',
-        downgradedReason: 'MANUAL_ADMIN_ACTION'
-      });
-      try {
-        const appsSnap = await getDocs(query(collection(db, 'reporter_applications'), where('userId', '==', userId)));
-        for (const appDoc of appsSnap.docs) {
-          await updateDoc(appDoc.ref, { status: 'SUSPENDED', suspendedAt: Date.now(), reason: 'ADMIN_DOWNGRADED' });
-        }
-      } catch {}
-
-      alert(`"${reporterName}" గారిని విజయవంతంగా సబ్‌స్క్రైబర్‌గా మార్చడం జరిగింది.`);
-      setReporters(prev => prev.filter(u => u.id !== userId));
-      setFilteredReporters(prev => prev.filter(u => u.id !== userId));
-    } catch (e: any) {
-      alert('హోదా తొలగింపు విఫలమైంది: ' + e.message);
-    } finally {
-      setUpdatingReporters(prev => ({ ...prev, [userId]: false }));
-    }
-  };
-
-  // Permanently Delete Reporter Account
-  const handleDeleteReporter = async (userId: string, reporterName: string) => {
-    if (!window.confirm(`⚠️ హెచ్చరిక: మీరు ఖచ్చితంగా "${reporterName}" గారి ఖాతాను శాశ్వతంగా తొలగించాలనుకుంటున్నారా? (ఈ చర్యను వెనక్కి తీసుకోలేరు)`)) return;
-    setUpdatingReporters(prev => ({ ...prev, [userId]: true }));
-    try {
-      await deleteDoc(doc(db, 'users', userId));
-      try {
-        const appsSnap = await getDocs(query(collection(db, 'reporter_applications'), where('userId', '==', userId)));
-        for (const appDoc of appsSnap.docs) {
-          await deleteDoc(appDoc.ref);
-        }
-      } catch {}
-
-      alert(`"${reporterName}" ఖాతా విజయవంతంగా తొలగించబడింది.`);
-      setReporters(prev => prev.filter(u => u.id !== userId));
-      setFilteredReporters(prev => prev.filter(u => u.id !== userId));
-    } catch (e: any) {
-      alert('ఖాతా తొలగింపు విఫలమైంది: ' + e.message);
-    } finally {
-      setUpdatingReporters(prev => ({ ...prev, [userId]: false }));
-    }
-  };
-
-  const handleSyncLeaderboard = async () => {
-    setIsSyncing(true);
-    try {
-      const syncFn = httpsCallable(functions, 'backfillReporterPoints');
-      const res: any = await syncFn();
-      alert(res?.data?.message || 'లీడర్‌బోర్డ్ & రిపోర్టర్ డేటా విజయవంతంగా సింక్ చేయబడింది!');
-      fetchReporters();
-      fetchApplications();
-    } catch (err: any) {
-      alert('సింక్ చేయడం విఫలమైంది: ' + err.message);
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  const handleSaveReporterLocation = async () => {
-    if (!editingLocationUser || !editLocDistrict || !editLocMandal) {
-      alert('దయచేసి జిల్లా మరియు మండలం రెండింటినీ ఎంచుకోండి.');
-      return;
-    }
-    const targetUserId = editingLocationUser.id;
-    setUpdatingReporters(prev => ({ ...prev, [targetUserId]: true }));
-    try {
-      const cleanDist = editLocDistrict.trim();
-      const cleanMandal = editLocMandal.trim();
-      await updateDoc(doc(db, 'users', targetUserId), {
-        district: cleanDist,
-        assignedMandal: cleanMandal,
-        mandal: cleanMandal,
-        state_district: cleanDist
-      });
-      setReporters(prev => prev.map(u => u.id === targetUserId ? { ...u, district: cleanDist, assignedMandal: cleanMandal } : u));
-      setFilteredReporters(prev => prev.map(u => u.id === targetUserId ? { ...u, district: cleanDist, assignedMandal: cleanMandal } : u));
-      setEditingLocationUser(null);
-      alert('మండలం విజయవంతంగా కేటాయించబడింది!');
-    } catch (err: any) {
-      alert('లొకేషన్ సేవ్ చేయడం విఫలమైంది: ' + err.message);
-    } finally {
-      setUpdatingReporters(prev => ({ ...prev, [targetUserId]: false }));
-    }
-  };
-
-  // Filtered Applications List
-  const filteredApps = useMemo(() => {
-    return applications.filter(app => {
-      const status = (app.status || 'PENDING').toUpperCase();
-      if (appFilter === 'PENDING' && (status === 'JOINED' || status === 'APPROVED' || status === 'REJECTED')) {
-        return false;
-      }
-      if (appFilter === 'JOINED' && (status !== 'JOINED' && status !== 'APPROVED')) {
-        return false;
-      }
-      if (appFilter === 'REJECTED' && status !== 'REJECTED') {
-        return false;
-      }
-
-      if (appSearch) {
-        const q = appSearch.toLowerCase();
-        return (
-          (app.name || '').toLowerCase().includes(q) ||
-          (app.phone || '').toLowerCase().includes(q) ||
-          (app.district || app.state_district || '').toLowerCase().includes(q) ||
-          (app.mandal || '').toLowerCase().includes(q)
-        );
-      }
-      return true;
+  const handleDeleteAppRequest = (app: ReporterApplication) => {
+    setConfirmModal({
+      title: 'దరఖాస్తు శాశ్వత తొలగింపు',
+      description: `"${app.name || 'ఈ దరఖాస్తు'}" రికార్డును శాశ్వతంగా తొలగించాలా? ఈ చర్యను వెనక్కి తీసుకోలేరు.`,
+      confirmLabel: 'తొలగించు',
+      tone: 'danger',
+      onConfirm: () => vm.deleteApplication(app),
     });
-  }, [applications, appFilter, appSearch]);
-
-  const getClean10DigitPhone = (phone: string | undefined | null): string => {
-    if (!phone) return '';
-    let digits = String(phone).replace(/[^0-9]/g, '');
-    if (digits.length === 12 && digits.startsWith('91')) {
-      digits = digits.substring(2);
-    } else if (digits.length === 11 && digits.startsWith('0')) {
-      digits = digits.substring(1);
-    } else if (digits.length > 10) {
-      const last10 = digits.slice(-10);
-      if (/^[6-9]/.test(last10)) {
-        digits = last10;
-      }
-    }
-    return digits.length === 10 ? digits : '';
   };
 
-  const formatDisplayPhone = (phone?: string | null): string => {
-    const clean10 = getClean10DigitPhone(phone);
-    if (clean10.length === 10) {
-      return `+91 ${clean10.slice(0, 5)} ${clean10.slice(5)}`;
-    }
-    return phone || '';
+  const handleRoleChangeRequest = (reporter: ReporterWithCounts, nextRole: UserRole) => {
+    const nextLabel = ROLE_LABELS_TE[nextRole] || nextRole;
+    setConfirmModal({
+      title: 'రిపోర్టర్ హోదా మార్పు',
+      description: `"${reporter.name}" గారి హోదాను "${nextLabel}" గా మార్చాలనుకుంటున్నారా?`,
+      confirmLabel: 'హోదా మార్చు',
+      tone: 'primary',
+      onConfirm: () => vm.updateReporterRole(reporter, nextRole),
+    });
   };
+
+  const handleDowngradeRequest = (reporter: ReporterWithCounts) => {
+    setConfirmModal({
+      title: 'రిపోర్టర్ హోదా తొలగింపు',
+      description: `"${reporter.name}" గారిని రిపోర్టర్ హోదా నుండి తొలగించి సాధారణ సబ్‌స్క్రైబర్‌గా మార్చాలా? వీరు మాజీ రిపోర్టర్ల ట్యాబ్‌లో కనిపిస్తారు.`,
+      confirmLabel: 'హోదా తొలగించు',
+      tone: 'warning',
+      requireReason: true,
+      reasonLabel: 'తొలగింపు కారణం (ఐచ్ఛికం)',
+      reasonPlaceholder: 'ఉదా: 10+ రోజుల నిష్క్రియాత్మకత / వ్యక్తిగత విరామం',
+      onConfirm: async (reason) => {
+        const ok = await vm.downgradeReporter(reporter, reason);
+        if (ok && drawerReporterId === reporter.id) {
+          setDrawerReporterId(null);
+        }
+      },
+    });
+  };
+
+  const handleDeleteReporterRequest = (target: { id: string; name?: string }) => {
+    setConfirmModal({
+      title: 'ఖాతా శాశ్వత తొలగింపు',
+      description: `"${target.name || 'ఈ రిపోర్టర్'}" ఖాతా మరియు సంబంధిత దరఖాస్తును శాశ్వతంగా తొలగించాలా? ఈ చర్యను వెనక్కి తీసుకోలేరు.`,
+      confirmLabel: 'శాశ్వతంగా తొలగించు',
+      tone: 'danger',
+      onConfirm: async () => {
+        const ok = await vm.deleteReporterPermanently(target.id, target.name || 'Reporter');
+        if (ok && drawerReporterId === target.id) {
+          setDrawerReporterId(null);
+        }
+      },
+    });
+  };
+
+  const tabs: Array<{
+    id: ReporterTab;
+    label: string;
+    count?: number;
+    icon: React.ReactNode;
+  }> = [
+    {
+      id: 'applications',
+      label: 'దరఖాస్తులు',
+      count: vm.pendingAppsCount,
+      icon: <ClipboardList size={15} />,
+    },
+    {
+      id: 'reporters',
+      label: 'యాక్టివ్ రిపోర్టర్లు',
+      count: vm.reporters.length,
+      icon: <UserCheck size={15} />,
+    },
+    {
+      id: 'former',
+      label: 'మాజీ రిపోర్టర్లు',
+      count: vm.formerLoaded || vm.formerReporters.length > 0 ? vm.formerReporters.length : undefined,
+      icon: <UserX size={15} />,
+    },
+    {
+      id: 'automation',
+      label: 'పుష్ రిమైండర్లు',
+      icon: <Sliders size={15} />,
+    },
+    {
+      id: 'installs',
+      label: 'యాప్ ఇన్‌స్టాల్స్',
+      count: vm.totalReferralInstalls,
+      icon: <Smartphone size={15} />,
+    },
+  ];
 
   return (
-    <div className="w-full bg-white font-mallanna text-black animate-fade-in pb-16">
-      {/* Top Banner */}
-      <div className="bg-gradient-to-r from-teal-700 to-emerald-800 p-6 rounded-[2rem] mb-6 flex flex-col md:flex-row justify-between items-center shadow-xl text-white gap-4">
-        <div className="flex items-center gap-4">
-          <div className="w-14 h-14 bg-white/15 rounded-2xl flex items-center justify-center text-white backdrop-blur-sm shadow-inner">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-            </svg>
+    <div className="w-full font-mallanna text-slate-900 pb-16 space-y-5">
+      {/* Inline Status Toast */}
+      {vm.toast && (
+        <div
+          role="status"
+          className={`flex items-center justify-between gap-3 px-4 py-3 rounded-xl border text-sm font-semibold ${
+            vm.toast.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+              : vm.toast.type === 'error'
+              ? 'bg-rose-50 border-rose-200 text-rose-900'
+              : 'bg-teal-50 border-teal-200 text-teal-900'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {vm.toast.type === 'success' ? (
+              <CheckCircle2 size={16} className="shrink-0" />
+            ) : (
+              <AlertCircle size={16} className="shrink-0" />
+            )}
+            <span>{vm.toast.text}</span>
           </div>
-          <div>
-            <h2 className="text-3xl font-ramabhadra leading-tight">రిపోర్టర్ల నిర్వహణ (Reporter Management)</h2>
-            <p className="text-teal-100 text-sm font-bold uppercase tracking-wider">దరఖాస్తుల పరిశీలన & యాక్టివ్ రిపోర్టర్ల కంట్రోల్</p>
+          <button
+            type="button"
+            onClick={vm.dismissToast}
+            className="text-xs font-bold opacity-75 hover:opacity-100 px-2 py-0.5 whitespace-nowrap"
+          >
+            మూసివేయి
+          </button>
+        </div>
+      )}
+
+      {/* Recoverable Error Banner */}
+      {vm.loadError && (
+        <div className="bg-rose-50 border border-rose-200 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-sm text-rose-900">
+          <div className="flex items-center gap-2 font-semibold">
+            <AlertCircle size={16} className="shrink-0" />
+            <span>{vm.loadError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={vm.loadWorkspace}
+            className="px-3 py-1.5 rounded-lg bg-white border border-rose-300 text-rose-800 text-xs font-bold hover:bg-rose-100 transition-colors whitespace-nowrap"
+          >
+            మళ్లీ ప్రయత్నించు
+          </button>
+        </div>
+      )}
+
+      {/* Editorial Operations Header */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-xl bg-teal-700 text-white flex items-center justify-center shrink-0">
+              <Users size={22} />
+            </div>
+            <div>
+              <h2 className="text-2xl font-ramabhadra text-slate-900 leading-tight">
+                రిపోర్టర్ల నిర్వహణ & ట్రాకింగ్
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+                దరఖాస్తులు · రియల్-టైమ్ వార్తల లెక్క · 3/7/10 రోజుల పుష్ రిమైండర్లు · మాజీ రిపోర్టర్ల ఆర్కైవ్
+              </p>
+            </div>
+          </div>
+
+          {/* Admin Sync & Refresh Actions */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={vm.loadWorkspace}
+              disabled={vm.loadingWorkspace}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-colors disabled:opacity-50 whitespace-nowrap"
+              title="అన్ని వివరాలు రిఫ్రెష్ చేయండి"
+            >
+              <RefreshCw size={14} className={vm.loadingWorkspace ? 'animate-spin' : ''} />
+              <span>రిఫ్రెష్</span>
+            </button>
+
+            {currentUser.role === UserRole.ADMIN && (
+              <>
+                <button
+                  type="button"
+                  onClick={vm.syncActivityStats}
+                  disabled={vm.isSyncingStats}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-teal-200 bg-teal-50 hover:bg-teal-100 text-teal-900 text-xs font-bold transition-colors disabled:opacity-50 whitespace-nowrap"
+                  title="అప్రూవ్ అయిన అన్ని వార్తల (క్రాస్-మండల్ సహా) గణాంకాలను రిపోర్టర్ ప్రొఫైల్స్‌తో సింక్ చేయండి"
+                >
+                  <RefreshCw size={14} className={vm.isSyncingStats ? 'animate-spin' : ''} />
+                  <span>{vm.isSyncingStats ? 'సింక్ అవుతోంది...' : 'వార్తల గణాంకాలు సింక్'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={vm.syncLeaderboardPoints}
+                  disabled={vm.isSyncingLeaderboard}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold transition-colors disabled:opacity-50 whitespace-nowrap"
+                  title="లీడర్‌బోర్డ్ పాయింట్లు రీ-క్యాలిక్యులేట్ చేయండి"
+                >
+                  <RefreshCw size={14} className={vm.isSyncingLeaderboard ? 'animate-spin' : ''} />
+                  <span>{vm.isSyncingLeaderboard ? 'సింక్...' : 'పాయింట్ల సింక్'}</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
 
-        {/* Tab & Action Buttons */}
-        <div className="flex flex-wrap items-center gap-2">
-          {currentUser.role === UserRole.ADMIN && (
-            <button
-              onClick={handleSyncLeaderboard}
-              disabled={isSyncing}
-              className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-sm shadow-md flex items-center gap-1.5 transition-all disabled:opacity-50"
-              title="వార్తల ఆధారంగా రిపోర్టర్ పాయింట్లు మరియు లీడర్‌బోర్డ్ రీ-క్యాలిక్యులేట్ చేయండి"
-            >
-              <RefreshCw size={15} className={isSyncing ? "animate-spin" : ""} />
-              <span>{isSyncing ? "సింక్ అవుతోంది..." : "లీడర్ బోర్డ్ డేటా సింక్"}</span>
-            </button>
-          )}
-
-          <div className="flex bg-white/20 p-1.5 rounded-2xl backdrop-blur-sm gap-1">
-            <button
-              onClick={() => setSelectedTab('applications')}
-              className={`px-5 py-2 rounded-xl font-bold text-sm transition-all ${
-                selectedTab === 'applications' ? 'bg-white text-teal-900 shadow-md' : 'text-white hover:bg-white/10'
-              }`}
-            >
-              📋 దరఖాస్తులు ({applications.filter(a => (a.status || 'PENDING').toUpperCase() === 'PENDING').length})
-            </button>
-            <button
-              onClick={() => setSelectedTab('reporters')}
-              className={`px-5 py-2 rounded-xl font-bold text-sm transition-all ${
-                selectedTab === 'reporters' ? 'bg-white text-teal-900 shadow-md' : 'text-white hover:bg-white/10'
-              }`}
-            >
-              👥 యాక్టివ్ రిపోర్టర్లు ({reporters.length})
-            </button>
-            <button
-              onClick={() => setSelectedTab('installs')}
-              className={`px-5 py-2 rounded-xl font-bold text-sm transition-all ${
-                selectedTab === 'installs' ? 'bg-white text-teal-900 shadow-md' : 'text-white hover:bg-white/10'
-              }`}
-            >
-              📱 యాప్ ఇన్‌స్టాల్స్ ({totalReferralInstalls})
-            </button>
-          </div>
+        {/* Single-Line 5-Tab Workspace Navigation */}
+        <div className="border-t border-slate-100 pt-3 flex items-center gap-1.5 overflow-x-auto">
+          {tabs.map((tab) => {
+            const isActive = vm.selectedTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => vm.setSelectedTab(tab.id)}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-bold transition-colors whitespace-nowrap shrink-0 ${
+                  isActive
+                    ? 'bg-teal-700 text-white'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                {tab.icon}
+                <span>{tab.label}</span>
+                {typeof tab.count === 'number' && (
+                  <span
+                    className={`font-mono tabular-nums text-xs ${
+                      isActive ? 'text-teal-100' : 'text-slate-400'
+                    }`}
+                  >
+                    ({tab.count})
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {/* TAB 1: APPLICATIONS */}
-      {selectedTab === 'applications' && (
-        <div className="space-y-4">
-          {/* Filter Toolbar */}
-          <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-3">
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setAppFilter('PENDING')}
-                className={`px-4 py-1.5 rounded-xl text-sm font-bold transition-all ${
-                  appFilter === 'PENDING' ? 'bg-teal-700 text-white shadow-sm' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                పెండింగ్ (Pending)
-              </button>
-              <button
-                onClick={() => setAppFilter('JOINED')}
-                className={`px-4 py-1.5 rounded-xl text-sm font-bold transition-all ${
-                  appFilter === 'JOINED' ? 'bg-green-700 text-white shadow-sm' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                ఆమోదించినవి (Joined)
-              </button>
-              <button
-                onClick={() => setAppFilter('REJECTED')}
-                className={`px-4 py-1.5 rounded-xl text-sm font-bold transition-all ${
-                  appFilter === 'REJECTED' ? 'bg-red-700 text-white shadow-sm' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                తిరస్కరించినవి (Rejected)
-              </button>
-              <button
-                onClick={() => setAppFilter('ALL')}
-                className={`px-4 py-1.5 rounded-xl text-sm font-bold transition-all ${
-                  appFilter === 'ALL' ? 'bg-gray-800 text-white shadow-sm' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                మొత్తం (All)
-              </button>
-            </div>
-
-            <div className="relative w-full sm:w-72">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-3">
-                <SearchIcon />
-              </span>
-              <input
-                type="text"
-                placeholder="పేరు, ఫోన్ లేదా మండలం..."
-                value={appSearch}
-                onChange={e => setAppSearch(e.target.value)}
-                className="w-full border border-gray-300 rounded-xl py-2 pl-9 pr-3 text-sm bg-gray-50 outline-none focus:ring-2 focus:ring-teal-500"
-              />
-            </div>
-          </div>
-
-          {/* Applications Cards */}
-          {loadingApps ? (
-            <div className="flex justify-center py-20">
-              <div className="w-10 h-10 border-4 border-teal-600 border-t-transparent rounded-full animate-spin"></div>
-            </div>
-          ) : filteredApps.length === 0 ? (
-            <div className="bg-white p-12 rounded-[2rem] border text-center text-gray-400 font-bold">
-              దరఖాస్తులు ఏవీ కనుగొనబడలేదు.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {filteredApps.map(app => {
-                const status = (app.status || 'PENDING').toUpperCase();
-                const isPending = status !== 'JOINED' && status !== 'APPROVED' && status !== 'REJECTED';
-                const dist = app.district || app.state_district || 'N/A';
-                const mandal = app.mandal || 'N/A';
-                const occupiedBy = occupiedMandals[`${dist}|${mandal}`]
-                  || occupiedMandals[`${dist.trim()}|${mandal.trim()}`]
-                  || occupiedMandals[`${dist.toLowerCase()}|${mandal.toLowerCase()}`]
-                  || occupiedMandals[`${dist.replace(/\s+/g, '')}|${mandal.replace(/\s+/g, '')}`];
-
-                return (
-                  <div
-                    key={app.id}
-                    className="bg-white p-5 rounded-[2rem] border border-gray-200 shadow-sm hover:border-teal-300 transition-all flex flex-col justify-between space-y-4"
-                  >
-                    <div>
-                      <div className="flex justify-between items-start mb-2">
-                        <div className="flex items-center gap-3">
-                          <div className="w-12 h-12 rounded-2xl bg-teal-100 text-teal-800 font-bold flex items-center justify-center text-lg">
-                            {app.name ? app.name.charAt(0).toUpperCase() : 'A'}
-                          </div>
-                          <div>
-                            <h3 className="font-bold text-gray-900 text-lg leading-tight">{app.name}</h3>
-                            <p className="text-sm font-semibold text-gray-600">{app.phone || app.phoneNumber || 'ఫోన్ లేదు'}</p>
-                          </div>
-                        </div>
-
-                        <span
-                          className={`text-[10px] px-2.5 py-1 rounded-full font-black uppercase tracking-wider ${
-                            status === 'JOINED' || status === 'APPROVED'
-                              ? 'bg-green-100 text-green-800'
-                              : status === 'REJECTED'
-                              ? 'bg-red-100 text-red-800'
-                              : 'bg-yellow-100 text-yellow-800'
-                          }`}
-                        >
-                          {status}
-                        </span>
-                      </div>
-
-                      {/* Location details */}
-                      <div className="bg-gray-50 p-3 rounded-xl border border-gray-100 text-xs space-y-1 my-3">
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">జిల్లా:</span>
-                          <span className="font-bold text-gray-800">{dist}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">మండలం:</span>
-                          <span className="font-bold text-gray-800">{mandal}</span>
-                        </div>
-                        {app.education && (
-                          <div className="flex justify-between">
-                            <span className="text-gray-500">విద్యార్హత:</span>
-                            <span className="font-bold text-gray-800">{app.education}</span>
-                          </div>
-                        )}
-                        {app.experience && (
-                          <div className="flex justify-between">
-                            <span className="text-gray-500">అనుభవం:</span>
-                            <span className="font-bold text-gray-800">{app.experience}</span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Occupied Mandal Warning */}
-                      {occupiedBy && (
-                        <div className="p-2 bg-amber-50 border border-amber-200 rounded-xl text-[11px] font-bold text-amber-800">
-                          ⚠️ ఈ మండలంలో ఇప్పటికే రిపోర్టర్ ఉన్నారు: <span className="underline">{occupiedBy}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Action buttons */}
-                    <div className="flex items-center justify-end gap-2 border-t pt-3">
-                      {isPending && (
-                        <>
-                          <button
-                            onClick={() => handleApproveApp(app)}
-                            disabled={processingAppId === app.id}
-                            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95"
-                          >
-                            {processingAppId === app.id ? '...' : 'ఆమోదించు (Approve)'}
-                          </button>
-                          <button
-                            onClick={() => handleRejectApp(app)}
-                            disabled={processingAppId === app.id}
-                            className="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-2 rounded-xl text-xs font-bold transition-all"
-                          >
-                            తిరస్కరించు (Reject)
-                          </button>
-                        </>
-                      )}
-                      <button
-                        onClick={() => handleDeleteApp(app.id)}
-                        className="text-gray-400 hover:text-red-600 p-2 text-sm"
-                        title="Delete application"
-                      >
-                        🗑️
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+      {vm.selectedTab === 'applications' && (
+        <ReporterApplicationsTab
+          applications={vm.applications}
+          occupiedMandalsMap={vm.occupiedMandalsMap}
+          loading={vm.loadingApps}
+          updatingIds={vm.updatingIds}
+          onRefresh={vm.fetchApplications}
+          onApproveClick={(app) => setApprovingApp(app)}
+          onRejectClick={handleRejectAppRequest}
+          onDeleteClick={handleDeleteAppRequest}
+        />
       )}
 
-      {/* TAB 2: REPORTERS */}
-      {selectedTab === 'reporters' && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-gray-50 p-3.5 rounded-2xl border border-gray-200">
-            {/* Search */}
-            <div className="relative">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-3">
-                <SearchIcon />
-              </span>
-              <input
-                type="text"
-                placeholder="పేరు, ఫోన్ లేదా జిల్లా..."
-                value={reporterSearch}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setReporterSearch(e.target.value)}
-                className="w-full border border-gray-300 rounded-xl py-2 pl-9 pr-3 text-sm focus:ring-2 focus:ring-teal-500 bg-white outline-none"
-              />
-            </div>
-
-            {/* District dropdown */}
-            <div>
-              <select
-                value={selectedDistrict}
-                onChange={e => setSelectedDistrict(e.target.value)}
-                className="w-full border border-gray-300 rounded-xl py-2 px-3 text-sm focus:ring-2 focus:ring-teal-500 bg-white font-bold outline-none"
-              >
-                <option value="ALL">అన్ని జిల్లాలు (All Districts)</option>
-                <optgroup label="తెలంగాణ (TS)">
-                  {TS_DISTRICTS.map(d => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </optgroup>
-                <optgroup label="ఆంధ్రప్రదేశ్ (AP)">
-                  {AP_DISTRICTS.map(d => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </optgroup>
-              </select>
-            </div>
-
-            {/* Sort Field Selection */}
-            <div>
-              <select
-                value={sortField}
-                onChange={e => setSortField(e.target.value as SortField)}
-                className="w-full border border-gray-300 rounded-xl py-2 px-3 text-sm focus:ring-2 focus:ring-teal-500 bg-white font-bold outline-none"
-              >
-                <option value="referralCount">📱 యాప్ ఇన్‌స్టాల్స్ (Referrals)</option>
-                <option value="totalNewsCount">📊 మొత్తం వార్తలు</option>
-                <option value="todayNewsCount">⚡ ఈ రోజు వార్తలు</option>
-                <option value="lastWeekNewsCount">🗓️ గత వారం వార్తలు</option>
-                <option value="daysInactive">⚠️ డెడ్‌లైన్ / ఇనాక్టివిటీ</option>
-                <option value="joinedAt">📅 చేరిన తేదీ (Join Date)</option>
-                <option value="district">📍 జిల్లా</option>
-                <option value="name">👤 పేరు</option>
-              </select>
-            </div>
-          </div>
-
-          {loadingReporters ? (
-            <p className="text-center text-gray-500 text-lg py-12">రిపోర్టర్లు లోడ్ అవుతున్నారు...</p>
-          ) : (
-            <div className="overflow-x-auto w-full border rounded-2xl shadow-sm bg-white">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-100 text-xs font-bold text-gray-700 uppercase tracking-wider">
-                  <tr>
-                    <th scope="col" onClick={() => { setSortField('district'); setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc'); }} className="cursor-pointer px-4 py-3.5 text-left hover:bg-gray-200">
-                      జిల్లా / రాష్ట్రం
-                    </th>
-                    <th scope="col" onClick={() => { setSortField('name'); setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc'); }} className="cursor-pointer px-4 py-3.5 text-left hover:bg-gray-200">
-                      పేరు / హోదా
-                    </th>
-                    <th scope="col" className="px-4 py-3.5 text-left">ఫోన్ & సంప్రదింపు</th>
-                    <th scope="col" onClick={() => { setSortField('totalNewsCount'); setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc'); }} className="cursor-pointer px-4 py-3.5 text-center text-blue-700 hover:bg-gray-200">
-                      మొత్తం వార్తలు
-                    </th>
-                    <th scope="col" onClick={() => { setSortField('lastWeekNewsCount'); setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc'); }} className="cursor-pointer px-4 py-3.5 text-center text-indigo-700 hover:bg-gray-200">
-                      గత వారం
-                    </th>
-                    <th scope="col" onClick={() => { setSortField('todayNewsCount'); setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc'); }} className="cursor-pointer px-4 py-3.5 text-center text-green-700 hover:bg-gray-200">
-                      ఈ రోజు
-                    </th>
-                    <th scope="col" onClick={() => { setSortField('referralCount'); setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc'); }} className="cursor-pointer px-4 py-3.5 text-center text-emerald-700 hover:bg-gray-200" title="రిపోర్టర్ లింక్ ద్వారా వచ్చిన మొత్తం యాప్ డౌన్‌లోడ్లు">
-                      📱 ఇన్‌స్టాల్స్
-                    </th>
-                    <th scope="col" onClick={() => { setSortField('daysInactive'); setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc'); }} className="cursor-pointer px-4 py-3.5 text-left text-orange-700 hover:bg-gray-200">
-                      స్టేటస్ / డెడ్‌లైన్
-                    </th>
-                    <th scope="col" className="px-4 py-3.5 text-right">
-                      చర్యలు (Actions)
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredReporters.length > 0 ? (
-                    filteredReporters.map(user => {
-                      const cleanPhone = getClean10DigitPhone(user.phone);
-                      return (
-                        <tr key={user.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span>{user.district || 'N/A'}{user.assignedMandal || (user as any).mandal ? ` - ${user.assignedMandal || (user as any).mandal}` : ''}</span>
-                              <button
-                                onClick={() => {
-                                  setEditingLocationUser(user);
-                                  setEditLocDistrict(user.district || '');
-                                  setEditLocMandal(user.assignedMandal || (user as any).mandal || '');
-                                }}
-                                className="text-teal-700 hover:text-teal-900 px-2 py-0.5 text-xs bg-teal-50 hover:bg-teal-100 rounded-md border border-teal-200 font-bold transition-colors"
-                                title="జిల్లా / మండలం కేటాయించండి లేదా మార్చండి"
-                              >
-                                ✏️ మండలం మార్చు
-                              </button>
-                            </div>
-                            <div className="text-xs text-gray-500 font-normal mt-0.5">{user.state || 'TS'}</div>
-                          </td>
-                          <td className="px-4 py-4 whitespace-nowrap">
-                            <div className="flex items-center">
-                              <div className="h-10 w-10 rounded-full bg-teal-100 text-teal-800 font-bold flex items-center justify-center shrink-0">
-                                {user.name ? user.name.charAt(0).toUpperCase() : 'R'}
-                              </div>
-                              <div className="ml-3">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-sm font-bold text-gray-900">{user.name}</span>
-                                  {user.isNewlyJoined && (
-                                    <span className="bg-amber-100 text-amber-800 text-[10px] font-black px-1.5 py-0.5 rounded-full uppercase">
-                                      🆕 కొత్త
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="mt-1">
-                                  <select
-                                    value={user.role}
-                                    onChange={e => handleUpdateRole(user.id, e.target.value as UserRole)}
-                                    className="text-xs border border-gray-300 px-2 py-1 rounded-lg font-semibold bg-gray-50 outline-none"
-                                    disabled={updatingReporters[user.id]}
-                                  >
-                                    <option value={UserRole.REPORTER}>రిపోర్టర్ (Reporter)</option>
-                                    <option value={UserRole.STAFF_REPORTER}>స్టాఫ్ రిపోర్టర్ (Staff Reporter)</option>
-                                    <option value={UserRole.REGIONAL_INCHARGE}>ఇంచార్జ్ (Regional Incharge)</option>
-                                    <option value={UserRole.SUBSCRIBER}>హోదా తొలగించు (Remove)</option>
-                                  </select>
-                                </div>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-4 py-4 whitespace-nowrap text-sm">
-                            {cleanPhone ? (
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-mono font-bold text-gray-900">{formatDisplayPhone(user.phone)}</span>
-                                <a 
-                                  href={`tel:+91${cleanPhone}`} 
-                                  className="text-teal-700 hover:text-teal-900 p-1 hover:bg-teal-50 rounded"
-                                  title="కాల్ చేయండి"
-                                >
-                                  <Phone size={13} />
-                                </a>
-                                <a 
-                                  href={`https://wa.me/91${cleanPhone}?text=${encodeURIComponent(`నమస్కారం ${user.name} గారు, AlfaNews డెస్క్ నుండి...`)}`}
-                                  target="_blank" 
-                                  rel="noreferrer"
-                                  className="text-green-600 hover:text-green-800 p-1 hover:bg-green-50 rounded"
-                                  title="వాట్సాప్"
-                                >
-                                  <MessageSquare size={13} />
-                                </a>
-                              </div>
-                            ) : (
-                              <span className="text-gray-400 text-xs">N/A</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-4 whitespace-nowrap text-center text-base font-black text-blue-600">
-                            {user.totalNewsCount || 0}
-                          </td>
-                          <td className="px-4 py-4 whitespace-nowrap text-center text-base font-black text-indigo-600">
-                            {user.lastWeekNewsCount || 0}
-                          </td>
-                          <td className="px-4 py-4 whitespace-nowrap text-center text-base font-black text-green-600">
-                            {user.todayNewsCount || 0}
-                          </td>
-                          <td className="px-4 py-4 whitespace-nowrap text-center">
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800">
-                              📱 {user.referralCount || 0}
-                            </span>
-                            <div className="text-[10px] text-gray-500 font-bold mt-0.5">
-                              🎁 {(user.referralCount || 0) * 50} pts
-                            </div>
-                          </td>
-                          <td className="px-4 py-4 whitespace-nowrap text-xs">
-                            {user.deadlineStatus === 'ACTIVE' && (
-                              <span className="text-green-700 font-bold">🟢 చురుకుగా ఉన్నారు</span>
-                            )}
-                            {user.deadlineStatus === 'NORMAL' && (
-                              <span className="text-emerald-700 font-semibold">సాధారణం ({user.daysInactive}d)</span>
-                            )}
-                            {user.deadlineStatus === 'ATTENTION' && (
-                              <span className="text-amber-700 font-bold">🟡 శ్రద్ధ అవసరం ({user.daysInactive}d)</span>
-                            )}
-                            {user.deadlineStatus === 'APPROACHING_DEADLINE' && (
-                              <span className="text-orange-700 font-bold">🟠 డెడ్‌లైన్ సమీపిస్తోంది ({user.daysInactive}d)</span>
-                            )}
-                            {user.deadlineStatus === 'CRITICAL_DEADLINE' && (
-                              <span className="text-red-700 font-black">🔴 హోదా రద్దు ప్రమాదం ({user.daysInactive}d)</span>
-                            )}
-                            {user.deadlineStatus === 'NEW_NO_POSTS' && (
-                              <span className="text-purple-700 font-bold">🆕 కొత్త రిపోర్టర్</span>
-                            )}
-                            {user.deadlineStatus === 'INACTIVE_ZERO' && (
-                              <span className="text-gray-500">ఇనాక్టివ్ (0 వార్తలు)</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-4 whitespace-nowrap text-right text-xs">
-                            <div className="flex items-center justify-end gap-1.5">
-                              <button
-                                onClick={() => setPosterModalUser(user)}
-                                className="bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold px-2 py-1.5 rounded-lg border border-amber-300 flex items-center gap-1 transition-colors"
-                                title="స్టార్ విలేకరి సోషల్ పోస్టర్ చూడండి / డౌన్‌లోడ్ చేయండి"
-                              >
-                                <Star size={13} className="fill-amber-500 text-amber-500" />
-                                <span>పోస్టర్</span>
-                              </button>
-                              <button
-                                onClick={() => handleDowngradeReporter(user.id, user.name || 'Reporter')}
-                                disabled={updatingReporters[user.id]}
-                                className="bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold px-2 py-1.5 rounded-lg border border-amber-200 flex items-center gap-1 transition-colors"
-                                title="రిపోర్టర్ హోదా తొలగించి సబ్‌స్క్రైబర్‌గా మార్చు"
-                              >
-                                <UserMinus size={13} />
-                                <span>హోదా మార్చు</span>
-                              </button>
-                              <button
-                                onClick={() => handleDeleteReporter(user.id, user.name || 'Reporter')}
-                                disabled={updatingReporters[user.id]}
-                                className="bg-red-50 hover:bg-red-100 text-red-700 font-bold p-1.5 rounded-lg border border-red-200 transition-colors"
-                                title="ఖాతాను శాశ్వతంగా తొలగించు"
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan={9} className="px-6 py-8 text-center text-gray-500 font-bold">
-                        రిపోర్టర్లు ఎవరూ కనుగొనబడలేదు.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+      {/* TAB 2: ACTIVE REPORTERS */}
+      {vm.selectedTab === 'reporters' && (
+        <ActiveReportersTab
+          reporters={vm.reporters}
+          loading={vm.loadingReporters}
+          updatingIds={vm.updatingIds}
+          onSelectReporter={handleOpenDrawer}
+          onEditLocation={(rep) => setEditingLocationReporter(rep)}
+          onRoleChangeRequest={handleRoleChangeRequest}
+          onToggleExemption={vm.toggleExemption}
+          onOpenPoster={(rep) => setPosterModalUser(rep)}
+          onDowngradeRequest={handleDowngradeRequest}
+          onDeleteRequest={handleDeleteReporterRequest}
+          onOpenDeskChat={onOpenReporterChat}
+          onExportSuccess={(count) =>
+            vm.showToast('success', `${count} మంది రిపోర్టర్ల CSV ఫైల్ విజయవంతంగా డౌన్‌లోడ్ అయింది.`)
+          }
+        />
       )}
 
-      
-      {/* TAB 3: APP INSTALLS TRACKING */}
-      {selectedTab === 'installs' && (
-        <AppInstallsPage currentUser={currentUser} />
+      {/* TAB 3: FORMER / REMOVED REPORTERS */}
+      {vm.selectedTab === 'former' && (
+        <FormerReportersTab
+          formerReporters={vm.formerReporters}
+          loading={vm.loadingFormer}
+          updatingIds={vm.updatingIds}
+          onRefresh={vm.fetchFormerReporters}
+          onReinstateClick={(former) => setReinstatingFormer(former)}
+          onDeleteRequest={handleDeleteReporterRequest}
+          onOpenDeskChat={onOpenReporterChat}
+        />
       )}
 
-      {/* Location Assignment Modal */}
-      {editingLocationUser && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 flex flex-col gap-4 animate-fade-in">
-            <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="text-xl font-bold text-gray-900 font-ramabhadra flex items-center gap-2">
-                <MapPin className="text-teal-600" size={22} />
-                మండలం కేటాయింపు
-              </h3>
-              <button
-                onClick={() => setEditingLocationUser(null)}
-                className="text-gray-400 hover:text-gray-600 text-xl font-bold"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div>
-              <p className="text-base text-gray-700 font-bold mb-1">రిపోర్టర్: <span className="text-teal-800">{editingLocationUser.name}</span></p>
-              <p className="text-xs text-gray-500">{editingLocationUser.phone || 'ఫోన్ లేదు'}</p>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">జిల్లా (District):</label>
-                <select
-                  value={editLocDistrict}
-                  onChange={(e) => {
-                    setEditLocDistrict(e.target.value);
-                    setEditLocMandal('');
-                  }}
-                  className="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white font-medium outline-none focus:ring-2 focus:ring-teal-500"
-                >
-                  <option value="">-- జిల్లా ఎంచుకోండి --</option>
-                  <optgroup label="తెలంగాణ (TS)">
-                    {TS_DISTRICTS.map(d => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </optgroup>
-                  <optgroup label="ఆంధ్రప్రదేశ్ (AP)">
-                    {AP_DISTRICTS.map(d => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </optgroup>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">మండలం (Mandal):</label>
-                <select
-                  value={editLocMandal}
-                  onChange={(e) => setEditLocMandal(e.target.value)}
-                  className="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white font-medium outline-none focus:ring-2 focus:ring-teal-500"
-                  disabled={!editLocDistrict}
-                >
-                  <option value="">-- మండలం ఎంచుకోండి --</option>
-                  {(editLocDistrict ? (MANDAL_DATA[editLocDistrict] || []) : []).map(m => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="flex gap-2 justify-end pt-3 border-t mt-2">
-              <button
-                onClick={() => setEditingLocationUser(null)}
-                className="px-4 py-2 rounded-xl text-sm font-bold text-gray-600 bg-gray-100 hover:bg-gray-200"
-              >
-                రద్దు చేయి (Cancel)
-              </button>
-              <button
-                onClick={handleSaveReporterLocation}
-                disabled={updatingReporters[editingLocationUser.id]}
-                className="px-5 py-2 rounded-xl text-sm font-bold text-white bg-teal-700 hover:bg-teal-800 shadow-md disabled:opacity-50"
-              >
-                {updatingReporters[editingLocationUser.id] ? 'సేవ్ అవుతోంది...' : 'లొకేషన్ సేవ్ చేయి'}
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* TAB 4: PUSH REMINDER AUTOMATION */}
+      {vm.selectedTab === 'automation' && (
+        <ReporterAutomationPanel
+          currentUser={currentUser}
+          onConfigUpdated={vm.updateTrackingConfig}
+          onScanCompleted={() => vm.fetchReporters()}
+        />
       )}
 
-      {/* Star Reporter Recognition & Social Poster Modal */}
+      {/* TAB 5: APP INSTALLS */}
+      {vm.selectedTab === 'installs' && <AppInstallsPage currentUser={currentUser} />}
+
+      {/* SLIDE-OVER REPORTER PROFILE & HISTORY DRAWER */}
+      <ReporterDetailDrawer
+        reporter={selectedDrawerReporter}
+        details={selectedDrawerReporter ? vm.drawerCache[selectedDrawerReporter.id] : undefined}
+        loadingDetails={Boolean(selectedDrawerReporter && vm.loadingDrawerId === selectedDrawerReporter.id)}
+        isBusy={Boolean(selectedDrawerReporter && vm.updatingIds[selectedDrawerReporter.id])}
+        onClose={() => setDrawerReporterId(null)}
+        onRefreshDetails={(id) => vm.loadReporterDrawerDetails(id, true)}
+        onEditLocation={(rep) => setEditingLocationReporter(rep)}
+        onToggleExemption={vm.toggleExemption}
+        onOpenPoster={(rep) => setPosterModalUser(rep)}
+        onDowngradeRequest={handleDowngradeRequest}
+        onDeleteRequest={handleDeleteReporterRequest}
+        onOpenDeskChat={onOpenReporterChat}
+      />
+
+      {/* IN-APP MODALS (ZERO NATIVE ALERT/CONFIRM) */}
+      <ConfirmActionModal config={confirmModal} onClose={() => setConfirmModal(null)} />
+
+      <ApplicationApprovalModal
+        application={approvingApp}
+        occupiedMandalsMap={vm.occupiedMandalsMap}
+        submitting={Boolean(approvingApp && vm.updatingIds[approvingApp.id])}
+        onClose={() => setApprovingApp(null)}
+        onConfirm={(override) =>
+          approvingApp ? vm.approveApplication(approvingApp, override) : Promise.resolve(false)
+        }
+      />
+
+      <LocationEditModal
+        reporter={editingLocationReporter}
+        occupiedMandalsMap={vm.occupiedMandalsMap}
+        submitting={Boolean(editingLocationReporter && vm.updatingIds[editingLocationReporter.id])}
+        onClose={() => setEditingLocationReporter(null)}
+        onSave={(district, mandal) =>
+          editingLocationReporter
+            ? vm.saveReporterLocation(editingLocationReporter, district, mandal)
+            : Promise.resolve(false)
+        }
+      />
+
+      <ReinstateReporterModal
+        former={reinstatingFormer}
+        occupiedMandalsMap={vm.occupiedMandalsMap}
+        submitting={Boolean(reinstatingFormer && vm.updatingIds[reinstatingFormer.id])}
+        onClose={() => setReinstatingFormer(null)}
+        onConfirm={(assignment) =>
+          reinstatingFormer
+            ? vm.reinstateReporter(reinstatingFormer, assignment)
+            : Promise.resolve(false)
+        }
+      />
+
+      {/* STAR REPORTER POSTER MODAL */}
       {posterModalUser && (
         <StarReporterPosterModal
           data={{
@@ -1174,9 +427,9 @@ const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ current
             photoUrl: posterModalUser.photoUrl,
             role: posterModalUser.role,
             district: posterModalUser.district,
-            mandal: posterModalUser.assignedMandal || (posterModalUser as any).mandal,
-            points: posterModalUser.points ?? ((posterModalUser.totalNewsCount || 0) * 10),
-            totalStories: posterModalUser.totalNewsCount || 0
+            mandal: posterModalUser.assignedMandal || posterModalUser.mandal,
+            points: posterModalUser.points ?? (posterModalUser.totalNewsCount || 0) * 10,
+            totalStories: posterModalUser.totalNewsCount || 0,
           }}
           isModal={true}
           onClose={() => setPosterModalUser(null)}
@@ -1187,4 +440,3 @@ const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ current
 };
 
 export default ReporterManagementPage;
-

@@ -67,10 +67,20 @@ import java.util.TimeZone
 fun AdminNotificationsPageView(showTitle: Boolean = true) {
     var latestPosts by remember { mutableStateOf<List<NewsPost>>(emptyList()) }
     var selectedPostId by remember { mutableStateOf("") }
+    var selectedStateEdition by remember { mutableStateOf<com.alfanews.telugu.utils.StateCode?>(null) }
     var isSending by remember { mutableStateOf(false) }
     var loadingPosts by remember { mutableStateOf(true) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    val selectedCollection = remember(selectedStateEdition) {
+        if (selectedStateEdition == null) "news"
+        else com.alfanews.telugu.utils.EditionRegistry.getCollectionForEdition(selectedStateEdition, null)
+    }
+    val selectedLang = remember(selectedStateEdition) {
+        selectedStateEdition?.let { com.alfanews.telugu.utils.EditionRegistry.EDITIONS[it]?.primaryLanguage }
+            ?: com.alfanews.telugu.models.Language.TELUGU
+    }
 
     // Live Notification Engine Health & Controls state (settings/notifications + settings/notif_daily_breaking)
     var scheduledEnabled by remember { mutableStateOf(true) }
@@ -200,12 +210,13 @@ fun AdminNotificationsPageView(showTitle: Boolean = true) {
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(selectedCollection) {
         launch { refreshHealth() }
         loadingPosts = true
+        selectedPostId = ""
         try {
             val snapshot = kotlinx.coroutines.withTimeoutOrNull(5000L) {
-                FirebaseService.db.collection("news")
+                FirebaseService.db.collection(selectedCollection)
                     .orderBy("timestamp", Query.Direction.DESCENDING)
                     .limit(100)
                     .get()
@@ -221,12 +232,19 @@ fun AdminNotificationsPageView(showTitle: Boolean = true) {
                         id = doc.id,
                         headline = com.alfanews.telugu.models.Headline(
                             telugu = headlineData["telugu"] as? String ?: "",
-                            english = headlineData["english"] as? String ?: ""
+                            english = headlineData["english"] as? String ?: "",
+                            local = headlineData["local"] as? String ?: "",
+                            hi = headlineData["hi"] as? String ?: "",
+                            pa = headlineData["pa"] as? String ?: "",
+                            gu = headlineData["gu"] as? String ?: ""
                         ),
                         content = com.alfanews.telugu.models.Content(),
                         mediaUrl = data["mediaUrl"] as? String ?: "",
                         categories = listOf(data["category"] as? String ?: ""),
-                        district = data["district"] as? String
+                        district = data["district"] as? String,
+                        state = data["state"] as? String,
+                        stateCode = data["stateCode"] as? String,
+                        language = data["language"] as? String
                     )
                 }
             }
@@ -256,8 +274,11 @@ fun AdminNotificationsPageView(showTitle: Boolean = true) {
         }
 
         val selectedPost = latestPosts.find { it.id == selectedPostId }
+        val resolvedHeadline = selectedPost?.headline?.getForLanguage(selectedLang).orEmpty()
         val resolvedTopic = if (targetScope == "district") {
             NotificationHelper.getTopicName("district", selectedDistrict)
+        } else if (selectedStateEdition != null && selectedStateEdition != com.alfanews.telugu.utils.StateCode.AP && selectedStateEdition != com.alfanews.telugu.utils.StateCode.TS) {
+            com.alfanews.telugu.utils.EditionRegistry.getEditionTopic(selectedStateEdition!!, selectedLang)
         } else {
             "all_users"
         }
@@ -272,15 +293,15 @@ fun AdminNotificationsPageView(showTitle: Boolean = true) {
             try {
                 val finalTitle = if (useCustomMessage) customTitle else {
                     if (selectedChannelId == "breaking_news") {
-                        "🔴 బ్రేకింగ్: ${selectedPost?.headline?.telugu ?: ""}"
+                        "🔴 $resolvedHeadline"
                     } else if (targetScope == "district") {
-                        "📍 $selectedDistrict: ${selectedPost?.headline?.telugu ?: ""}"
+                        "📍 $selectedDistrict: $resolvedHeadline"
                     } else {
-                        selectedPost?.headline?.telugu ?: ""
+                        resolvedHeadline
                     }
                 }
 
-                val finalBody = if (useCustomMessage) customBody else selectedPost?.headline?.telugu ?: ""
+                val finalBody = if (useCustomMessage) customBody else resolvedHeadline
                 val resolvedNewsId = if (useCustomMessage) null else selectedPost?.id
                 val actionUrl = if (resolvedNewsId != null) "alfanews://news/$resolvedNewsId" else ""
                 val imageUrl = if (useCustomMessage) "" else selectedPost?.mediaUrl ?: ""
@@ -497,6 +518,33 @@ fun AdminNotificationsPageView(showTitle: Boolean = true) {
                 }
             }
 
+            // State Edition Selector (All 9 States)
+            androidx.compose.foundation.lazy.LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                item {
+                    androidx.compose.material3.FilterChip(
+                        selected = selectedStateEdition == null,
+                        onClick = { selectedStateEdition = null },
+                        label = { Text("AP/TS (All)", fontSize = 12.sp) }
+                    )
+                }
+                items(com.alfanews.telugu.utils.EditionRegistry.ALL_EDITIONS_LIST.size) { idx ->
+                    val ed = com.alfanews.telugu.utils.EditionRegistry.ALL_EDITIONS_LIST[idx]
+                    androidx.compose.material3.FilterChip(
+                        selected = selectedStateEdition == ed.stateCode,
+                        onClick = {
+                            selectedStateEdition = ed.stateCode
+                            if (ed.districts.isNotEmpty() && !ed.districts.contains(selectedDistrict)) {
+                                selectedDistrict = ed.districts.first()
+                            }
+                        },
+                        label = { Text("${ed.nameNative} (${ed.stateCode.code})", fontSize = 12.sp) }
+                    )
+                }
+            }
+
             // Target Audience Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -510,7 +558,7 @@ fun AdminNotificationsPageView(showTitle: Boolean = true) {
                         contentColor = if (targetScope == "all") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 ) {
-                    Text("అందరు (All Users)")
+                    Text(if (selectedStateEdition == null) "అందరు (All Users)" else "${selectedStateEdition!!.code} ఎడిషన్")
                 }
                 Button(
                     onClick = {
@@ -528,6 +576,9 @@ fun AdminNotificationsPageView(showTitle: Boolean = true) {
             }
 
             if (targetScope == "district") {
+                val districtChoices = selectedStateEdition?.let {
+                    com.alfanews.telugu.utils.EditionRegistry.EDITIONS[it]?.districts
+                } ?: com.alfanews.telugu.utils.EditionRegistry.getAllDistricts()
                 ExposedDropdownMenuBox(
                     expanded = districtExpanded,
                     onExpandedChange = { districtExpanded = !districtExpanded },
@@ -547,7 +598,7 @@ fun AdminNotificationsPageView(showTitle: Boolean = true) {
                         expanded = districtExpanded,
                         onDismissRequest = { districtExpanded = false }
                     ) {
-                        Constants.ALL_DISTRICTS.forEach { dist ->
+                        districtChoices.forEach { dist ->
                             DropdownMenuItem(
                                 text = { Text(dist) },
                                 onClick = {
@@ -624,7 +675,7 @@ fun AdminNotificationsPageView(showTitle: Boolean = true) {
                         onExpandedChange = { postExpanded = !postExpanded },
                     ) {
                         OutlinedTextField(
-                            value = latestPosts.find { it.id == selectedPostId }?.headline?.telugu ?: "-- వార్తను ఎంచుకోండి --",
+                            value = latestPosts.find { it.id == selectedPostId }?.headline?.getForLanguage(selectedLang) ?: "-- వార్తను ఎంచుకోండి --",
                             onValueChange = { },
                             readOnly = true,
                             modifier = Modifier
@@ -640,7 +691,7 @@ fun AdminNotificationsPageView(showTitle: Boolean = true) {
                         ) {
                             latestPosts.forEach { post ->
                                 DropdownMenuItem(
-                                    text = { Text(post.headline.telugu, maxLines = 2) },
+                                    text = { Text(post.headline.getForLanguage(selectedLang), maxLines = 2) },
                                     onClick = {
                                         selectedPostId = post.id
                                         postExpanded = false

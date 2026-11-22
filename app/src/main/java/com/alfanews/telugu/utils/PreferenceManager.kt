@@ -35,6 +35,7 @@ class PreferenceManager(context: Context) {
     companion object {
         private const val KEY_LANGUAGE = "key_language"
         private const val KEY_THEME_MODE = "key_theme_mode"
+        private const val KEY_SELECTED_STATE = "key_selected_state"
         private const val KEY_SELECTED_DISTRICT = "key_selected_district"
         private const val KEY_DETECTED_DISTRICT = "key_detected_district"
         private const val KEY_NEWS_INTERESTS = "key_news_interests"
@@ -68,6 +69,7 @@ class PreferenceManager(context: Context) {
         private const val KEY_CATEGORY_READ_COUNTS = "key_category_read_counts"  // JSON map of category→count
         private const val KEY_SUBSCRIBED_CATEGORIES = "key_subscribed_cat_topics" // Set of subscribed category topics
         private const val KEY_SUBSCRIBED_DISTRICT_TOPIC = "key_subscribed_district_topic" // User's single subscribed district topic
+        private const val KEY_SUBSCRIBED_EDITION_TOPIC = "key_subscribed_edition_topic" // User's active state/language edition FCM topic
         private const val KEY_HAS_CLEANED_STALE_DISTRICTS = "key_has_cleaned_stale_districts_v1" // One-time purge flag
         private const val KEY_WEATHER_GRID_TOPIC = "key_weather_grid_topic"        // Current weather grid FCM topic
         private const val KEY_STREAK_LAST_READ_DATE = "key_streak_last_read_date"
@@ -95,13 +97,50 @@ class PreferenceManager(context: Context) {
     var language: Language
         get() = try {
             val langName = prefs.getString(KEY_LANGUAGE, Language.TELUGU.name)
-            if (langName != null) Language.valueOf(langName) else Language.TELUGU
+            val parsed = if (langName != null) Language.fromCode(langName) else Language.TELUGU
+            EditionRegistry.validateLanguageForState(getEffectiveStateCode(), parsed)
         } catch (e: Exception) {
-            Language.TELUGU
+            EditionRegistry.validateLanguageForState(getEffectiveStateCode(), Language.TELUGU)
         }
         set(value) {
-            prefs.edit().putString(KEY_LANGUAGE, value.name).apply()
+            val validated = EditionRegistry.validateLanguageForState(getEffectiveStateCode(), value)
+            prefs.edit().putString(KEY_LANGUAGE, validated.name).apply()
         }
+
+    /** వినియోగదారు ఎంచుకున్న రాష్ట్రం (AP, TS, UP, PB, UK, GA, MN, HP, GJ) */
+    var selectedState: StateCode?
+        get() = StateCode.fromCode(prefs.getString(KEY_SELECTED_STATE, null))
+        set(value) {
+            prefs.edit().putString(KEY_SELECTED_STATE, value?.code).apply()
+            if (value != null) {
+                val currentLang = try {
+                    Language.fromCode(prefs.getString(KEY_LANGUAGE, null))
+                } catch (_: Exception) { null }
+                val validLang = EditionRegistry.validateLanguageForState(value, currentLang)
+                prefs.edit().putString(KEY_LANGUAGE, validLang.name).apply()
+            }
+        }
+
+    fun getEffectiveStateCode(): StateCode {
+        selectedState?.let { return it }
+        val dist = prefs.getString(KEY_SELECTED_DISTRICT, null)
+            ?: prefs.getString(KEY_USER_DISTRICT, null)
+            ?: prefs.getString(KEY_DETECTED_DISTRICT, null)
+        EditionRegistry.resolveStateCode(null, dist)?.let { return it }
+        return StateCode.AP
+    }
+
+    fun setEdition(stateCode: StateCode, district: String?, requestedLanguage: Language? = null) {
+        val validLang = EditionRegistry.validateLanguageForState(stateCode, requestedLanguage)
+        val editor = prefs.edit()
+            .putString(KEY_SELECTED_STATE, stateCode.code)
+            .putString(KEY_LANGUAGE, validLang.name)
+        if (!district.isNullOrBlank() && Constants.isSpecificDistrict(district)) {
+            editor.putString(KEY_SELECTED_DISTRICT, district)
+        }
+        editor.apply()
+        _districtChanges.tryEmit(getEffectiveDistrict())
+    }
 
     var themeMode: ThemeMode
         get() = try {
@@ -677,6 +716,10 @@ class PreferenceManager(context: Context) {
     var subscribedDistrictTopic: String?
         get() = prefs.getString(KEY_SUBSCRIBED_DISTRICT_TOPIC, null)
         set(value) = prefs.edit().putString(KEY_SUBSCRIBED_DISTRICT_TOPIC, value).apply()
+
+    var subscribedEditionTopic: String?
+        get() = prefs.getString(KEY_SUBSCRIBED_EDITION_TOPIC, null)
+        set(value) = prefs.edit().putString(KEY_SUBSCRIBED_EDITION_TOPIC, value).apply()
 
     /** పాత వెర్షన్ల నుండి పేరుకుపోయిన జోంబీ జిల్లా టాపిక్స్ క్లీనప్ జరిగిందో లేదో ట్రాక్ చేస్తుంది. */
     var hasCleanedStaleDistricts: Boolean

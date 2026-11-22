@@ -12,6 +12,59 @@ export interface UserInterest {
   [key: string]: number; // key is category/keyword, value is weight
 }
 
+export type ReporterInactivityStage =
+  | 'ACTIVE'
+  | 'REMINDED_3D'
+  | 'REMINDED_7D'
+  | 'ADMIN_ALERTED_10D'
+  | 'EXEMPT';
+
+export type ReporterReminderStage = 'DAY_3' | 'DAY_7' | 'DAY_10_ADMIN';
+
+export interface ReporterActivityStats {
+  totalApprovedPosts: number;
+  lastApprovedPostAt?: number | null;
+  dailyCounts?: Record<string, number>;
+  inactivityStage?: ReporterInactivityStage;
+  lastReminderSentAt?: number | null;
+  lastReminderStage?: ReporterReminderStage | null;
+  lastAdminAlertAt?: number | null;
+  lastSyncedAt?: number | null;
+}
+
+export interface ReporterTrackingConfig {
+  enabled: boolean;
+  firstReminderDays: number;
+  secondReminderDays: number;
+  adminAlertDays: number;
+  adminAlertRepeatDays: number;
+  day3Title: string;
+  day3Body: string;
+  day7Title: string;
+  day7Body: string;
+  updatedAt?: number;
+  updatedBy?: string;
+}
+
+export interface ReporterReminderLog {
+  id: string;
+  reporterId: string;
+  reporterName: string;
+  district?: string;
+  mandal?: string;
+  stage: ReporterReminderStage;
+  daysInactive: number;
+  channel: 'PUSH' | 'PUSH_ONLY' | 'ADMIN_ALERT';
+  status?: 'SENT' | 'NO_TOKENS' | 'FAILED' | 'DRY_RUN';
+  deliveryStatus?: 'SENT' | 'NO_TOKENS' | 'FAILED' | 'DRY_RUN';
+  tokensTargeted?: number;
+  sentCount?: number;
+  title?: string;
+  body?: string;
+  timestamp: number;
+  triggeredBy?: 'SCHEDULED' | 'MANUAL_ADMIN';
+}
+
 export interface User {
   id: string;
   name: string;
@@ -26,9 +79,11 @@ export interface User {
   signatureUrl?: string;
   idCardUrl?: string;
   state?: string;
+  stateCode?: string;
   district?: string;
   assignedMandal?: string;
   mandal?: string;
+  language?: Language | string;
   assignedDistricts?: string[];
   pushEnabled?: boolean;
   notificationsEnabled?: boolean;
@@ -40,11 +95,16 @@ export interface User {
   points?: number;
   badges?: string[];
   createdAt?: number;
+  promotedAt?: any;
+  rejoinedAt?: any;
   lastLogin?: number;
   lastActive?: any;
+  lastPostTimestamp?: any;
   totalNewsCount?: number;
   todayNewsCount?: number;
   referralCount?: number;
+  exemptFromInactivity?: boolean;
+  reporterActivity?: ReporterActivityStats;
 }
 
 export enum PostFormat {
@@ -57,14 +117,26 @@ export interface NewsPost {
   headline: {
     telugu: string;
     english: string;
+    local?: string;
+    hi?: string;
+    pa?: string;
+    gu?: string;
   };
   content: {
     telugu: string;
     english: string;
+    local?: string;
+    hi?: string;
+    pa?: string;
+    gu?: string;
   };
   fullStory?: {
     telugu: string;
     english: string;
+    local?: string;
+    hi?: string;
+    pa?: string;
+    gu?: string;
   };
   mediaUrl: string;
   mediaUrls?: string[];
@@ -77,8 +149,11 @@ export interface NewsPost {
   };
   location: string;
   state?: string;
+  stateCode?: string;
   district?: string;
+  constituency?: string;
   mandal?: string;
+  language?: string;
   timestamp: number;
   categories: string[];
   likes: number;
@@ -132,6 +207,9 @@ export interface SurveyQuestion {
 
 export enum Language {
     TELUGU = 'te',
+    HINDI = 'hi',
+    PUNJABI = 'pa',
+    GUJARATI = 'gu',
     ENGLISH = 'en'
 }
 
@@ -407,6 +485,9 @@ export interface ScrapingSource {
     siteName: string;
     category: string;
     state?: string;
+    stateCode?: string;
+    language?: string;
+    targetCollection?: string;
     district?: string;
     group?: number;
     lastStatus?: 'active' | 'error';
@@ -533,6 +614,9 @@ export interface SocialFeed {
     sourceName: string;
     category: string;
     state?: string;
+    stateCode?: string;
+    language?: string;
+    targetCollection?: string;
     district?: string;
     lastStatus?: 'active' | 'error';
     lastFetchTime?: any;
@@ -576,9 +660,9 @@ export interface UserAnalyticsEvent {
 }
 
 export interface DistrictSocialConfig {
-    id: string; // District name in Telugu e.g. "కరీంనగర్"
+    id: string; // District name e.g. "కరీంనగర్" or "Lucknow"
     district: string;
-    state: 'TS' | 'AP';
+    state: string;
     enabled: boolean;
     facebook?: {
         enabled: boolean;

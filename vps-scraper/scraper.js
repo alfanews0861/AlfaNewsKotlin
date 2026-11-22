@@ -7,6 +7,20 @@ const cheerio = require('cheerio');
 const Parser = require('rss-parser');
 const axios = require('axios');
 const { classifyScraperNotification } = require('./notificationClassifier');
+const {
+    EDITIONS_CONFIG,
+    ALL_NEWS_COLLECTIONS,
+    getLanguageMeta,
+    isTargetLanguageScript,
+    cleanGenericHeadline,
+    sanitizeGenericText,
+    resolveScraperTarget,
+    parseScraperStatesFilter,
+    doesSourceMatchStateFilter,
+    buildLocalizedTextMap,
+    getReporterForLanguage,
+    detectExpansionDistrict
+} = require('./editionsConfig');
 let HttpsProxyAgent = null;
 try {
     HttpsProxyAgent = require('https-proxy-agent').HttpsProxyAgent;
@@ -1705,24 +1719,43 @@ async function prewarmScraperCache() {
             if (data.url) scannedUrlMemoryCache.add(normalizeUrl(data.url));
         });
 
-        // 2. Load recent published news (last 2000 ordered by timestamp DESC for accurate today/yesterday dedup at 500+ posts/day scale)
-        const recentNewsSnap = await db.collection('news')
-            .orderBy('timestamp', 'desc')
-            .limit(2000)
-            .get();
-        recentNewsSnap.forEach(doc => {
-            const data = doc.data();
-            if (data.sourceUrl) scannedUrlMemoryCache.add(normalizeUrl(data.sourceUrl));
-            if (data.originalUrl) scannedUrlMemoryCache.add(normalizeUrl(data.originalUrl));
-            if (data.storyFingerprint) storyFingerprintMemoryCache.add(data.storyFingerprint);
-            const teTitle = data.headline?.telugu || (typeof data.headline === 'string' ? data.headline : '');
-            if (teTitle && teTitle.length > 5) {
-                recentHeadlinesMemoryCache.push(cleanTeluguHeadline(teTitle));
-            }
+        // 2. Load recent published news across active collections (bounded .limit() per collection)
+        const activeStateFilter = parseScraperStatesFilter();
+        const collectionsToPrewarm = ALL_NEWS_COLLECTIONS.filter(col => {
+            if (!activeStateFilter) return true;
+            if (col === 'news') return activeStateFilter.has('AP') || activeStateFilter.has('TS') || activeStateFilter.has('NATIONAL');
+            if (col === 'news_hi') return activeStateFilter.has('UP') || activeStateFilter.has('UK') || activeStateFilter.has('HP') || activeStateFilter.has('PB') || activeStateFilter.has('GA') || activeStateFilter.has('MN') || activeStateFilter.has('NATIONAL');
+            if (col === 'news_pa') return activeStateFilter.has('PB') || activeStateFilter.has('NATIONAL');
+            if (col === 'news_gu') return activeStateFilter.has('GJ') || activeStateFilter.has('NATIONAL');
+            if (col === 'news_en') return true;
+            return true;
         });
 
+        for (const colName of collectionsToPrewarm) {
+            try {
+                const colLimit = colName === 'news' ? 2000 : 500;
+                const recentNewsSnap = await db.collection(colName)
+                    .orderBy('timestamp', 'desc')
+                    .limit(colLimit)
+                    .get();
+                recentNewsSnap.forEach(doc => {
+                    const data = doc.data();
+                    if (data.sourceUrl) scannedUrlMemoryCache.add(normalizeUrl(data.sourceUrl));
+                    if (data.originalUrl) scannedUrlMemoryCache.add(normalizeUrl(data.originalUrl));
+                    if (data.storyFingerprint) storyFingerprintMemoryCache.add(data.storyFingerprint);
+                    const rawTitle = data.headline?.local || data.headline?.telugu || data.headline?.hi || data.headline?.pa || data.headline?.gu || data.headline?.english || (typeof data.headline === 'string' ? data.headline : '');
+                    if (rawTitle && rawTitle.length > 5) {
+                        const cleaned = colName === 'news' ? cleanTeluguHeadline(rawTitle) : cleanGenericHeadline(rawTitle);
+                        if (cleaned) recentHeadlinesMemoryCache.push(cleaned);
+                    }
+                });
+            } catch (colErr) {
+                console.warn(`Prewarm skipped for ${colName}:`, colErr.message);
+            }
+        }
+
         isCachePrewarmed = true;
-        console.log(`Cache pre-warmed: ${scannedUrlMemoryCache.size} URLs, ${storyFingerprintMemoryCache.size} fingerprints, ${recentHeadlinesMemoryCache.length} headlines in memory.`);
+        console.log(`Cache pre-warmed (${collectionsToPrewarm.join(', ')}): ${scannedUrlMemoryCache.size} URLs, ${storyFingerprintMemoryCache.size} fingerprints, ${recentHeadlinesMemoryCache.length} headlines in memory.`);
     } catch (e) {
         console.warn("Failed to prewarm cache (will continue without prewarm):", e.message);
     }
@@ -2114,9 +2147,73 @@ function buildEditorialPrompt({
     handleTag = '',
     designation = '',
     district = '',
-    isAggregator = false
+    isAggregator = false,
+    targetLanguage = 'te',
+    targetStateCode = ''
 }) {
+    const lang = String(targetLanguage || 'te').toLowerCase().trim();
     const isSocial = mode === 'social';
+
+    // Non-Telugu multi-state editorial prompt (Hindi / Punjabi / Gujarati / English)
+    if (lang !== 'te') {
+        const langMeta = getLanguageMeta(lang);
+        const stateName = (targetStateCode && EDITIONS_CONFIG[targetStateCode])
+            ? EDITIONS_CONFIG[targetStateCode].nameEn
+            : 'India';
+        const regionLabel = district ? `${district}, ${stateName}` : stateName;
+
+        const nonTeHeader = isSocial
+            ? (isAggregator
+                ? `Source: Independent news report (news aggregator post — NEVER mention any aggregator/portal/channel name in the story).\nRegion: ${regionLabel}\n`
+                : `Post Author Details:\n- Author: ${authorDisplayName} (${handleTag})\n- Role / Category: ${designation || 'Political / Social Update'}\n- Region: ${regionLabel}\n`)
+            : `Source: Web news article (ignore sidebar tickers, ads, and unrelated links; focus only on the main story; NEVER mention any external website/channel name).\nRegion: ${regionLabel}\n`;
+
+        const nonTeFullStoryRule = hasSubstantialSource
+            ? `- 'fullStoryLocal' and matching 'fullStoryEn': Write 2-4 crisp paragraphs separated by \\n\\n based strictly on facts present in the source (Para 1: core event & public impact; Para 2: key numbers/quotes; Para 3-4: background/next steps). Never repeat points or invent facts.`
+            : `- Source is short (${sourceWords} words). Do NOT invent facts; leave 'fullStoryLocal': "" and 'fullStoryEn': "", and write only the 50-65 word summary.`;
+
+        const nonTeAttribution = isSocial && !isAggregator
+            ? `- Original Alfa Newsroom Voice & Attribution: Write directly as Alfa News. Attribute political statements/criticism/allegations to the speaker; if a press note/order image is attached, read key facts and figures from it.`
+            : `- Original Alfa Newsroom Voice: Write directly as Alfa News. Never mention competing outlets (e.g. Amar Ujala, Dainik Bhaskar, Jagbani, Divya Bhaskar, O Heraldo, Sangai Express, NDTV, ANI, PTI, etc.). Attribute only direct quotes/allegations to the named leader/official.`;
+
+        const langSpecificInstruction = lang === 'en'
+            ? `- Write 'headline' (6-10 words) and 'contentLocal' (50-65 words, single paragraph, no newlines) in crisp, natural Indian journalism English. Set 'headlineEn' equal to 'headline' and 'contentEn' equal to 'contentLocal'.`
+            : `- Regardless of input language, write 'headline' (6-10 words) and 'contentLocal' (50-65 words, single paragraph, no newlines) in pure, natural journalistic ${langMeta.nameEn} using ${langMeta.scriptName} ONLY (do NOT use Telugu or other unrelated scripts; standard abbreviations like BJP, INC, AAP, ₹ are allowed).\n   - Write 'headlineEn' (6-10 words) and 'contentEn' (50-65 words) as an accurate English translation of your ${langMeta.nameEn} copy.`;
+
+        return `You are the Chief Editor of Alfa News. Transform the provided information into a clear, mobile-first ${langMeta.nameEn} news report and return STRICT VALID JSON ONLY.
+
+${nonTeHeader}
+Core Rules:
+1. Language, Headline & Summary (READER-FIRST):
+   ${langSpecificInstruction}
+   - 'headline': 6-10 words, one punchy sentence stating the exact event, location, figure, or public impact (examples: ${langMeta.exampleHeadlines}). NO colons (:), semicolons (;), quotes, or clickbait prefixes like "Breaking:" / "Shocking:".
+   - 'contentLocal': 50-65 words in a single paragraph. Lead with the core news & impact in sentence 1; keep exact names, places, and figures.
+   ${nonTeFullStoryRule}
+
+2. Neutrality & Editorial Standards:
+   - Strictly preserve facts, numbers, funds, names, and locations from the input; never fabricate details.
+   - Zero flattery or partisan verdicts from our newsroom.
+   ${nonTeAttribution}
+
+3. Editorial Filter ('isRelevant'):
+   - isRelevant = false: PR self-promotion, birthday greetings, photo-op ribbon cuttings without news value, memes/trolls, ads, horoscopes.
+   - isRelevant = true: Government decisions, welfare schemes, infrastructure, budgets, major political statements, civic issues, accidents, crime, sports, cinema, education/jobs.
+
+4. Image Logo/Watermark Visual Check (STRICT VISUAL CHECK ONLY):
+   - Inspect pixels ONLY if an image is attached; if no image is attached, ALWAYS return "hasLogo": false.
+   - Return "hasLogo": true if the image has news channel logos, website URLs/watermarks, TV ticker bars, or red-circle/arrow thumbnail overlays.
+   - Return "hasLogo": false for clean real photos (people, roads, buildings, official press notes).
+
+5. Metadata & Score:
+   - location: Specific district, tehsil/taluka/sub-division, or city in ${stateName}.
+   - refinedCategory: Pick ONE from [Politics, Crime, Sports, Cinema, Business, Health, Education, Technology, Agriculture, Local, National, International].
+   - storyFingerprint: 3-4 English lowercase words joined by hyphens (e.g. ${(targetStateCode || 'in').toLowerCase()}-highway-accident-three).
+   - qualityScore (0.0-10.0): 9-10 major policy/disaster/public impact; 6-8 standard news; 1-4 filler.
+
+Strict JSON Output ONLY:
+{"isRelevant": true, "qualityScore": 8.0, "headline": "6-10 word ${langMeta.nameEn} headline", "contentLocal": "50-65 word single-paragraph ${langMeta.nameEn} summary", "fullStoryLocal": "${hasSubstantialSource ? `2-4 paragraph ${langMeta.nameEn} full story (\\\\n\\\\n)` : ""}", "headlineEn": "6-10 word English headline", "contentEn": "50-65 word English summary", "fullStoryEn": "${hasSubstantialSource ? "2-4 paragraph English full story (\\\\n\\\\n)" : ""}", "location": "Location", "storyFingerprint": "short-english-slug", "refinedCategory": "Category", "tags": [], "entities": {"people": [], "organizations": [], "locations": []}, "hasLogo": false, "mediaUrl": "${imageUrl}", "mediaType": "image", "isWide": false}`;
+    }
+
     const contextHeader = isSocial
         ? (isAggregator
             ? `మూలం: స్వతంత్ర వార్తా నివేదిక (ఇది న్యూస్ అగ్రిగేటర్ పోస్ట్ — అగ్రిగేటర్/పోర్టల్ పేరును వార్తలో ఎక్కడా రాయకండి).
@@ -2466,7 +2563,7 @@ async function markUrlAsProcessed(url) {
     } catch (e) {}
 }
 
-async function isUrlAlreadyScanned(urls) {
+async function isUrlAlreadyScanned(urls, targetCollection = 'news') {
     if (!urls || urls.length === 0) return new Set();
     const seen = new Set();
     const urlsToQuery = [];
@@ -2485,12 +2582,12 @@ async function isUrlAlreadyScanned(urls) {
         return seen;
     }
 
-    // 2. Query Firestore news collection
+    // 2. Query Firestore target news collection
     for (let i = 0; i < urlsToQuery.length; i += 10) {
         const batch = urlsToQuery.slice(i, i + 10);
         const batchUrls = [...new Set(batch.map(b => b.clean).concat(batch.map(b => b.raw)))];
         try {
-            const snapshot = await db.collection('news').where('sourceUrl', 'in', batchUrls).limit(20).get();
+            const snapshot = await db.collection(targetCollection || 'news').where('sourceUrl', 'in', batchUrls).limit(20).get();
             snapshot.forEach(doc => {
                 const sUrl = doc.data().sourceUrl;
                 if (sUrl) {
@@ -2573,7 +2670,8 @@ const GLOBAL_CATEGORIES = [
     "Sports", "Health", "Technology", "Business", "Cinema", 
     "National", "International", "Politics", "Crime", 
     "Education", "Agriculture", "Devotional", "Lifestyle", 
-    "AndhraPradesh", "Telangana"
+    "AndhraPradesh", "Telangana",
+    "UttarPradesh", "Punjab", "Uttarakhand", "Goa", "Manipur", "HimachalPradesh", "Gujarat"
 ];
 
 // Pure universal/global categories that must NEVER be tagged as a local district news
@@ -2650,7 +2748,16 @@ const DISTRICT_MAPPING = [
     { canonical: "Telangana", state: "TS", keywords: ["telangana", "telangana state", "తెలంగాణ", "తెలంగాణా", "ts news", "tg news"] }
 ];
 
-function detectDistrict(location, text) {
+function detectDistrict(location, text, stateCodeHint = '') {
+    const hintUpper = String(stateCodeHint || '').toUpperCase().trim();
+    const isExpansionHint = ['UP', 'PB', 'UK', 'GA', 'MN', 'HP', 'GJ'].includes(hintUpper);
+
+    // If explicitly scraping an expansion state, prioritize the 174 expansion districts first
+    if (isExpansionHint) {
+        const expMatch = detectExpansionDistrict(location, text, hintUpper);
+        if (expMatch) return expMatch;
+    }
+
     const loc = (location || '').toLowerCase().trim();
     if (loc && loc !== 'general' && loc !== 'none') {
         for (const item of DISTRICT_MAPPING) {
@@ -2674,6 +2781,13 @@ function detectDistrict(location, text) {
             }
         }
     }
+
+    // Fallback to expansion districts for untagged or national sources mentioning expansion-state cities
+    if (!isExpansionHint && hintUpper !== 'AP' && hintUpper !== 'TS') {
+        const expFallback = detectExpansionDistrict(location, text, hintUpper);
+        if (expFallback) return expFallback;
+    }
+
     return null;
 }
 
@@ -2718,10 +2832,11 @@ async function processSingleWebSource(doc, signal = null) {
 
         if (signal?.aborted) return;
 
-        const existingUrls = await isUrlAlreadyScanned(uniqueLinks);
+        const earlySourceTarget = resolveScraperTarget(source);
+        const existingUrls = await isUrlAlreadyScanned(uniqueLinks, earlySourceTarget.collectionName);
         const newLinks = uniqueLinks.filter(link => !existingUrls.has(link));
 
-        console.log(`[WEB] Found ${uniqueLinks.length} total valid links for ${source.siteName} (${newLinks.length} new)`);
+        console.log(`[WEB] Found ${uniqueLinks.length} total valid links for ${source.siteName} [${earlySourceTarget.stateCode || 'GLOBAL'}/${earlySourceTarget.language}->${earlySourceTarget.collectionName}] (${newLinks.length} new)`);
 
         const linksToProcess = newLinks.slice(0, 12);
         const batch = db.batch();
@@ -2787,7 +2902,10 @@ async function processSingleWebSource(doc, signal = null) {
                     mode: 'web',
                     hasSubstantialSource,
                     sourceWords,
-                    imageUrl: activePrimaryImageUrl || ''
+                    imageUrl: activePrimaryImageUrl || '',
+                    district: source.district || '',
+                    targetLanguage: earlySourceTarget.language,
+                    targetStateCode: earlySourceTarget.stateCode
                 });
 
                 const webInputText = extracted.headline
@@ -2810,19 +2928,27 @@ async function processSingleWebSource(doc, signal = null) {
                         if (!retryResult || articleSignal.aborted) throw initialParseErr;
                         parsed = parseAIJson(retryResult);
                     }
-                    const validContent = parsed.contentTe || parsed.content || '';
+                    const targetLang = earlySourceTarget.language;
+                    const validContent = targetLang === 'te'
+                        ? (parsed.contentTe || parsed.contentLocal || parsed.content || '')
+                        : (parsed.contentLocal || parsed.contentTe || parsed.content || (targetLang === 'en' ? parsed.contentEn : '') || '');
                     if (!parsed.isRelevant || !parsed.headline || !validContent) {
                         await markUrlAsProcessed(link);
                         return;
                     }
                     parsed.content = validContent;
 
-                    // Clean headline immediately (strictly remove all quotes, colons, double-dots, and external portal credits)
-                    parsed.headline = cleanTeluguHeadline(stripAggregatorAttribution(parsed.headline));
+                    // Clean headline immediately in target language script
+                    parsed.headline = targetLang === 'te'
+                        ? cleanTeluguHeadline(stripAggregatorAttribution(parsed.headline))
+                        : cleanGenericHeadline(stripAggregatorAttribution(parsed.headline));
                     if (parsed.headlineEn) {
                         parsed.headlineEn = cleanEnglishHeadline(parsed.headlineEn);
                     }
-                    if (!parsed.headline || !isTeluguScript(parsed.headline)) {
+                    const isHeadlineScriptValid = targetLang === 'te'
+                        ? isTeluguScript(parsed.headline)
+                        : isTargetLanguageScript(parsed.headline, targetLang);
+                    if (!parsed.headline || !isHeadlineScriptValid) {
                         await markUrlAsProcessed(link);
                         return;
                     }
@@ -2863,8 +2989,8 @@ async function processSingleWebSource(doc, signal = null) {
                             return;
                         }
 
-                        // Query Firestore using single-field index on storyFingerprint (no composite index needed)
-                        const duplicate = await db.collection('news')
+                        // Query Firestore target collection using single-field index on storyFingerprint
+                        const duplicate = await db.collection(earlySourceTarget.collectionName)
                             .where('storyFingerprint', '==', parsed.storyFingerprint)
                             .limit(1)
                             .get();
@@ -2878,7 +3004,7 @@ async function processSingleWebSource(doc, signal = null) {
                         storyFingerprintMemoryCache.add(parsed.storyFingerprint);
                     }
 
-                    const reporter = getRandomReporter();
+                    const reporter = getReporterForLanguage(targetLang) || getRandomReporter();
                     let category = parsed.refinedCategory;
                     if (!category || category === 'Local') {
                         category = TELUGU_CATEGORY_MAP[source.category] || source.category || 'Local';
@@ -2887,10 +3013,10 @@ async function processSingleWebSource(doc, signal = null) {
                     // 🎯 SMART DISTRICT RESOLUTION:
                     // When scanning district pages, if sports, cinema, national or another district's news appears,
                     // do NOT tag it with the source's district! Assign its actual location/district or General.
-                    const detected = detectDistrict(parsed.location, (parsed.headline || '') + ' ' + (extracted.body || ''));
+                    const detected = detectDistrict(parsed.location, (parsed.headline || '') + ' ' + (extracted.body || ''), earlySourceTarget.stateCode);
 
                     let finalDistrict = "General";
-                    let finalState = source.state || null;
+                    let finalState = earlySourceTarget.stateCode || source.state || null;
 
                     if (PURE_GLOBAL_CATEGORIES.includes(category)) {
                         finalDistrict = "General";
@@ -2962,51 +3088,78 @@ async function processSingleWebSource(doc, signal = null) {
                         }
                     }
 
-                    // Enforce pure Telugu script & Single Paragraph
+                    // Enforce target script purity & Single Paragraph (100% legacy Telugu path for 'te', native script path for 'hi'/'pa'/'gu'/'en')
                     const cleanedHeadline = parsed.headline;
-                    let rawContentTe = parsed.contentTe || parsed.content || '';
-                    let rawContentEn = parsed.contentEn || '';
+                    let rawContentLocal = targetLang === 'te'
+                        ? (parsed.contentTe || parsed.contentLocal || parsed.content || '')
+                        : (parsed.contentLocal || parsed.contentTe || parsed.content || (targetLang === 'en' ? parsed.contentEn : '') || '');
+                    let rawContentEn = parsed.contentEn || (targetLang === 'en' ? rawContentLocal : '');
+                    const rawFullStoryField = parsed.fullStoryLocal || parsed.fullStoryTe || '';
 
-                    // Check if content was swapped or generated in English
-                    if (!isTeluguScript(rawContentTe) && isTeluguScript(rawContentEn)) {
-                        console.log(`[WEB] 🔄 Swapping English/Telugu content fields for ${source.siteName}`);
-                        const tmp = rawContentTe;
-                        rawContentTe = rawContentEn;
-                        rawContentEn = tmp;
-                    } else if (!isTeluguScript(rawContentTe)) {
-                        if (!rawContentEn && rawContentTe) rawContentEn = rawContentTe;
-                        if (parsed.fullStoryTe && isTeluguScript(parsed.fullStoryTe)) {
-                            rawContentTe = parsed.fullStoryTe.split(/\r?\n\r?\n/)[0].trim();
-                            console.log(`[WEB] ✅ Recovered Telugu content from fullStoryTe first paragraph.`);
-                        }
-                    }
-
-                    const cleanedContent = sanitizeTeluguText(stripAggregatorAttribution(rawContentTe)).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
-                    if (!isTeluguScript(cleanedContent)) {
-                        console.warn(`[WEB] 🛑 Skipping article with non-Telugu summary for ${source.siteName}: "${cleanedHeadline}"`);
-                        await markUrlAsProcessed(link);
-                        return;
-                    }
-
+                    let cleanedContent = '';
                     let cleanedFullStoryTe = "";
                     let cleanedFullStoryEn = "";
 
-                    if (hasSubstantialSource && parsed.fullStoryTe && isTeluguScript(parsed.fullStoryTe)) {
-                        const rawStory = sanitizeTeluguText(stripAggregatorAttribution(parsed.fullStoryTe)).trim();
-                        const storyWords = rawStory.split(/\s+/).filter(Boolean).length;
-                        if (storyWords >= 60 && rawStory !== cleanedContent && rawStory.length > cleanedContent.length + 30) {
-                            cleanedFullStoryTe = formatIntoParagraphs(rawStory);
+                    if (targetLang === 'te') {
+                        // Exact legacy Telugu enforcement
+                        if (!isTeluguScript(rawContentLocal) && isTeluguScript(rawContentEn)) {
+                            console.log(`[WEB] 🔄 Swapping English/Telugu content fields for ${source.siteName}`);
+                            const tmp = rawContentLocal;
+                            rawContentLocal = rawContentEn;
+                            rawContentEn = tmp;
+                        } else if (!isTeluguScript(rawContentLocal)) {
+                            if (!rawContentEn && rawContentLocal) rawContentEn = rawContentLocal;
+                            if (rawFullStoryField && isTeluguScript(rawFullStoryField)) {
+                                rawContentLocal = rawFullStoryField.split(/\r?\n\r?\n/)[0].trim();
+                                console.log(`[WEB] ✅ Recovered Telugu content from fullStoryTe first paragraph.`);
+                            }
+                        }
+
+                        cleanedContent = sanitizeTeluguText(stripAggregatorAttribution(rawContentLocal)).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
+                        if (!isTeluguScript(cleanedContent)) {
+                            console.warn(`[WEB] 🛑 Skipping article with non-Telugu summary for ${source.siteName}: "${cleanedHeadline}"`);
+                            await markUrlAsProcessed(link);
+                            return;
+                        }
+
+                        if (hasSubstantialSource && rawFullStoryField && isTeluguScript(rawFullStoryField)) {
+                            const rawStory = sanitizeTeluguText(stripAggregatorAttribution(rawFullStoryField)).trim();
+                            const storyWords = rawStory.split(/\s+/).filter(Boolean).length;
+                            if (storyWords >= 60 && rawStory !== cleanedContent && rawStory.length > cleanedContent.length + 30) {
+                                cleanedFullStoryTe = formatIntoParagraphs(rawStory);
+                            }
+                        }
+                    } else {
+                        // Native script validation for Hindi (hi), Punjabi (pa), Gujarati (gu), English (en)
+                        if (!isTargetLanguageScript(rawContentLocal, targetLang) && rawFullStoryField && isTargetLanguageScript(rawFullStoryField, targetLang)) {
+                            rawContentLocal = rawFullStoryField.split(/\r?\n\r?\n/)[0].trim();
+                        }
+                        cleanedContent = sanitizeGenericText(stripAggregatorAttribution(rawContentLocal)).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
+                        if (!isTargetLanguageScript(cleanedContent, targetLang)) {
+                            console.warn(`[WEB] 🛑 Skipping article with invalid ${targetLang} script summary for ${source.siteName}: "${cleanedHeadline}"`);
+                            await markUrlAsProcessed(link);
+                            return;
+                        }
+
+                        if (hasSubstantialSource && rawFullStoryField && isTargetLanguageScript(rawFullStoryField, targetLang)) {
+                            const rawStory = sanitizeGenericText(stripAggregatorAttribution(rawFullStoryField)).trim();
+                            const storyWords = rawStory.split(/\s+/).filter(Boolean).length;
+                            if (storyWords >= 50 && rawStory !== cleanedContent && rawStory.length > cleanedContent.length + 30) {
+                                cleanedFullStoryTe = formatIntoParagraphs(rawStory);
+                            }
                         }
                     }
 
                     if (hasSubstantialSource && parsed.fullStoryEn) {
                         const rawStoryEn = String(parsed.fullStoryEn).trim();
-                        if (rawStoryEn.split(/\s+/).filter(Boolean).length >= 60 && rawStoryEn.length > (rawContentEn || '').length + 30) {
+                        if (rawStoryEn.split(/\s+/).filter(Boolean).length >= 55 && rawStoryEn.length > (rawContentEn || '').length + 30) {
                             cleanedFullStoryEn = formatIntoParagraphs(rawStoryEn);
                         }
                     }
 
-                    const leaderDetect = detectTopTeluguLeader(cleanedHeadline, `${cleanedHeadline} ${cleanedContent}`, source.siteName);
+                    const leaderDetect = targetLang === 'te'
+                        ? detectTopTeluguLeader(cleanedHeadline, `${cleanedHeadline} ${cleanedContent}`, source.siteName)
+                        : { isTopLeaderNews: false, leaderName: '' };
                     const isTopLeaderNews = leaderDetect.isTopLeaderNews;
                     if (isTopLeaderNews) {
                         console.log(`[SCRAPER_TOP_LEADER] Detected statement/quote for ${leaderDetect.leaderName}: "${cleanedHeadline}". Flagging BREAKING!`);
@@ -3019,11 +3172,12 @@ async function processSingleWebSource(doc, signal = null) {
                         isTopLeaderNews,
                     });
 
-                    const docRef = db.collection('news').doc();
+                    const scraperTarget = resolveScraperTarget(source, finalState);
+                    const docRef = db.collection(scraperTarget.collectionName).doc();
                     const newsPayload = sanitizeFirestoreData({
-                        headline: { telugu: cleanedHeadline, english: parsed.headlineEn || '' },
-                        content: { telugu: cleanedContent, english: rawContentEn || parsed.contentEn || '' },
-                        fullStory: { telugu: cleanedFullStoryTe, english: cleanedFullStoryEn },
+                        headline: buildLocalizedTextMap(cleanedHeadline, parsed.headlineEn || '', scraperTarget.language),
+                        content: buildLocalizedTextMap(cleanedContent, rawContentEn || parsed.contentEn || '', scraperTarget.language),
+                        fullStory: buildLocalizedTextMap(cleanedFullStoryTe, cleanedFullStoryEn, scraperTarget.language),
                         sourceUrl: link,
                         originalUrl: link,
                         sourceName: source.siteName,
@@ -3032,14 +3186,15 @@ async function processSingleWebSource(doc, signal = null) {
                         tags: parsed.tags || [],
                         entities: parsed.entities || { people: [], organizations: [], locations: [] },
                         district: finalDistrict,
-                        state: finalState,
+                        state: finalState || scraperTarget.stateCode,
+                        stateCode: scraperTarget.stateCode || finalState,
                         mandal: (finalDistrict === source.district ? (source.mandal || null) : null),
                         location: parsed.location || (finalDistrict !== 'General' ? finalDistrict : (source.district || 'General')),
                         storyFingerprint: parsed.storyFingerprint || '',
                         mediaUrl: finalMediaUrl,
                         mediaType: mediaType,
                         postFormat: postFormat,
-                        language: 'te',
+                        language: scraperTarget.language,
                         isReporter: true,
                         isCitizen: false,
                         aiProcessed: true,
@@ -3791,7 +3946,8 @@ async function processSingleTwitterFeed(doc, signal = null) {
                     allTweetUrlsToCheck.push(item.url);
                 }
             }
-            const seenUrls = await isUrlAlreadyScanned(allTweetUrlsToCheck);
+            const earlySocialTarget = resolveScraperTarget(feed);
+            const seenUrls = await isUrlAlreadyScanned(allTweetUrlsToCheck, earlySocialTarget.collectionName);
 
             const batch = db.batch();
 
@@ -3819,7 +3975,9 @@ async function processSingleTwitterFeed(doc, signal = null) {
                     handleTag,
                     designation,
                     district,
-                    isAggregator
+                    isAggregator,
+                    targetLanguage: earlySocialTarget.language,
+                    targetStateCode: earlySocialTarget.stateCode
                 });
 
                 const markItemUrls = async (tItem) => {
@@ -3865,7 +4023,10 @@ async function processSingleTwitterFeed(doc, signal = null) {
                         if (!retryResult || signal?.aborted) throw initialParseErr;
                         parsed = parseAIJson(retryResult);
                     }
-                    const validContent = parsed.contentTe || parsed.content || '';
+                    const socialLang = earlySocialTarget.language;
+                    const validContent = socialLang === 'te'
+                        ? (parsed.contentTe || parsed.contentLocal || parsed.content || '')
+                        : (parsed.contentLocal || parsed.contentTe || parsed.content || (socialLang === 'en' ? parsed.contentEn : '') || '');
                     if (!parsed.isRelevant || !parsed.headline || !validContent) {
                         console.log(`[TWITTER] ⏭️ Filtered out non-news/satirical post for @${handle}: "${(item.text || '').substring(0, 45).replace(/\n/g, ' ')}..."`);
                         await markItemUrls(item);
@@ -3873,12 +4034,17 @@ async function processSingleTwitterFeed(doc, signal = null) {
                     }
                     parsed.content = validContent;
 
-                    // Clean headline immediately (strictly remove quotes, colons, double-dots, and aggregator credits)
-                    parsed.headline = cleanTeluguHeadline(stripAggregatorAttribution(parsed.headline));
+                    // Clean headline immediately in target language script
+                    parsed.headline = socialLang === 'te'
+                        ? cleanTeluguHeadline(stripAggregatorAttribution(parsed.headline))
+                        : cleanGenericHeadline(stripAggregatorAttribution(parsed.headline));
                     if (parsed.headlineEn) {
                         parsed.headlineEn = cleanEnglishHeadline(parsed.headlineEn);
                     }
-                    if (!parsed.headline || !isTeluguScript(parsed.headline)) {
+                    const isSocialHeadlineValid = socialLang === 'te'
+                        ? isTeluguScript(parsed.headline)
+                        : isTargetLanguageScript(parsed.headline, socialLang);
+                    if (!parsed.headline || !isSocialHeadlineValid) {
                         await markItemUrls(item);
                         continue;
                     }
@@ -3919,8 +4085,8 @@ async function processSingleTwitterFeed(doc, signal = null) {
                             continue;
                         }
 
-                        // Query Firestore using single-field index on storyFingerprint (no composite index needed)
-                        const duplicate = await db.collection('news')
+                        // Query Firestore target collection using single-field index on storyFingerprint
+                        const duplicate = await db.collection(earlySocialTarget.collectionName)
                             .where('storyFingerprint', '==', parsed.storyFingerprint)
                             .limit(1)
                             .get();
@@ -3934,25 +4100,25 @@ async function processSingleTwitterFeed(doc, signal = null) {
                         storyFingerprintMemoryCache.add(parsed.storyFingerprint);
                     }
 
-                    const reporter = getRandomReporter();
+                    const reporter = getReporterForLanguage(socialLang) || getRandomReporter();
                     const category = parsed.refinedCategory || feed.category || 'Politics';
-                    const detected = detectDistrict(parsed.location, (parsed.headline || '') + ' ' + (item.text || ''));
+                    const detected = detectDistrict(parsed.location, (parsed.headline || '') + ' ' + (item.text || ''), earlySocialTarget.stateCode);
 
                     // Canonicalize explicit district assigned to this feed (e.g. "Nellore" / "నెల్లూరు" -> "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు")
                     const rawFeedDistrict = (feed.district || '').trim();
-                    const feedDistrictMatch = rawFeedDistrict ? detectDistrict(rawFeedDistrict, '') : null;
+                    const feedDistrictMatch = rawFeedDistrict ? detectDistrict(rawFeedDistrict, '', earlySocialTarget.stateCode) : null;
                     const hasSpecificFeedDistrict = Boolean(
                         rawFeedDistrict &&
-                        !['general', 'all', 'andhrapradesh', 'andhra pradesh', 'telangana', 'ap', 'ts', 'national', 'international'].includes(rawFeedDistrict.toLowerCase()) &&
-                        (!feedDistrictMatch || (feedDistrictMatch.canonical !== 'AndhraPradesh' && feedDistrictMatch.canonical !== 'Telangana'))
+                        !['general', 'all', 'andhrapradesh', 'andhra pradesh', 'telangana', 'uttarpradesh', 'uttar pradesh', 'punjab', 'uttarakhand', 'goa', 'manipur', 'himachalpradesh', 'himachal pradesh', 'gujarat', 'ap', 'ts', 'up', 'pb', 'uk', 'ga', 'mn', 'hp', 'gj', 'national', 'international'].includes(rawFeedDistrict.toLowerCase()) &&
+                        (!feedDistrictMatch || !['AndhraPradesh', 'Telangana', 'UttarPradesh', 'Punjab', 'Uttarakhand', 'Goa', 'Manipur', 'HimachalPradesh', 'Gujarat'].includes(feedDistrictMatch.canonical))
                     );
                     const canonicalFeedDistrict = hasSpecificFeedDistrict
                         ? (feedDistrictMatch ? feedDistrictMatch.canonical : rawFeedDistrict)
                         : null;
-                    const canonicalFeedState = (feedDistrictMatch && feedDistrictMatch.state) ? feedDistrictMatch.state : (feed.state || null);
+                    const canonicalFeedState = (feedDistrictMatch && feedDistrictMatch.state) ? feedDistrictMatch.state : (earlySocialTarget.stateCode || feed.state || null);
 
                     let finalDistrict = "General";
-                    let finalState = canonicalFeedState || feed.state || null;
+                    let finalState = canonicalFeedState || earlySocialTarget.stateCode || feed.state || null;
 
                     if (PURE_GLOBAL_CATEGORIES.includes(category)) {
                         finalDistrict = "General";
@@ -3995,47 +4161,70 @@ async function processSingleTwitterFeed(doc, signal = null) {
                         }
                     }
 
-                    // Enforce pure Telugu script & Single Paragraph
+                    // Enforce target script purity & Single Paragraph (legacy Telugu path for 'te', native script for 'hi'/'pa'/'gu'/'en')
                     const cleanedHeadline = parsed.headline;
-                    let rawContentTe = parsed.contentTe || parsed.content || '';
-                    let rawContentEn = parsed.contentEn || '';
+                    let rawContentLocal = socialLang === 'te'
+                        ? (parsed.contentTe || parsed.contentLocal || parsed.content || '')
+                        : (parsed.contentLocal || parsed.contentTe || parsed.content || (socialLang === 'en' ? parsed.contentEn : '') || '');
+                    let rawContentEn = parsed.contentEn || (socialLang === 'en' ? rawContentLocal : '');
+                    const rawSocialFullStory = parsed.fullStoryLocal || parsed.fullStoryTe || '';
 
-                    // Check if content was swapped or generated in English
-                    if (!isTeluguScript(rawContentTe) && isTeluguScript(rawContentEn)) {
-                        console.log(`[TWITTER] 🔄 Swapping English/Telugu content fields for @${handle}`);
-                        const tmp = rawContentTe;
-                        rawContentTe = rawContentEn;
-                        rawContentEn = tmp;
-                    } else if (!isTeluguScript(rawContentTe)) {
-                        console.warn(`[TWITTER] ⚠️ content was returned in English for @${handle}. Checking fullStoryTe fallback...`);
-                        if (!rawContentEn && rawContentTe) rawContentEn = rawContentTe;
-                        if (parsed.fullStoryTe && isTeluguScript(parsed.fullStoryTe)) {
-                            rawContentTe = parsed.fullStoryTe.split(/\r?\n\r?\n/)[0].trim();
-                            console.log(`[TWITTER] ✅ Recovered Telugu content from fullStoryTe first paragraph.`);
-                        }
-                    }
-
-                    const cleanedContent = sanitizeTeluguText(stripAggregatorAttribution(rawContentTe)).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
-                    if (!isTeluguScript(cleanedContent)) {
-                        console.warn(`[TWITTER] 🛑 Skipping tweet with non-Telugu summary for @${handle}: "${cleanedHeadline}"`);
-                        await markItemUrls(item);
-                        continue;
-                    }
-
+                    let cleanedContent = '';
                     let cleanedFullStoryTe = "";
                     let cleanedFullStoryEn = "";
 
-                    if (hasSubstantialTweet && parsed.fullStoryTe && isTeluguScript(parsed.fullStoryTe)) {
-                        const rawStory = sanitizeTeluguText(stripAggregatorAttribution(parsed.fullStoryTe)).trim();
-                        const storyWords = rawStory.split(/\s+/).filter(Boolean).length;
-                        if (storyWords >= 60 && rawStory !== cleanedContent && rawStory.length > cleanedContent.length + 30) {
-                            cleanedFullStoryTe = formatIntoParagraphs(rawStory);
+                    if (socialLang === 'te') {
+                        if (!isTeluguScript(rawContentLocal) && isTeluguScript(rawContentEn)) {
+                            console.log(`[TWITTER] 🔄 Swapping English/Telugu content fields for @${handle}`);
+                            const tmp = rawContentLocal;
+                            rawContentLocal = rawContentEn;
+                            rawContentEn = tmp;
+                        } else if (!isTeluguScript(rawContentLocal)) {
+                            console.warn(`[TWITTER] ⚠️ content was returned in English for @${handle}. Checking fullStoryTe fallback...`);
+                            if (!rawContentEn && rawContentLocal) rawContentEn = rawContentLocal;
+                            if (rawSocialFullStory && isTeluguScript(rawSocialFullStory)) {
+                                rawContentLocal = rawSocialFullStory.split(/\r?\n\r?\n/)[0].trim();
+                                console.log(`[TWITTER] ✅ Recovered Telugu content from fullStoryTe first paragraph.`);
+                            }
+                        }
+
+                        cleanedContent = sanitizeTeluguText(stripAggregatorAttribution(rawContentLocal)).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
+                        if (!isTeluguScript(cleanedContent)) {
+                            console.warn(`[TWITTER] 🛑 Skipping tweet with non-Telugu summary for @${handle}: "${cleanedHeadline}"`);
+                            await markItemUrls(item);
+                            continue;
+                        }
+
+                        if (hasSubstantialTweet && rawSocialFullStory && isTeluguScript(rawSocialFullStory)) {
+                            const rawStory = sanitizeTeluguText(stripAggregatorAttribution(rawSocialFullStory)).trim();
+                            const storyWords = rawStory.split(/\s+/).filter(Boolean).length;
+                            if (storyWords >= 60 && rawStory !== cleanedContent && rawStory.length > cleanedContent.length + 30) {
+                                cleanedFullStoryTe = formatIntoParagraphs(rawStory);
+                            }
+                        }
+                    } else {
+                        if (!isTargetLanguageScript(rawContentLocal, socialLang) && rawSocialFullStory && isTargetLanguageScript(rawSocialFullStory, socialLang)) {
+                            rawContentLocal = rawSocialFullStory.split(/\r?\n\r?\n/)[0].trim();
+                        }
+                        cleanedContent = sanitizeGenericText(stripAggregatorAttribution(rawContentLocal)).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
+                        if (!isTargetLanguageScript(cleanedContent, socialLang)) {
+                            console.warn(`[TWITTER] 🛑 Skipping tweet with invalid ${socialLang} script summary for @${handle}: "${cleanedHeadline}"`);
+                            await markItemUrls(item);
+                            continue;
+                        }
+
+                        if (hasSubstantialTweet && rawSocialFullStory && isTargetLanguageScript(rawSocialFullStory, socialLang)) {
+                            const rawStory = sanitizeGenericText(stripAggregatorAttribution(rawSocialFullStory)).trim();
+                            const storyWords = rawStory.split(/\s+/).filter(Boolean).length;
+                            if (storyWords >= 50 && rawStory !== cleanedContent && rawStory.length > cleanedContent.length + 30) {
+                                cleanedFullStoryTe = formatIntoParagraphs(rawStory);
+                            }
                         }
                     }
 
                     if (hasSubstantialTweet && parsed.fullStoryEn) {
                         const rawStoryEn = String(parsed.fullStoryEn).trim();
-                        if (rawStoryEn.split(/\s+/).filter(Boolean).length >= 60 && rawStoryEn.length > (rawContentEn || '').length + 30) {
+                        if (rawStoryEn.split(/\s+/).filter(Boolean).length >= 55 && rawStoryEn.length > (rawContentEn || '').length + 30) {
                             cleanedFullStoryEn = formatIntoParagraphs(rawStoryEn);
                         }
                     }
@@ -4061,7 +4250,9 @@ async function processSingleTwitterFeed(doc, signal = null) {
                         postFormat = '1:1';
                     }
 
-                    const leaderDetect = detectTopTeluguLeader(cleanedHeadline, `${cleanedHeadline} ${cleanedContent}`, feed.sourceName || handle);
+                    const leaderDetect = socialLang === 'te'
+                        ? detectTopTeluguLeader(cleanedHeadline, `${cleanedHeadline} ${cleanedContent}`, feed.sourceName || handle)
+                        : { isTopLeaderNews: false, leaderName: '' };
                     const isTopLeaderNews = leaderDetect.isTopLeaderNews;
                     if (isTopLeaderNews) {
                         console.log(`[SCRAPER_TOP_LEADER] Detected statement/quote for ${leaderDetect.leaderName} in tweet @${handle}: "${cleanedHeadline}". Flagging BREAKING!`);
@@ -4075,11 +4266,12 @@ async function processSingleTwitterFeed(doc, signal = null) {
                         isTopLeaderNews,
                     });
 
-                    const docRef = db.collection('news').doc();
+                    const socialTarget = resolveScraperTarget(feed, finalState);
+                    const docRef = db.collection(socialTarget.collectionName).doc();
                     const newsPayload = sanitizeFirestoreData({
-                        headline: { telugu: cleanedHeadline, english: parsed.headlineEn || '' },
-                        content: { telugu: cleanedContent, english: rawContentEn || parsed.contentEn || '' },
-                        fullStory: { telugu: cleanedFullStoryTe, english: cleanedFullStoryEn },
+                        headline: buildLocalizedTextMap(cleanedHeadline, parsed.headlineEn || '', socialTarget.language),
+                        content: buildLocalizedTextMap(cleanedContent, rawContentEn || parsed.contentEn || '', socialTarget.language),
+                        fullStory: buildLocalizedTextMap(cleanedFullStoryTe, cleanedFullStoryEn, socialTarget.language),
                         sourceUrl: item.url,
                         originalUrl: item.url,
                         sourceName: feed.sourceName || `X (@${handle})`,
@@ -4095,14 +4287,15 @@ async function processSingleTwitterFeed(doc, signal = null) {
                         tags: cleanedTags,
                         entities: finalEntities,
                         district: finalDistrict || "General",
-                        state: finalState,
+                        state: finalState || socialTarget.stateCode,
+                        stateCode: socialTarget.stateCode || finalState,
                         mandal: (finalDistrict === feed.district ? (feed.mandal || null) : null),
                         location: parsed.location || (finalDistrict !== 'General' ? finalDistrict : (feed.district || 'General')),
                         storyFingerprint: parsed.storyFingerprint || '',
                         mediaUrl: finalMediaUrl,
                         mediaType: finalMediaType,
                         postFormat: postFormat,
-                        language: 'te',
+                        language: socialTarget.language,
                         type: 'news',
                         isGlobal: true,
                         isReporter: true,
@@ -4272,31 +4465,44 @@ async function runScraperQueue() {
         await resetDailyCountersIfNeeded();
         await prewarmScraperCache();
         
+        const allowedStatesSet = parseScraperStatesFilter();
+        const getLastFetchMillis = (d) => {
+            const t = d.data().lastFetchTime;
+            if (!t) return 0;
+            if (t.toMillis) return t.toMillis();
+            if (t._seconds) return t._seconds * 1000;
+            return new Date(t).getTime() || 0;
+        };
+
         const webSnapshot = await db.collection('scraping_sources').get();
-        const webDocs = webSnapshot.docs.filter(doc => doc.data().isPaused !== true);
+        const allActiveWebDocs = webSnapshot.docs.filter(doc => {
+            const data = doc.data();
+            if (data.isPaused === true) return false;
+            return doesSourceMatchStateFilter(data, allowedStatesSet);
+        });
+        // Rotate oldest-first so adding 100-300+ multi-state URLs never overflows an hourly VPS cycle
+        allActiveWebDocs.sort((a, b) => getLastFetchMillis(a) - getLastFetchMillis(b));
+        const MAX_WEB_SOURCES_PER_CYCLE = parseInt(process.env.MAX_WEB_SOURCES_PER_CYCLE, 10) || 60;
+        const webDocs = allActiveWebDocs.slice(0, MAX_WEB_SOURCES_PER_CYCLE);
 
         const twitterSnapshot = await db.collection('social_feeds').get();
         const twitterDocs = twitterSnapshot.docs.filter(doc => {
             const data = doc.data();
             if (data.isPaused === true) return false;
             const platform = (data.platform || '').toLowerCase();
-            return !platform || platform === 'twitter' || platform === 'x';
+            if (platform && platform !== 'twitter' && platform !== 'x') return false;
+            return doesSourceMatchStateFilter(data, allowedStatesSet);
         });
 
         // Prioritize feeds that have never been fetched (null/missing lastFetchTime) or were fetched longest ago
-        twitterDocs.sort((a, b) => {
-            const timeA = a.data().lastFetchTime ? (a.data().lastFetchTime.toMillis ? a.data().lastFetchTime.toMillis() : (a.data().lastFetchTime._seconds ? a.data().lastFetchTime._seconds * 1000 : 0)) : 0;
-            const timeB = b.data().lastFetchTime ? (b.data().lastFetchTime.toMillis ? b.data().lastFetchTime.toMillis() : (b.data().lastFetchTime._seconds ? b.data().lastFetchTime._seconds * 1000 : 0)) : 0;
-            return timeA - timeB;
-        });
+        twitterDocs.sort((a, b) => getLastFetchMillis(a) - getLastFetchMillis(b));
 
-        // Bounded cycle: Process all active web sources + top 75 oldest/unfetched Twitter feeds.
-        // Across 18 hourly runs per day, all ~387 feeds rotate every ~5 hours (~3.5 times daily)
-        // so district leaders/officials (like Nellore) never miss tweets within the 36-hour window.
-        const MAX_TWITTER_FEEDS_PER_CYCLE = 75;
+        // Bounded cycle: Process up to MAX_WEB_SOURCES_PER_CYCLE web sources + MAX_TWITTER_FEEDS_PER_CYCLE Twitter feeds.
+        const MAX_TWITTER_FEEDS_PER_CYCLE = parseInt(process.env.MAX_TWITTER_FEEDS_PER_CYCLE, 10) || 75;
         const cycleTwitterDocs = twitterDocs.slice(0, MAX_TWITTER_FEEDS_PER_CYCLE);
 
-        console.log(`[QUEUE] Starting Cycle: ${webDocs.length} Web sources + ${cycleTwitterDocs.length}/${twitterDocs.length} Twitter feeds (Oldest first).`);
+        const workerScopeLabel = allowedStatesSet ? `States=[${Array.from(allowedStatesSet).join(',')}]` : 'States=[ALL]';
+        console.log(`[QUEUE] Starting Cycle (${workerScopeLabel}): ${webDocs.length}/${allActiveWebDocs.length} Web sources + ${cycleTwitterDocs.length}/${twitterDocs.length} Twitter feeds (Oldest first).`);
 
         while (webDocs.length > 0 || cycleTwitterDocs.length > 0) {
             // Cutoff guard: Stop immediately if clock strikes 10:00 PM IST (22:00)

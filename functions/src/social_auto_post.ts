@@ -1,5 +1,4 @@
 import * as admin from "firebase-admin";
-import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { REGION } from "./utils";
 import { TELUGU_DISTRICT_ALIASES } from "./location_data";
@@ -657,30 +656,8 @@ export async function dispatchSocialAutoPost(postId: string, data: any, beforeDa
     }
 }
 
-/**
- * 1. Firestore Trigger: Trigger auto-posting when a news post is published/approved
- */
-export const onNewsPostSocialAutoPost = onDocumentWritten({
-    document: "news/{postId}",
-    region: REGION,
-    timeoutSeconds: 300,
-    memory: "512MiB",
-    maxInstances: 5
-}, async (event) => {
-    const afterSnap = event.data?.after;
-    if (!afterSnap || !afterSnap.exists) return;
-
-    const data: any = afterSnap.data();
-    const postId = event.params.postId;
-
-    // Fast bypass if already handled by direct pipeline or already posted
-    if (data?.pipelineHandled === true || data?.socialAutoPosted === true) {
-        return;
-    }
-
-    const beforeData: any = event.data?.before?.exists ? event.data.before.data() : null;
-    await dispatchSocialAutoPost(postId, data, beforeData);
-});
+// Note: Standalone onNewsPostSocialAutoPost trigger was consolidated into the unified
+// onNewsPostCreated / onNewsPostUpdated triggers in news_handler.ts to eliminate 5x trigger storms.
 
 
 /**

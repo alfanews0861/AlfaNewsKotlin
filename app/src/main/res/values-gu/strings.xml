@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Alfa News</string>
+    <string name="home">હોમ</string>
+    <string name="local_news">સ્થાનિક</string>
+    <string name="create">પોસ્ટ કરો</string>
+    <string name="classifieds">ક્લાસિફાઇડ</string>
+    <string name="profile">પ્રોફાઇલ</string>
+    <string name="login">લોગિન</string>
+    <string name="logout">લોગઆઉટ</string>
+    <string name="loading">લોડ થઈ રહ્યું છે...</string>
+    <string name="error">ભૂલ</string>
+    <string name="retry">ફરી પ્રયાસ કરો</string>
+
+    <string name="news_language">સમાચાર ભાષા</string>
+    <string name="about_us">અમારા વિશે</string>
+    <string name="contact_us">સંપર્ક કરો</string>
+    <string name="privacy_policy">ગોપનીયતા નીતિ</string>
+    <string name="terms_of_service">સેવાની શરતો</string>
+    <string name="content_policy">સામગ્રી નીતિ</string>
+    <string name="disclaimer">અસ્વીકરણ</string>
+    <string name="ad_policy">જાહેરાત નીતિ</string>
+    <string name="data_policy">ડેટા નીતિ</string>
+    <string name="display_theme">ડિસ્પ્લે થીમ</string>
+    <string name="notifications">સૂચનાઓ</string>
+    <string name="push_notifications">પુશ સૂચનાઓ</string>
+    <string name="edit_profile">પ્રોફાઇલ સંપાદિત કરો</string>
+    <string name="id_card">ઓળખ કાર્ડ</string>
+    <string name="login_signup">લોગિન / સાઇન અપ</string>
+    <string name="guest">મહેમાન</string>
+    <string name="subscriber">સભ્ય</string>
+    <string name="reporter">રિપોર્ટર</string>
+    <string name="editor">સંપાદક</string>
+    <string name="admin">એડમિન</string>
+    <string name="delete_account">ખાતું કાઢી નાખો</string>
+    <string name="language_telugu">తెలుగు</string>
+    <string name="language_english">English</string>
+    <string name="theme_light">લાઇટ</string>
+    <string name="theme_dark">ડાર્ક</string>
+    <string name="theme_system">સિસ્ટમ</string>
+    <string name="policies_info">નીતિઓ અને માહિતી</string>
+    <string name="reporters">રિપોર્ટર</string>
+    <string name="reporters_directory">રિપોર્ટર ડિરેક્ટરી</string>
+    <string name="select_state">રાજ્ય પસંદ કરો</string>
+    <string name="all_district_reporters">જિલ્લા રિપોર્ટર</string>
+    <string name="mandal_reporter_details">તાલુકા રિપોર્ટર વિગતો</string>
+    <string name="no_reporters_found">આ વિસ્તાર માટે કોઈ રિપોર્ટર મળ્યા નથી.</string>
+    <string name="storage_management">સ્ટોરેજ મેનેજમેન્ટ</string>
+    <string name="current_cache_usage">વર્તમાન સ્ટોરેજ વપરાશ: %1$s</string>
+    <string name="clear_cache_now">કેશ સાફ કરો</string>
+    <string name="cache_cleared_success">કેશ સફળતાપૂર્વક સાફ થઈ ગયું!</string>
+
+    <string name="nav_home">હોમ</string>
+    <string name="nav_local">સ્થાનિક</string>
+    <string name="nav_post">પોસ્ટ</string>
+    <string name="nav_classifieds">ક્લાસિફાઇડ</string>
+    <string name="nav_profile">પ્રોફાઇલ</string>
+    <string name="nav_survey">સર્વે</string>
+    <string name="post_news">સમાચાર મોકલો</string>
+    <string name="post_survey">સર્વે પોસ્ટ કરો</string>
+
+    <!-- 100% Human Editorial Copy (Zero AI Mention) -->
+    <string name="news_preparing">સંપાદકીય ડેસ્ક તાજા સમાચાર તૈયાર કરી રહી છે...</string>
+    <string name="no_internet">ઇન્ટરનેટ કનેક્શન નથી</string>
+    <string name="check_internet">કૃપા કરીને તમારું ઇન્ટરનેટ કનેક્શન તપાસો.</string>
+    <string name="news_source">સ્રોત : %1$s</string>
+    <string name="share_news">સમાચાર શેર કરો</string>
+    <string name="share_failed">શેર કરવામાં ભૂલ</string>
+    <string name="screenshot_failed">સ્ક્રીનશોટ નિષ્ફળ</string>
+
+    <!-- Categories -->
+    <string name="cat_local">સ્થાનિક</string>
+    <string name="cat_politics">રાજકારણ</string>
+    <string name="cat_crime">ગુનાખોરી</string>
+    <string name="cat_entertainment">મનોરંજન</string>
+    <string name="cat_sports">રમતગમત</string>
+    <string name="cat_business">વેપાર</string>
+    <string name="cat_technology">ટેકનોલોજી</string>
+    <string name="cat_devotion">ભક્તિ</string>
+    <string name="cat_agriculture">ખેતીવાડી</string>
+    <string name="cat_education_jobs">શિક્ષણ/નોકરી</string>
+    <string name="cat_health">આરોગ્ય</string>
+    <string name="cat_others">અન્ય</string>
+</resources>

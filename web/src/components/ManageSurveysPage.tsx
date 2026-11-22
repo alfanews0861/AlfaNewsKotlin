@@ -1,10 +1,27 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, UserRole, Language, NewsPost, SurveyQuestion, SurveyOption, TS_DISTRICTS, AP_DISTRICTS } from '../types';
+import { User, UserRole, Language, NewsPost, SurveyQuestion, SurveyOption } from '../types';
 import { db } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
+import {
+  ALL_STATE_CODES,
+  EDITIONS,
+  NewsCollectionName,
+  StateCode,
+  getCollectionForEdition,
+  getLocalizedText,
+  resolveStateCode,
+} from '../data/editions';
 
 const { collection, getDocs, addDoc, doc, updateDoc, deleteDoc, query, where, orderBy, onSnapshot, serverTimestamp } = _firestore as any;
+
+const SURVEY_COLLECTION_OPTIONS: Array<{ value: NewsCollectionName; label: string }> = [
+  { value: 'news', label: 'AP / TS (తెలుగు)' },
+  { value: 'news_hi', label: 'UP / UK / HP (हिन्दी)' },
+  { value: 'news_pa', label: 'Punjab (ਪੰਜਾਬੀ)' },
+  { value: 'news_gu', label: 'Gujarat (ગુજરાતી)' },
+  { value: 'news_en', label: 'Goa / Manipur (English)' },
+];
 
 interface ManageSurveysPageProps {
   currentUser: User;
@@ -18,12 +35,14 @@ const ManageSurveysPage: React.FC<ManageSurveysPageProps> = ({ currentUser }) =>
   const [viewingSurvey, setViewingSurvey] = useState<NewsPost | null>(null);
   const [editingSurvey, setEditingSurvey] = useState<NewsPost | null>(null);
 
+  const [selectedCollection, setSelectedCollection] = useState<NewsCollectionName>('news');
+
   // Form State
   const [headline, setHeadline] = useState('');
   const [content, setContent] = useState('');
   const [isGlobal, setIsGlobal] = useState(true);
-  const [state, setState] = useState('TS');
-  const [district, setDistrict] = useState('హైదరాబాద్');
+  const [state, setState] = useState<StateCode>('TS');
+  const [district, setDistrict] = useState(EDITIONS.TS.districts[3] || EDITIONS.TS.districts[0]);
   const [questions, setQuestions] = useState<SurveyQuestion[]>([
     {
       id: 'q1',
@@ -37,8 +56,9 @@ const ManageSurveysPage: React.FC<ManageSurveysPageProps> = ({ currentUser }) =>
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
+    setLoading(true);
     const q = query(
-      collection(db, 'news'),
+      collection(db, selectedCollection),
       where('type', '==', 'survey')
     );
 
@@ -69,11 +89,11 @@ const ManageSurveysPage: React.FC<ManageSurveysPageProps> = ({ currentUser }) =>
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [selectedCollection]);
 
   const handleApprove = async (id: string) => {
     try {
-      await updateDoc(doc(db, 'news', id), {
+      await updateDoc(doc(db, selectedCollection, id), {
         approved: true,
         status: 'PUBLISHED'
       });
@@ -85,7 +105,7 @@ const ManageSurveysPage: React.FC<ManageSurveysPageProps> = ({ currentUser }) =>
   const handleDelete = async (id: string) => {
     if (!window.confirm('ఈ సర్వేను ఖచ్చితంగా తొలగించాలా?')) return;
     try {
-      await deleteDoc(doc(db, 'news', id));
+      await deleteDoc(doc(db, selectedCollection, id));
       if (viewingSurvey?.id === id) setViewingSurvey(null);
     } catch (e: any) {
       alert(`తొలగించడంలో లోపం: ${e.message}`);
@@ -97,7 +117,7 @@ const ManageSurveysPage: React.FC<ManageSurveysPageProps> = ({ currentUser }) =>
     setContent('');
     setIsGlobal(true);
     setState('TS');
-    setDistrict('హైదరాబాద్');
+    setDistrict(EDITIONS.TS.districts[3] || EDITIONS.TS.districts[0]);
     setQuestions([
       {
         id: 'q1',
@@ -114,11 +134,12 @@ const ManageSurveysPage: React.FC<ManageSurveysPageProps> = ({ currentUser }) =>
 
   const handleOpenEdit = (survey: NewsPost) => {
     setEditingSurvey(survey);
-    setHeadline(survey.headline?.telugu || '');
-    setContent(survey.content?.telugu || '');
+    setHeadline(getLocalizedText(survey.headline, (survey as any).language || 'te'));
+    setContent(getLocalizedText(survey.content, (survey as any).language || 'te'));
     setIsGlobal(survey.isGlobal ?? true);
-    setState(survey.state || 'TS');
-    setDistrict(survey.district || 'హైదరాబాద్');
+    const resolvedSt = resolveStateCode((survey as any).stateCode || survey.state, survey.district) || 'TS';
+    setState(resolvedSt);
+    setDistrict(survey.district || EDITIONS[resolvedSt].districts[0]);
     if (survey.surveyQuestions && survey.surveyQuestions.length > 0) {
       setQuestions(survey.surveyQuestions);
     } else {
@@ -213,12 +234,40 @@ const ManageSurveysPage: React.FC<ManageSurveysPageProps> = ({ currentUser }) =>
     setIsSubmitting(true);
     try {
       const now = Date.now();
+      const targetCol = isGlobal
+        ? selectedCollection
+        : getCollectionForEdition(state, EDITIONS[state]?.primaryLanguage);
+      const langByCol: Record<NewsCollectionName, string> = {
+        news: 'te',
+        news_hi: 'hi',
+        news_pa: 'pa',
+        news_gu: 'gu',
+        news_en: 'en',
+      };
+      const targetLang = isGlobal ? langByCol[targetCol] : EDITIONS[state].primaryLanguage;
+      const headlineMap: Record<string, string> = {
+        telugu: targetLang === 'te' ? headline.trim() : '',
+        english: targetLang === 'en' ? headline.trim() : headline.trim(),
+        local: headline.trim(),
+      };
+      const contentMap: Record<string, string> = {
+        telugu: targetLang === 'te' ? content.trim() : '',
+        english: targetLang === 'en' ? content.trim() : content.trim(),
+        local: content.trim(),
+      };
+      if (targetLang !== 'te' && targetLang !== 'en') {
+        headlineMap[targetLang] = headline.trim();
+        contentMap[targetLang] = content.trim();
+      }
+
       const payload: any = {
         type: 'survey',
-        headline: { telugu: headline.trim(), english: headline.trim() },
-        content: { telugu: content.trim(), english: content.trim() },
+        headline: headlineMap,
+        content: contentMap,
         isGlobal,
         state: isGlobal ? 'ALL' : state,
+        stateCode: isGlobal ? null : state,
+        language: targetLang,
         district: isGlobal ? 'State' : district,
         surveyQuestions: questions,
         timestamp: editingSurvey ? editingSurvey.timestamp : now,
@@ -243,10 +292,11 @@ const ManageSurveysPage: React.FC<ManageSurveysPageProps> = ({ currentUser }) =>
         payload.comments = 0;
         payload.shares = 0;
 
-        await addDoc(collection(db, 'news'), payload);
+        await addDoc(collection(db, targetCol), payload);
+        if (targetCol !== selectedCollection) setSelectedCollection(targetCol);
         alert('సర్వే విజయవంతంగా పబ్లిష్ చేయబడింది!');
       } else {
-        await updateDoc(doc(db, 'news', editingSurvey.id), payload);
+        await updateDoc(doc(db, selectedCollection, editingSurvey.id), payload);
         alert('సర్వే విజయవంతంగా అప్‌డేట్ చేయబడింది!');
       }
 
@@ -274,13 +324,26 @@ const ManageSurveysPage: React.FC<ManageSurveysPageProps> = ({ currentUser }) =>
           </div>
         </div>
 
-        <button
-          onClick={() => { resetForm(); setShowCreateModal(true); }}
-          className="bg-white text-blue-800 px-6 py-2.5 rounded-2xl font-bold text-lg shadow-lg hover:bg-blue-50 active:scale-95 transition-all flex items-center gap-2"
-        >
+        <div className="flex flex-wrap items-center gap-3">
+          <select
+            value={selectedCollection}
+            onChange={(e) => setSelectedCollection(e.target.value as NewsCollectionName)}
+            className="bg-white/20 text-white border border-white/30 px-3 py-2 rounded-xl font-bold text-sm outline-none"
+          >
+            {SURVEY_COLLECTION_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value} className="text-black bg-white">
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={() => { resetForm(); setShowCreateModal(true); }}
+            className="bg-white text-blue-800 px-6 py-2.5 rounded-2xl font-bold text-lg shadow-lg hover:bg-blue-50 active:scale-95 transition-all flex items-center gap-2"
+          >
           <span>➕</span>
           <span>కొత్త సర్వే (New Survey)</span>
         </button>
+        </div>
       </div>
 
       {/* List of Surveys */}
@@ -510,28 +573,32 @@ const ManageSurveysPage: React.FC<ManageSurveysPageProps> = ({ currentUser }) =>
                 {!isGlobal && (
                   <>
                     <div className="space-y-1">
-                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">రాష్ట్రం</label>
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">రాష్ట్రం (State)</label>
                       <select
                         value={state}
                         onChange={e => {
-                          setState(e.target.value);
-                          setDistrict(e.target.value === 'TS' ? TS_DISTRICTS[0] : AP_DISTRICTS[0]);
+                          const nextState = e.target.value as StateCode;
+                          setState(nextState);
+                          setDistrict(EDITIONS[nextState].districts[0] || '');
                         }}
                         className="w-full border border-gray-300 p-3 rounded-xl font-bold bg-gray-50 outline-none"
                       >
-                        <option value="TS">తెలంగాణ</option>
-                        <option value="AP">ఆంధ్రప్రదేశ్</option>
+                        {ALL_STATE_CODES.map(code => (
+                          <option key={code} value={code}>
+                            {EDITIONS[code].nameNative} ({EDITIONS[code].nameEn})
+                          </option>
+                        ))}
                       </select>
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">జిల్లా</label>
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">జిల్లా (District)</label>
                       <select
                         value={district}
                         onChange={e => setDistrict(e.target.value)}
                         className="w-full border border-gray-300 p-3 rounded-xl font-bold bg-gray-50 outline-none"
                       >
-                        {(state === 'TS' ? TS_DISTRICTS : AP_DISTRICTS).map(d => (
+                        {(EDITIONS[state]?.districts || []).map(d => (
                           <option key={d} value={d}>{d}</option>
                         ))}
                       </select>

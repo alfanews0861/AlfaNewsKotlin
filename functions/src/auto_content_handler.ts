@@ -1,4 +1,5 @@
 import * as admin from "firebase-admin";
+import { logger } from "firebase-functions/v2";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { Type } from "@google/genai";
@@ -871,9 +872,31 @@ export const checkSevereWeatherAlerts = onSchedule({
     console.log(`[WEATHER_GRID] Done. ${activeGridKeys.length} grids checked.`);
 });
 
+export const CLEANUP_RETENTION_DAYS = 120;
+export const CLEANUP_LOG_ID_CHUNK_SIZE = 500;
+
+export function computeCleanupRetentionCutoff(now: Date = new Date(), retentionDays: number = CLEANUP_RETENTION_DAYS): Date {
+    const cutoff = new Date(now.getTime());
+    cutoff.setDate(cutoff.getDate() - retentionDays);
+    return cutoff;
+}
+
+export function chunkDocumentIdsForLogging(docIds: string[], chunkSize: number = CLEANUP_LOG_ID_CHUNK_SIZE): string[][] {
+    if (!Array.isArray(docIds) || docIds.length === 0) return [];
+    const safeSize = Math.max(1, chunkSize);
+    const chunks: string[][] = [];
+    for (let i = 0; i < docIds.length; i += safeSize) {
+        chunks.push(docIds.slice(i, i + safeSize));
+    }
+    return chunks;
+}
+
 /**
- * 6. Cleanup Old News (60 days old)
+ * 6. Cleanup Old News (120 days old)
  * Runs every day at 3:00 AM IST to reduce Storage and Firestore costs.
+ * Deletes expired documents directly (instead of updating them) so zero onDocumentCreated /
+ * onDocumentUpdated triggers fire, and emits structured JSON logs with exact document IDs
+ * and execution timing for performance diagnostics.
  */
 export const cleanupOldNews = onSchedule({
     schedule: "0 3 * * *",
@@ -881,23 +904,36 @@ export const cleanupOldNews = onSchedule({
     memory: "1GiB",
     timeoutSeconds: 540
 }, async (event) => {
-    console.log("[CLEANUP] Starting daily cleanup of old news...");
+    const runStartMs = Date.now();
     const bucket = admin.storage().bucket();
-    const retentionDate = new Date();
-    retentionDate.setDate(retentionDate.getDate() - 60);
+    const retentionDate = computeCleanupRetentionCutoff(new Date(), CLEANUP_RETENTION_DAYS);
+    const cutoffIso = retentionDate.toISOString();
+    const MAX_CLEANUP = 2000;
+    const BATCH_SIZE = 500;
+
+    logger.info("[CLEANUP] Started daily cleanup of old news", {
+        event: "cleanupOldNews.start",
+        retentionDays: CLEANUP_RETENTION_DAYS,
+        cutoffIso,
+        maxCleanup: MAX_CLEANUP,
+        batchSize: BATCH_SIZE,
+        scheduleTime: event?.scheduleTime || null,
+    });
+
+    const allDeletedDocIds: string[] = [];
+    const allFailedDocIds: string[] = [];
+    let totalDeletedFiles = 0;
+    let staleDevicesDeleted = 0;
+    let batchesExecuted = 0;
 
     try {
-        const MAX_CLEANUP = 2000;
-        const BATCH_SIZE = 500;
-        let totalCleanedDocs = 0;
-        let totalDeletedFiles = 0;
-
         let lastVisibleDoc: admin.firestore.DocumentSnapshot | null = null;
 
-        // Run in sub-batches to respect Free Tier and stay within memory limits
+        // Run in sub-batches to respect quotas and stay within memory limits
         for (let i = 0; i < MAX_CLEANUP; i += BATCH_SIZE) {
+            const batchStartMs = Date.now();
             let query = db.collection('news')
-                .where('approved', '==', true) // Only clean active news
+                .where('approved', '==', true)
                 .where('timestamp', '<', admin.firestore.Timestamp.fromDate(retentionDate))
                 .orderBy('timestamp', 'asc') // Start from oldest to newest
                 .limit(BATCH_SIZE);
@@ -909,85 +945,95 @@ export const cleanupOldNews = onSchedule({
             const oldNewsQuery = await query.get();
 
             if (oldNewsQuery.empty) {
-                console.log(`[CLEANUP] No more active news found for retention period.`);
+                logger.info("[CLEANUP] No more expired news documents found", {
+                    event: "cleanupOldNews.empty",
+                    batchesExecuted,
+                    totalDeletedDocs: allDeletedDocIds.length,
+                });
                 break;
             }
 
+            batchesExecuted++;
             lastVisibleDoc = oldNewsQuery.docs[oldNewsQuery.docs.length - 1];
 
-            // 🛡️ Smooth Pacing & Instance Protection: Process in small chunks of 25 documents with a 100ms pause.
-            // This prevents a sudden burst of 500 simultaneous EventArc trigger events from spiking Cloud Run autoscaler
-            // into launching 5 concurrent 2GB instances at 3:00 AM, while still cleaning all 2,000 documents smoothly.
-            const CHUNK_SIZE = 25;
-            let cleanedInThisBatch = 0;
+            const batchDeletedIds: string[] = [];
+            const batchFailedIds: string[] = [];
+            let batchDeletedFiles = 0;
 
+            const CHUNK_SIZE = 25;
             for (let c = 0; c < oldNewsQuery.docs.length; c += CHUNK_SIZE) {
                 const chunk = oldNewsQuery.docs.slice(c, c + CHUNK_SIZE);
-                const chunkPromises = chunk.map(async (doc) => {
+
+                // 1. Delete associated Firebase Storage media files first
+                await Promise.all(chunk.map(async (doc) => {
                     const data = doc.data();
+                    if (data.mediaDeleted === true) return;
 
-                    // If media already cleaned up, ensure doc is archived so it drops out of approved queries
-                    if (data.mediaDeleted === true) {
-                        return db.collection('news').doc(doc.id).update({
-                            approved: false,
-                            status: "archived",
-                            lastCleanupAt: admin.firestore.FieldValue.serverTimestamp()
-                        });
-                    }
-
-                    const mediaUrls = data.mediaUrls || [];
+                    const mediaUrls: string[] = Array.isArray(data.mediaUrls) ? [...data.mediaUrls] : [];
                     if (data.mediaUrl) mediaUrls.push(data.mediaUrl);
+                    if (data.thumbnailUrl) mediaUrls.push(data.thumbnailUrl);
 
-                    for (const url of mediaUrls) {
-                        if (url && typeof url === 'string' && url.includes('firebasestorage.googleapis.com')) {
-                            try {
-                                // ROBUST PARSING: Handle both standard and token-based URLs
-                                const decodedUrl = decodeURIComponent(url);
-                                const pathParts = decodedUrl.split('/o/');
-                                if (pathParts.length < 2) continue;
+                    const uniqueUrls = Array.from(new Set(mediaUrls.filter(u => typeof u === 'string' && u.includes('firebasestorage.googleapis.com'))));
+                    for (const url of uniqueUrls) {
+                        try {
+                            const decodedUrl = decodeURIComponent(url);
+                            const pathParts = decodedUrl.split('/o/');
+                            if (pathParts.length < 2) continue;
 
-                                const filePath = pathParts[1].split('?')[0];
+                            const filePath = pathParts[1].split('?')[0];
+                            await bucket.file(filePath).delete();
+                            totalDeletedFiles++;
+                            batchDeletedFiles++;
+                        } catch (e: any) {
+                            const is404 = e.code === 404 || String(e.code) === "404" ||
+                                e.message?.includes("404") ||
+                                e.message?.includes("No such object");
 
-                                console.log(`[CLEANUP] Deleting: ${filePath}`);
-                                await bucket.file(filePath).delete();
-                                totalDeletedFiles++;
-                            } catch (e: any) {
-                                 // Ignore 404s (already deleted)
-                                 const is404 = e.code === 404 || String(e.code) === "404" ||
-                                               e.message?.includes("404") ||
-                                               e.message?.includes("No such object");
-
-                                 if (!is404) {
-                                     console.warn(`[CLEANUP_WARN] Failed to delete ${url}:`, e.message);
-                                 }
+                            if (!is404) {
+                                logger.warn("[CLEANUP] Failed to delete storage object", {
+                                    event: "cleanupOldNews.storageDeleteWarn",
+                                    docId: doc.id,
+                                    url,
+                                    error: e?.message || String(e),
+                                });
                             }
                         }
                     }
+                }));
 
-                    return db.collection('news').doc(doc.id).update({
-                        mediaUrl: "",
-                        mediaUrls: [],
-                        mediaDeleted: true,
-                        approved: false,
-                        status: "archived",
-                        lastCleanupAt: admin.firestore.FieldValue.serverTimestamp()
+                // 2. Delete Firestore documents atomically via WriteBatch (fires ZERO onDocumentCreated/onDocumentUpdated triggers)
+                try {
+                    const deleteBatch = db.batch();
+                    chunk.forEach(doc => deleteBatch.delete(doc.ref));
+                    await deleteBatch.commit();
+                    chunk.forEach(doc => {
+                        batchDeletedIds.push(doc.id);
+                        allDeletedDocIds.push(doc.id);
                     });
-                });
-
-                const chunkResults = await Promise.all(chunkPromises);
-                cleanedInThisBatch += chunkResults.filter(r => r !== null).length;
-
-                // 100ms smooth pause between chunks to keep event queue completely flat
-                if (c + CHUNK_SIZE < oldNewsQuery.docs.length) {
-                    await new Promise(resolve => setTimeout(resolve, 100));
+                } catch (batchErr: any) {
+                    chunk.forEach(doc => {
+                        batchFailedIds.push(doc.id);
+                        allFailedDocIds.push(doc.id);
+                    });
+                    logger.error("[CLEANUP] Failed to delete news document chunk", {
+                        event: "cleanupOldNews.chunkDeleteError",
+                        batchNumber: batchesExecuted,
+                        failedDocIds: chunk.map(d => d.id),
+                        error: batchErr?.message || String(batchErr),
+                    });
                 }
             }
-            totalCleanedDocs += cleanedInThisBatch;
 
-            console.log(`[CLEANUP] Batch finished. Progress: ${totalCleanedDocs}/${MAX_CLEANUP} (Deleted ${totalDeletedFiles} files)`);
-
-            // If we didn't find many files to delete in this batch, we might be hitting a wall of already-cleaned docs.
-            // But we continue until MAX_CLEANUP to dig through them.
+            logger.info("[CLEANUP] Batch completed", {
+                event: "cleanupOldNews.batch",
+                batchNumber: batchesExecuted,
+                batchDurationMs: Date.now() - batchStartMs,
+                deletedCount: batchDeletedIds.length,
+                failedCount: batchFailedIds.length,
+                deletedFilesCount: batchDeletedFiles,
+                deletedDocIds: batchDeletedIds,
+                failedDocIds: batchFailedIds,
+            });
         }
 
         // 🛡️ Cleanup stale anonymous device documents older than 90 days (max 500 per daily run)
@@ -1002,15 +1048,61 @@ export const cleanupOldNews = onSchedule({
                 const batch = db.batch();
                 staleDevicesSnapshot.docs.forEach(doc => batch.delete(doc.ref));
                 await batch.commit();
-                console.log(`[CLEANUP] Deleted ${staleDevicesSnapshot.docs.length} stale anonymous devices (>90 days inactive).`);
+                staleDevicesDeleted = staleDevicesSnapshot.docs.length;
+                logger.info("[CLEANUP] Deleted stale anonymous devices", {
+                    event: "cleanupOldNews.staleDevices",
+                    staleDevicesDeleted,
+                });
             }
         } catch (deviceCleanupErr: any) {
-            console.warn(`[CLEANUP_WARN] Stale device cleanup skipped:`, deviceCleanupErr.message);
+            logger.warn("[CLEANUP] Stale device cleanup skipped", {
+                event: "cleanupOldNews.staleDevicesWarn",
+                error: deviceCleanupErr?.message || String(deviceCleanupErr),
+            });
         }
 
-        console.log(`[CLEANUP] Completed. Cleaned ${totalCleanedDocs} documents and deleted ${totalDeletedFiles} media files.`);
+        const totalExecutionTimeMs = Date.now() - runStartMs;
+        const idChunks = chunkDocumentIdsForLogging(allDeletedDocIds, CLEANUP_LOG_ID_CHUNK_SIZE);
+
+        // Emit structured completion summary (keep single log payload safely under Cloud Logging 256KB limit)
+        logger.info("[CLEANUP] Completed daily old news cleanup", {
+            event: "cleanupOldNews.complete",
+            retentionDays: CLEANUP_RETENTION_DAYS,
+            cutoffIso,
+            totalExecutionTimeMs,
+            batchesExecuted,
+            totalDeletedDocs: allDeletedDocIds.length,
+            totalDeletedFiles,
+            totalFailedDocs: allFailedDocIds.length,
+            staleDevicesDeleted,
+            deletedDocIdChunks: idChunks.length,
+            deletedDocIds: idChunks.length <= 1 ? allDeletedDocIds : undefined,
+            failedDocIds: allFailedDocIds.slice(0, CLEANUP_LOG_ID_CHUNK_SIZE),
+        });
+
+        // If > 500 documents were deleted, log exact IDs in structured chunks so every single ID is preserved
+        if (idChunks.length > 1) {
+            idChunks.forEach((chunkIds, idx) => {
+                logger.info("[CLEANUP] Deleted document IDs manifest chunk", {
+                    event: "cleanupOldNews.deletedManifest",
+                    chunkIndex: idx + 1,
+                    totalChunks: idChunks.length,
+                    count: chunkIds.length,
+                    deletedDocIds: chunkIds,
+                });
+            });
+        }
     } catch (error: any) {
-        console.error("[CLEANUP] Error during cleanup:", error.message);
+        logger.error("[CLEANUP] Fatal error during daily cleanup", {
+            event: "cleanupOldNews.error",
+            retentionDays: CLEANUP_RETENTION_DAYS,
+            cutoffIso,
+            totalExecutionTimeMs: Date.now() - runStartMs,
+            totalDeletedDocs: allDeletedDocIds.length,
+            totalDeletedFiles,
+            deletedDocIds: allDeletedDocIds.slice(0, CLEANUP_LOG_ID_CHUNK_SIZE),
+            error: error?.message || String(error),
+        });
     }
 });
 
