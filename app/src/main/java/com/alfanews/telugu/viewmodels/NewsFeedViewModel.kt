@@ -273,7 +273,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
      */
     private fun isPostAllowedForHomeFeed(post: NewsPost, userDistrict: String?, userState: String?): Boolean {
         val userStateCode = com.alfanews.telugu.utils.EditionRegistry.resolveStateCode(
-            prefs.selectedState ?: userState,
+            prefs.selectedState?.code ?: userState,
             userDistrict
         )
 

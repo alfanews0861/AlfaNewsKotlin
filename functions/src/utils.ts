@@ -40,12 +40,11 @@ export function getTopicName(prefix: string, value: string): string {
 }
 
 export const TEXT_MODELS = [
-    "gemini-3.5-flash-lite",    // 1. Primary Free Tier - Maximum Quota (1,500 RPD, 30 RPM)
-    "gemini-flash-lite-latest", // 2. Direct latest flash-lite alias (active fallback)
-    "gemini-2.5-flash",         // 3. Stable High-quota Flash model (verified active fallback)
-    "gemini-3.8-flash",         // 4. Fast high quality fallback
-    "gemini-3.6-flash",         // 5. Stable fallback
-    "gemini-3.1-flash-lite"     // 6. Lite fallback
+    "gemini-3.5-flash-lite",    // 1. Primary Free Tier - Maximum Quota (High RPD, 30 RPM)
+    "gemini-flash-lite-latest", // 2. Direct latest flash-lite alias (active non-deprecated fallback)
+    "gemini-3.1-flash-lite",    // 3. High-throughput stable lite fallback
+    "gemini-3.8-flash",         // 4. Quality fallback (Paid key preferred or remaining free quota)
+    "gemini-3.6-flash"          // 5. Secondary fallback
 ];
 
 const IMAGE_ANALYSIS_MODELS = [

@@ -864,14 +864,13 @@ NOTIFICATION & PRIORITY RULES:
 - tone: BREAKING | URGENT | IMPORTANT | NORMAL | SOFT.
 `;
 
-    // 🆓 Metadata, categorization, safety scan & full news story: FREE TIER KEYS with multi-tier active non-deprecated fallbacks
+    // 🆓 Metadata, categorization, safety scan & full news story: FREE TIER KEYS with active non-deprecated fallbacks
     const metadataModels = [
-        "gemini-3.5-flash-lite",    // 1. Primary Free Tier (1,500 RPD, 30 RPM)
-        "gemini-flash-lite-latest", // 2. Direct latest flash-lite alias (active fallback)
-        "gemini-2.5-flash",         // 3. Stable High-quota Flash model (verified active fallback)
-        "gemini-3.8-flash",         // 4. Fast high quality fallback
-        "gemini-3.6-flash",         // 5. Stable fallback
-        "gemini-3.1-flash-lite"     // 6. Lite fallback
+        "gemini-3.5-flash-lite",    // 1. Primary Free Tier (High RPD, 30 RPM)
+        "gemini-flash-lite-latest", // 2. Direct latest flash-lite alias (active non-deprecated fallback)
+        "gemini-3.1-flash-lite",    // 3. High-throughput stable lite fallback
+        "gemini-3.8-flash",         // 4. Quality fallback
+        "gemini-3.6-flash"          // 5. Secondary fallback
     ];
 
     return await runWithAIFallback(async (ai, modelName) => {
@@ -2760,20 +2759,28 @@ export async function runReprocessFailedAndUnprocessedNews(hoursLookback: number
             // If already processed by AI successfully and approved, do NOT retry!
             if (d.approved === true && d.aiProcessed === true) return false;
 
-            // 1. Loop prevention: Never retry if reprocessCount >= 2
-            if ((d.reprocessCount || 0) >= 2) return false;
+            // 1. Loop prevention: Strictly retry at most ONCE (reprocessCount >= 1 prevents any endless loop)
+            if ((d.reprocessCount || 0) >= 1) return false;
 
             // 2. Filter real policy rejections and verified duplicates
             const isRealPolicyRejection = status === "REJECTED" && !d.isDuplicate && !isApprovalRemark(d.rejectionReason);
             const isRealDuplicate = d.isDuplicate === true && !!d.duplicateOfPostId;
             if (isRealPolicyRejection || isRealDuplicate) return false;
 
-            // 3. Check for AI failure, stuck pending, false duplicate, or published raw without AI (fallback)
+            // 3. 30-Minute Grace Period: Wait at least 30 minutes after failure/creation before auto-retrying
+            const failedTime = d.failedAt?.toMillis ? d.failedAt.toMillis() : (d.lastUpdated?.toMillis ? d.lastUpdated.toMillis() : (d.timestamp?.toMillis ? d.timestamp.toMillis() : 0));
+            const ageMinutes = failedTime > 0 ? (Date.now() - failedTime) / (60 * 1000) : 999;
+            if (status === "FAILED" && ageMinutes < 30) {
+                // Must wait at least 30 minutes before automatic retry
+                return false;
+            }
+
+            // 4. Check for AI failure, stuck pending, false duplicate, or published raw without AI (fallback)
             const isFallbackPublished = (status === "PUBLISHED" || d.approved === true) && d.aiProcessed !== true;
             const isFalseDuplicate = (status === "REJECTED" || d.isDuplicate === true) && !d.duplicateOfPostId;
             const isFailedOrPendingAI = (status === "FAILED" || (status === "PENDING" && d.aiProcessed !== true) || status === "REVIEWING_CONTENT" || isFalseDuplicate || isFallbackPublished);
 
-            // 4. Check for stuck video posts (PENDING_YOUTUBE_RETRY or interrupted video processing)
+            // 5. Check for stuck video posts (PENDING_YOUTUBE_RETRY or interrupted video processing)
             const mTypes = (d.mediaTypes || []).map((t: string) => t.toUpperCase());
             const hasVideo = mTypes.includes('VIDEO') || d.mediaType?.toUpperCase() === 'VIDEO';
             const isStuckVideo = hasVideo && (status === "PENDING_YOUTUBE_RETRY" || status === "PROCESSING_VIDEO" || status === "PROCESSING_VIDEO_START") && d.videoProcessed !== true;
@@ -2824,7 +2831,7 @@ export async function runReprocessFailedAndUnprocessedNews(hoursLookback: number
 }
 
 export const scheduleReprocessFailedReporterNews = onSchedule({
-    schedule: "0 12,18,21 * * *",
+    schedule: "*/30 6-23 * * *",
     timeZone: "Asia/Kolkata",
     memory: "256MiB",
     timeoutSeconds: 180,
@@ -2832,7 +2839,7 @@ export const scheduleReprocessFailedReporterNews = onSchedule({
     secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"]
 }, async (event) => {
     try {
-        await runReprocessFailedAndUnprocessedNews(6);
+        await runReprocessFailedAndUnprocessedNews(3);
     } catch (e: any) {
         console.error("[SCHEDULE_REPROCESS_FAILED_ERR]", e.message);
     }

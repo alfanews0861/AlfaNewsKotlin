@@ -74,7 +74,7 @@ export async function notifyReporter(
                 if (lower.includes('video') || lower.includes('ffmpeg') || lower.includes('youtube')) {
                     return "వీడియో ఫైల్ ప్రాసెసింగ్ సమయంలో సాంకేతిక అంతరాయం ఏర్పడింది. దయచేసి వీడియోను మళ్ళీ సరిచూసి పంపగలరు.";
                 }
-                return "సర్వర్ నెట్‌వర్క్ అంతరాయం వల్ల ప్రచురణ ప్రక్రియ తాత్కాలికంగా నిలిచింది. దయచేసి కాసేపటి తర్వాత మళ్ళీ ప్రయత్నించండి.";
+                return "సర్వర్ రద్దీ వల్ల మీ వార్త పబ్లిష్ కాలేదు. ఒక గంట తర్వాత చూడండి, మీ వార్త పబ్లిష్ అయ్యి ఉంటుంది.";
             }
 
             if (!rawReason || rawReason.trim().length === 0) {
@@ -99,7 +99,7 @@ export async function notifyReporter(
                 if (lower.includes('video') || lower.includes('ffmpeg') || lower.includes('youtube')) {
                     return "వీడియో ఫైల్ ప్రాసెసింగ్ సమయంలో సాంకేతిక అంతరాయం ఏర్పడింది. దయచేసి వీడియోను మళ్ళీ సరిచూసి పంపగలరు.";
                 }
-                return "సర్వర్ నెట్‌వర్క్ అంతరాయం వల్ల ప్రచురణ ప్రక్రియ తాత్కాలికంగా నిలిచింది. దయచేసి కాసేపటి తర్వాత మళ్ళీ ప్రయత్నించండి.";
+                return "సర్వర్ రద్దీ వల్ల మీ వార్త పబ్లిష్ కాలేదు. ఒక గంట తర్వాత చూడండి, మీ వార్త పబ్లిష్ అయ్యి ఉంటుంది.";
             }
 
             if (type === 'YOUTUBE_POLICY_VIOLATION' || lower.includes('youtube') || lower.includes('యూట్యూబ్') || lower.includes('భయానక') || lower.includes('రక్తపాత')) {

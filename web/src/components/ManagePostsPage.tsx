@@ -420,10 +420,28 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
                         <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 space-y-2">
                             <h4 className="text-xs font-bold text-red-700">కారణం / వివరాలు:</h4>
                             <p className="text-sm text-gray-700 leading-relaxed">
-                                {selectedStatusPost.rejectionReason 
-                                    || (selectedStatusPost.isDuplicate ? "ఈ మండలంలో గత కొన్ని గంటల్లో ఈ వార్తాంశం ఇప్పటికే ప్రచురించబడింది." : "")
-                                    || selectedStatusPost.error
-                                    || "సాంకేతిక అంతరాయం వల్ల ప్రచురణ ప్రక్రియ నిలిచింది. డెస్క్ దీనిని మళ్ళీ పరిశీలిస్తుంది."}
+                                {(() => {
+                                    if (selectedStatusPost.rejectionReason) return selectedStatusPost.rejectionReason;
+                                    if (selectedStatusPost.isDuplicate) return "ఈ మండలంలో గత కొన్ని గంటల్లో ఈ వార్తాంశం ఇప్పటికే ప్రచురించబడింది.";
+                                    const rawErr = String(selectedStatusPost.error || "");
+                                    if (!rawErr) return "సర్వర్ రద్దీ వల్ల మీ వార్త పబ్లిష్ కాలేదు. ఒక గంట తర్వాత చూడండి, మీ వార్త పబ్లిష్ అయ్యి ఉంటుంది.";
+                                    const lower = rawErr.toLowerCase();
+                                    if (
+                                        lower.includes("503") ||
+                                        lower.includes("demand") ||
+                                        lower.includes("quota") ||
+                                        lower.includes("429") ||
+                                        lower.includes("unavailable") ||
+                                        lower.includes("overloaded") ||
+                                        lower.includes("busy") ||
+                                        rawErr.startsWith("{") ||
+                                        rawErr.startsWith("[") ||
+                                        rawErr.includes("సర్వర్ రద్దీ")
+                                    ) {
+                                        return "సర్వర్ రద్దీ వల్ల మీ వార్త పబ్లిష్ కాలేదు. ఒక గంట తర్వాత చూడండి, మీ వార్త పబ్లిష్ అయ్యి ఉంటుంది.";
+                                    }
+                                    return rawErr;
+                                })()}
                             </p>
                         </div>
 

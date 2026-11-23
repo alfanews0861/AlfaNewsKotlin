@@ -450,6 +450,14 @@ object EditionRegistry {
     }
 
     /**
+     * Resolves an already-typed StateCode or falls back to resolving by district.
+     */
+    fun resolveStateCode(stateCode: StateCode?, rawDistrict: String? = null): StateCode? {
+        if (stateCode != null) return stateCode
+        return resolveStateCode(null as String?, rawDistrict)
+    }
+
+    /**
      * Resolves any state string/alias or district name into a canonical StateCode.
      */
     fun resolveStateCode(rawState: String?, rawDistrict: String? = null): StateCode? {

@@ -7,6 +7,8 @@ enum class Language(val code: String, val nativeLabel: String) {
     GUJARATI("gu", "ગુજરાતી"),
     ENGLISH("en", "English");
 
+    val displayName: String get() = nativeLabel
+
     companion object {
         fun fromCode(code: String?): Language {
             val clean = code?.trim()?.lowercase() ?: return TELUGU

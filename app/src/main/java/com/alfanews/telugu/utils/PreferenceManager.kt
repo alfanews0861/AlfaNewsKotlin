@@ -130,7 +130,7 @@ class PreferenceManager(context: Context) {
         return StateCode.AP
     }
 
-    fun setEdition(stateCode: StateCode, district: String?, requestedLanguage: Language? = null) {
+    fun setEdition(stateCode: StateCode, district: String?, requestedLanguage: Language? = null): Language {
         val validLang = EditionRegistry.validateLanguageForState(stateCode, requestedLanguage)
         val editor = prefs.edit()
             .putString(KEY_SELECTED_STATE, stateCode.code)
@@ -140,6 +140,7 @@ class PreferenceManager(context: Context) {
         }
         editor.apply()
         _districtChanges.tryEmit(getEffectiveDistrict())
+        return validLang
     }
 
     var themeMode: ThemeMode

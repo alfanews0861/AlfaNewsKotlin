@@ -31,7 +31,23 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      '@firebase/app': path.resolve(__dirname, '../node_modules/@firebase/app'),
+      '@firebase/component': path.resolve(__dirname, '../node_modules/@firebase/component'),
+      '@firebase/logger': path.resolve(__dirname, '../node_modules/@firebase/logger'),
+      '@firebase/util': path.resolve(__dirname, '../node_modules/@firebase/util'),
     },
+    dedupe: [
+      'firebase',
+      '@firebase/app',
+      '@firebase/component',
+      '@firebase/firestore',
+      '@firebase/auth',
+      '@firebase/storage',
+      '@firebase/analytics',
+      '@firebase/util',
+      'react',
+      'react-dom'
+    ],
   },
   server: {
     port: 3000,
