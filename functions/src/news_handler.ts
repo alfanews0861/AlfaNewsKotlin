@@ -864,10 +864,14 @@ NOTIFICATION & PRIORITY RULES:
 - tone: BREAKING | URGENT | IMPORTANT | NORMAL | SOFT.
 `;
 
-    // 🆓 Metadata, categorization, safety scan & full news story (YouTube description): FREE TIER KEYS (gemini-3.5-flash-lite)
+    // 🆓 Metadata, categorization, safety scan & full news story: FREE TIER KEYS with multi-tier active non-deprecated fallbacks
     const metadataModels = [
-        "gemini-3.5-flash-lite",   // Primary Free Tier (1,500 RPD, 30 RPM)
-        "gemini-3.1-flash-lite"
+        "gemini-3.5-flash-lite",    // 1. Primary Free Tier (1,500 RPD, 30 RPM)
+        "gemini-flash-lite-latest", // 2. Direct latest flash-lite alias (active fallback)
+        "gemini-2.5-flash",         // 3. Stable High-quota Flash model (verified active fallback)
+        "gemini-3.8-flash",         // 4. Fast high quality fallback
+        "gemini-3.6-flash",         // 5. Stable fallback
+        "gemini-3.1-flash-lite"     // 6. Lite fallback
     ];
 
     return await runWithAIFallback(async (ai, modelName) => {
@@ -1636,13 +1640,30 @@ async function runNewsPostPipeline(
         } catch (err: any) {
             console.error(`[AI_FATAL_FAILED] ${postId}:`, err.message);
 
+            const errStr = String(err?.message || "").toLowerCase();
+            const isServerBusyOrQuota = errStr.includes("503") ||
+                errStr.includes("demand") ||
+                errStr.includes("quota") ||
+                errStr.includes("429") ||
+                errStr.includes("overloaded") ||
+                errStr.includes("unavailable") ||
+                errStr.includes("deadline") ||
+                errStr.includes("timeout");
+
+            const friendlyErrorMessage = isServerBusyOrQuota
+                ? "సర్వర్ రద్దీ వల్ల మీ వార్త పబ్లిష్ కాలేదు. ఒక గంట తర్వాత చూడండి, మీ వార్త పబ్లిష్ అయ్యి ఉంటుంది."
+                : "సాంకేతిక అంతరాయం వల్ల ప్రచురణ ప్రక్రియ తాత్కాలికంగా నిలిచింది. డెస్క్ దీనిని మళ్ళీ పరిశీలిస్తుంది.";
+
             // AI Failed: NEVER publish without AI processing! Keep approved: false and status: FAILED.
             await db.collection('news').doc(postId).update({
                 status: "FAILED",
                 approved: false,
                 aiProcessed: false,
-                error: err.message,
+                error: friendlyErrorMessage,
+                rawError: err.message,
                 lastProcessingError: err.message,
+                serverBusy: isServerBusyOrQuota,
+                failedAt: admin.firestore.FieldValue.serverTimestamp(),
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             });
             if (originalReporterId) {
@@ -1652,7 +1673,7 @@ async function runNewsPostPipeline(
                     latestData.headline?.telugu || "వార్త",
                     'INTERNAL_ERROR',
                     "",
-                    err.message
+                    friendlyErrorMessage
                 );
             }
             return;

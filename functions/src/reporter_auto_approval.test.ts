@@ -376,7 +376,7 @@ describe('Multi-State (9 States × 5 Languages) Reporter Onboarding & Conflict I
         };
 
         const queriedDistricts: string[] = [];
-        const mockQuery = {
+        const mockQuery: any = {
             where: jest.fn((field: string, _op: string, val: any) => {
                 if (field === 'district') queriedDistricts.push(val);
                 return mockQuery;

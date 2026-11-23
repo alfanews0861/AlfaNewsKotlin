@@ -39,11 +39,13 @@ export function getTopicName(prefix: string, value: string): string {
     return `${prefix}_${slugify(value)}`;
 }
 
-const TEXT_MODELS = [
-    "gemini-3.5-flash-lite",  // 1. Primary Free Tier - Maximum Quota (1,500 RPD, 30 RPM)
-    "gemini-3.1-flash-lite",  // 2. High-throughput stable fallback (verified active)
-    "gemini-3.8-flash",       // 3. Fast high quality fallback
-    "gemini-3.5-flash"        // 4. Backup
+export const TEXT_MODELS = [
+    "gemini-3.5-flash-lite",    // 1. Primary Free Tier - Maximum Quota (1,500 RPD, 30 RPM)
+    "gemini-flash-lite-latest", // 2. Direct latest flash-lite alias (active fallback)
+    "gemini-2.5-flash",         // 3. Stable High-quota Flash model (verified active fallback)
+    "gemini-3.8-flash",         // 4. Fast high quality fallback
+    "gemini-3.6-flash",         // 5. Stable fallback
+    "gemini-3.1-flash-lite"     // 6. Lite fallback
 ];
 
 const IMAGE_ANALYSIS_MODELS = [
@@ -195,10 +197,10 @@ export async function runWithAIFallback<T>(
                     await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 200));
                 }
 
-                // If 503/504 transient server overload, wait briefly
+                // If 503/504 transient server overload, wait with progressive backoff before trying next model
                 if (status === 503 || status === 504) {
-                    console.warn(`[MODEL-OVERLOAD] Model ${currentModelName} (${keyLabel}) overloaded. Trying next model...`);
-                    await new Promise(resolve => setTimeout(resolve, 400 + Math.random() * 200));
+                    console.warn(`[MODEL-OVERLOAD] Model ${currentModelName} (${keyLabel}) overloaded (503/504). Waiting briefly before next model...`);
+                    await new Promise(resolve => setTimeout(resolve, 1200 + Math.random() * 800));
                 }
             }
         }

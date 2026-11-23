@@ -3,9 +3,10 @@
  * Run with: npx --yes tsx --test functions/src/headline_punch.test.ts
  */
 
-import test, { before } from "node:test";
 import assert from "node:assert/strict";
 import Module from "node:module";
+
+const beforeFn = typeof beforeAll === "function" ? beforeAll : (fn: any) => fn();
 
 // Stub optional native/runtime packages if absent in lightweight test environments
 const originalLoad = (Module as any)._load;
@@ -50,7 +51,7 @@ let buildPaidVocalConfig: typeof import("./geminiService").buildPaidVocalConfig;
 let PAID_REFINEMENT_MAX_OUTPUT_TOKENS: typeof import("./geminiService").PAID_REFINEMENT_MAX_OUTPUT_TOKENS;
 let getCategorySystemInstruction: typeof import("./categories").getCategorySystemInstruction;
 
-before(async () => {
+beforeFn(async () => {
     const utils = await import("./utils");
     const gemini = await import("./geminiService");
     const categories = await import("./categories");
