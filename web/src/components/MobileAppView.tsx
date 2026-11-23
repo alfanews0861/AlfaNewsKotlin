@@ -9,7 +9,7 @@ import UserProfilePage from './UserProfilePage';
 import CitizenPostPage from './CitizenPostPage';
 import PostNewsPage from './PostNewsPage';
 import PostClassifiedAd from './PostClassifiedAd';
-import JobApplicationPage from './JobApplicationPage';
+import JoinReporterPage from './JoinReporterPage';
 import DistrictPickerModal from './DistrictPickerModal';
 import PreferencesModal from './PreferencesModal';
 import { User, Language, UserRole } from '../types';
@@ -229,8 +229,13 @@ export const MobileAppView: React.FC<MobileAppViewProps> = ({
             )}
 
             {createSubView === 'job_application' && (
-              <div className="h-full w-full overflow-y-auto p-4 bg-zinc-950">
-                <JobApplicationPage onBack={() => setCreateSubView(null)} />
+              <div className="h-full w-full flex flex-col bg-gray-50">
+                <JoinReporterPage
+                  user={currentUser}
+                  language={language}
+                  onClose={() => setCreateSubView(null)}
+                  onLoginRequest={onLoginClick}
+                />
               </div>
             )}
           </div>

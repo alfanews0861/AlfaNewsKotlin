@@ -6,7 +6,7 @@ import * as nodemailer from "nodemailer";
 import { REGION, enqueueNewsProcessing } from "./utils";
 import { extractDistrictAndMandal, areMandalsMatching } from "./location_data";
 import { recordApprovedNewsForReporter } from "./reporter_tracking";
-import { resolveStateCode, validateLanguageForState, getCollectionForEdition } from "./editions";
+import { EDITIONS, StateCode, LanguageCode, resolveStateCode, validateLanguageForState, getCollectionForEdition, resolveExpansionDistrict } from "./editions";
 
 const db = admin.firestore();
 
@@ -1007,87 +1007,324 @@ export interface MandalVacancyResult {
         phone: string;
         district: string;
         mandal: string;
+        stateCode?: StateCode | null;
+    };
+}
+
+export interface ReporterApplicationLocale {
+    stateCode: StateCode;
+    language: LanguageCode;
+    subDistrictLabel: string;
+    unauthenticatedErr: string;
+    alreadyReporterMsg: string;
+    invalidFullNameErr: string;
+    invalidFatherNameErr: string;
+    invalidPhoneErr: string;
+    invalidAddressErr: string;
+    invalidLocationErr: string;
+    invalidCategoryErr: string;
+    invalidEducationErr: string;
+    invalidOrgErr: string;
+    incompleteReason: string;
+    welcomeDeskMsg: (name: string, area: string) => string;
+    welcomePushTitle: string;
+    welcomePushBody: (area: string) => string;
+    conflictDeskMsg: (name: string, area: string, existingRepName: string) => string;
+    conflictTitle: string;
+    conflictPushBody: (area: string) => string;
+    defaultReporterLabel: string;
+}
+
+/**
+ * Resolves localized sub-district unit name and human editorial messages for all 9 states × 5 languages.
+ * AP & TS default to Telugu (exact legacy strings preserved). Expansion states use their state-bound language.
+ */
+export function getReporterApplicationLocale(
+    rawState?: string | null,
+    rawLanguage?: string | null,
+    rawDistrict?: string | null
+): ReporterApplicationLocale {
+    const stateCode: StateCode = resolveStateCode(rawState, rawDistrict) || 'TS';
+    const language: LanguageCode = validateLanguageForState(stateCode, rawLanguage);
+    const edition = EDITIONS[stateCode] || EDITIONS.TS;
+
+    const getSubDistrictUnit = (): string => {
+        if (language === 'te') return 'మండలం';
+        if (language === 'hi') {
+            if (stateCode === 'GA') return 'तालुका';
+            if (stateCode === 'MN') return 'उप-मंडल';
+            return 'तहसील';
+        }
+        if (language === 'pa') return 'ਤਹਿਸੀਲ';
+        if (language === 'gu') return 'તાલુકા';
+        // English
+        return edition.subDistrictLabel || 'Tehsil';
+    };
+
+    const unit = getSubDistrictUnit();
+
+    if (language === 'hi') {
+        return {
+            stateCode,
+            language,
+            subDistrictLabel: unit,
+            unauthenticatedErr: 'रिपोर्टर के रूप में आवेदन करने के लिए कृपया ऐप में लॉगिन करें।',
+            alreadyReporterMsg: 'आप पहले से ही अल्फा न्यूज़ के स्वीकृत रिपोर्टर हैं।',
+            invalidFullNameErr: 'कृपया कम से कम 3 अक्षरों में अपना पूरा नाम दर्ज करें।',
+            invalidFatherNameErr: 'कृपया कम से कम 3 अक्षरों में पिता का नाम दर्ज करें।',
+            invalidPhoneErr: 'कृपया मान्य 10 अंकों का मोबाइल नंबर दर्ज करें (6-9 से शुरू होना चाहिए)।',
+            invalidAddressErr: 'कृपया कम से कम 6 अक्षरों का पूरा पता दर्ज करें।',
+            invalidLocationErr: `कृपया जिला और ${unit} अनिवार्य रूप से चुनें।`,
+            invalidCategoryErr: 'कृपया रुचि की श्रेणी दर्ज करें।',
+            invalidEducationErr: 'कृपया शैक्षणिक योग्यता दर्ज करें।',
+            invalidOrgErr: 'कृपया वर्तमान संस्था या व्यवसाय दर्ज करें।',
+            incompleteReason: `आवश्यक विवरण (पूरा नाम, मान्य 10 अंकों का फोन नंबर, जिला, ${unit}) अधूरे हैं।`,
+            welcomeDeskMsg: (name, area) =>
+                `नमस्कार ${name || 'मित्र'}, अल्फा न्यूज़ रिपोर्टर टीम में आपका हार्दिक स्वागत है! 🎉\n\nआपको ${area} ${unit} का रिपोर्टर नियुक्त किया गया है। कृपया प्रतिदिन अपने क्षेत्र की कम से कम एक ताज़ा खबर ऐप पर भेजें। किसी भी सहायता के लिए आप सीधे यहाँ एडिटोरियल डेस्क को संदेश भेज सकते हैं। शुभकामनाएं!`,
+            welcomePushTitle: 'अल्फा न्यूज़ रिपोर्टर टीम में स्वागत है! 🎉',
+            welcomePushBody: (area) => `आपको ${area} ${unit} का रिपोर्टर स्वीकृत किया गया है। आज से ही खबरें पोस्ट करना शुरू करें!`,
+            conflictDeskMsg: (name, area, existingRepName) =>
+                `नमस्कार ${name || 'मित्र'}, आपके चुने हुए ${area} ${unit} के लिए पहले से ही एक सक्रिय रिपोर्टर (${existingRepName || 'अन्य'}) नियुक्त हैं।\n\nइसलिए आपका आवेदन एडमिन विशेष समीक्षा (प्रतिस्पर्धा / प्रोबेशन) के लिए भेजा गया है। हमारी एडिटोरियल टीम शीघ्र ही इसकी जांच कर आपसे संपर्क करेगी। आप सीधे यहाँ एडमिन डेस्क को संदेश भेज सकते हैं। धन्यवाद!`,
+            conflictTitle: 'आपका आवेदन समीक्षा में है ⏳',
+            conflictPushBody: (area) => `${area} ${unit} में पहले से सक्रिय रिपोर्टर होने के कारण आपका आवेदन एडमिन समीक्षा के लिए भेजा गया है। विवरण के लिए डेस्क संदेश देखें।`,
+            defaultReporterLabel: 'रिपोर्टर'
+        };
+    }
+
+    if (language === 'pa') {
+        return {
+            stateCode,
+            language,
+            subDistrictLabel: unit,
+            unauthenticatedErr: 'ਰਿਪੋਰਟਰ ਵਜੋਂ ਅਰਜ਼ੀ ਦੇਣ ਲਈ ਕਿਰਪਾ ਕਰਕੇ ਐਪ ਵਿੱਚ ਲੌਗਇਨ ਕਰੋ।',
+            alreadyReporterMsg: 'ਤੁਸੀਂ ਪਹਿਲਾਂ ਹੀ ਅਲਫ਼ਾ ਨਿਊਜ਼ ਦੇ ਮਨਜ਼ੂਰਸ਼ੁਦਾ ਰਿਪੋਰਟਰ ਹੋ।',
+            invalidFullNameErr: 'ਕਿਰਪਾ ਕਰਕੇ ਘੱਟੋ-ਘੱਟ 3 ਅੱਖਰਾਂ ਵਿੱਚ ਪੂਰਾ ਨਾਮ ਦਰਜ ਕਰੋ।',
+            invalidFatherNameErr: 'ਕਿਰਪਾ ਕਰਕੇ ਘੱਟੋ-ਘੱਟ 3 ਅੱਖਰਾਂ ਵਿੱਚ ਪਿਤਾ ਦਾ ਨਾਮ ਦਰਜ ਕਰੋ।',
+            invalidPhoneErr: 'ਕਿਰਪਾ ਕਰਕੇ ਸਹੀ 10 ਅੰਕਾਂ ਦਾ ਮੋਬਾਈਲ ਨੰਬਰ ਦਰਜ ਕਰੋ (6-9 ਤੋਂ ਸ਼ੁਰੂ ਹੋਵੇ)।',
+            invalidAddressErr: 'ਕਿਰਪਾ ਕਰਕੇ ਘੱਟੋ-ਘੱਟ 6 ਅੱਖਰਾਂ ਦਾ ਪੂਰਾ ਪਤਾ ਦਰਜ ਕਰੋ।',
+            invalidLocationErr: `ਕਿਰਪਾ ਕਰਕੇ ਜ਼ਿਲ੍ਹਾ ਅਤੇ ${unit} ਜ਼ਰੂਰ ਚੁਣੋ।`,
+            invalidCategoryErr: 'ਕਿਰਪਾ ਕਰਕੇ ਦਿਲਚਸਪੀ ਵਾਲੀ ਸ਼੍ਰੇਣੀ ਦਰਜ ਕਰੋ।',
+            invalidEducationErr: 'ਕਿਰਪਾ ਕਰਕੇ ਵਿਦਿਅਕ ਯੋਗਤਾ ਦਰਜ ਕਰੋ।',
+            invalidOrgErr: 'ਕਿਰਪਾ ਕਰਕੇ ਮੌਜੂਦਾ ਸੰਸਥਾ ਜਾਂ ਕਿੱਤਾ ਦਰਜ ਕਰੋ।',
+            incompleteReason: `ਜ਼ਰੂਰੀ ਵੇਰਵੇ (ਪੂਰਾ ਨਾਮ, ਸਹੀ 10 ਅੰਕਾਂ ਦਾ ਫ਼ੋਨ, ਜ਼ਿਲ੍ਹਾ, ${unit}) ਅਧੂਰੇ ਹਨ।`,
+            welcomeDeskMsg: (name, area) =>
+                `ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ ${name || 'ਦੋਸਤ'}, ਅਲਫ਼ਾ ਨਿਊਜ਼ ਰਿਪੋਰਟਰ ਟੀਮ ਵਿੱਚ ਤੁਹਾਡਾ ਨਿੱਘਾ ਸਵਾਗਤ ਹੈ! 🎉\n\nਤੁਹਾਨੂੰ ${area} ${unit} ਦਾ ਰਿਪੋਰਟਰ ਨਿਯੁਕਤ ਕੀਤਾ ਗਿਆ ਹੈ। ਕਿਰਪਾ ਕਰਕੇ ਰੋਜ਼ਾਨਾ ਆਪਣੇ ਇਲਾਕੇ ਦੀ ਘੱਟੋ-ਘੱਟ ਇੱਕ ਤਾਜ਼ਾ ਖ਼ਬਰ ਐਪ ਵਿੱਚ ਪੋਸਟ ਕਰੋ। ਕਿਸੇ ਵੀ ਮਦਦ ਲਈ ਤੁਸੀਂ ਸਿੱਧਾ ਇੱਥੇ ਐਡੀਟੋਰੀਅਲ ਡੈਸਕ ਨੂੰ ਸੁਨੇਹਾ ਭੇਜ ਸਕਦੇ ਹੋ। ਸ਼ੁਭਕਾਮਨਾਵਾਂ!`,
+            welcomePushTitle: 'ਅਲਫ਼ਾ ਨਿਊਜ਼ ਰਿਪੋਰਟਰ ਟੀਮ ਵਿੱਚ ਸਵਾਗਤ ਹੈ! 🎉',
+            welcomePushBody: (area) => `ਤੁਹਾਨੂੰ ${area} ${unit} ਦੇ ਰਿਪੋਰਟਰ ਵਜੋਂ ਮਨਜ਼ੂਰੀ ਮਿਲ ਗਈ ਹੈ। ਅੱਜ ਤੋਂ ਹੀ ਖ਼ਬਰਾਂ ਪੋਸਟ ਕਰਨਾ ਸ਼ੁਰੂ ਕਰੋ!`,
+            conflictDeskMsg: (name, area, existingRepName) =>
+                `ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ ${name || 'ਦੋਸਤ'}, ਤੁਹਾਡੇ ਚੁਣੇ ਹੋਏ ${area} ${unit} ਲਈ ਪਹਿਲਾਂ ਹੀ ਇੱਕ ਸਰਗਰਮ ਰਿਪੋਰਟਰ (${existingRepName || 'ਹੋਰ'}) ਮੌਜੂਦ ਹਨ।\n\nਇਸ ਲਈ ਤੁਹਾਡੀ ਅਰਜ਼ੀ ਐਡਮਿਨ ਦੀ ਵਿਸ਼ੇਸ਼ ਸਮੀਖਿਆ ਲਈ ਭੇਜੀ ਗਈ ਹੈ। ਸਾਡੀ ਟੀਮ ਜਲਦੀ ਹੀ ਤੁਹਾਡੇ ਨਾਲ ਸੰਪਰਕ ਕਰੇਗੀ। ਤੁਸੀਂ ਸਿੱਧਾ ਇੱਥੇ ਐਡਮਿਨ ਡੈਸਕ ਨੂੰ ਸੁਨੇਹਾ ਭੇਜ ਸਕਦੇ ਹੋ। ਧੰਨਵਾਦ!`,
+            conflictTitle: 'ਤੁਹਾਡੀ ਅਰਜ਼ੀ ਸਮੀਖਿਆ ਅਧੀਨ ਹੈ ⏳',
+            conflictPushBody: (area) => `${area} ${unit} ਵਿੱਚ ਪਹਿਲਾਂ ਹੀ ਰਿਪੋਰਟਰ ਹੋਣ ਕਰਕੇ ਤੁਹਾਡੀ ਅਰਜ਼ੀ ਐਡਮਿਨ ਸਮੀਖਿਆ ਲਈ ਭੇਜੀ ਗਈ ਹੈ। ਵੇਰਵਿਆਂ ਲਈ ਡੈਸਕ ਸੁਨੇਹਾ ਵੇਖੋ।`,
+            defaultReporterLabel: 'ਰਿਪੋਰਟਰ'
+        };
+    }
+
+    if (language === 'gu') {
+        return {
+            stateCode,
+            language,
+            subDistrictLabel: unit,
+            unauthenticatedErr: 'રિપોર્ટર તરીકે અરજી કરવા માટે કૃપા કરીને એપમાં લોગિન કરો.',
+            alreadyReporterMsg: 'તમે પહેલેથી જ આલ્ફા ન્યૂઝના માન્ય રિપોર્ટર છો.',
+            invalidFullNameErr: 'કૃપા કરીને ઓછામાં ઓછા 3 અક્ષરોમાં પૂરું નામ દાખલ કરો.',
+            invalidFatherNameErr: 'કૃપા કરીને ઓછામાં ઓછા 3 અક્ષરોમાં પિતાનું નામ દાખલ કરો.',
+            invalidPhoneErr: 'કૃપા કરીને માન્ય 10 અંકનો મોબાઇલ નંબર દાખલ કરો (6-9 થી શરૂ થવો જોઈએ).',
+            invalidAddressErr: 'કૃપા કરીને ઓછામાં ઓછા 6 અક્ષરોનું પૂરું સરનામું દાખલ કરો.',
+            invalidLocationErr: `કૃપા કરીને જિલ્લો અને ${unit} ફરજિયાત પસંદ કરો.`,
+            invalidCategoryErr: 'કૃપા કરીને રસની શ્રેણી દાખલ કરો.',
+            invalidEducationErr: 'કૃપા કરીને શૈક્ષણિક લાયકાત દાખલ કરો.',
+            invalidOrgErr: 'કૃપા કરીને વર્તમાન સંસ્થા અથવા વ્યવસાય દાખલ કરો.',
+            incompleteReason: `જરૂરી વિગતો (પૂરું નામ, માન્ય 10 અંકનો ફોન, જિલ્લો, ${unit}) અધૂરી છે.`,
+            welcomeDeskMsg: (name, area) =>
+                `નમસ્કાર ${name || 'મિત્ર'}, આલ્ફા ન્યૂઝ રિપોર્ટર ટીમમાં તમારું હાર્દિક સ્વાગત છે! 🎉\n\nતમને ${area} ${unit}ના રિપોર્ટર તરીકે નિયુક્ત કરવામાં આવ્યા છે. કૃપા કરીને દરરોજ તમારા વિસ્તારના ઓછામાં ઓછા એક તાજા સમાચાર એપમાં પોસ્ટ કરો. કોઈપણ મદદ માટે તમે સીધો અહીં એડિટોરિયલ ડેસ્કને સંદેશ મોકલી શકો છો. શુભેચ્છાઓ!`,
+            welcomePushTitle: 'આલ્ફા ન્યૂઝ રિપોર્ટર ટીમમાં સ્વાગત છે! 🎉',
+            welcomePushBody: (area) => `તમને ${area} ${unit}ના રિપોર્ટર તરીકે મંજૂરી મળી છે. આજથી જ સમાચાર પોસ્ટ કરવાનું શરૂ કરો!`,
+            conflictDeskMsg: (name, area, existingRepName) =>
+                `નમસ્કાર ${name || 'મિત્ર'}, તમે પસંદ કરેલા ${area} ${unit} માટે પહેલેથી જ સક્રિય રિપોર્ટર (${existingRepName || 'અન્ય'}) નિયુક્ત છે.\n\nતેથી તમારી અરજી એડમિનની વિશેષ સમીક્ષા માટે મોકલવામાં આવી છે. અમારી એડિટોરિયલ ટીમ જલ્દી જ તમારો સંપર્ક કરશે. તમે અહીં એડમિન ડેસ્કને સીધો સંદેશ મોકલી શકો છો. આભાર!`,
+            conflictTitle: 'તમારી અરજી સમીક્ષા હેઠળ છે ⏳',
+            conflictPushBody: (area) => `${area} ${unit}માં પહેલેથી જ રિપોર્ટર હોવાથી તમારી અરજી એડમિન સમીક્ષા માટે મોકલવામાં આવી છે. વિગતો માટે ડેસ્ક સંદેશ જુઓ.`,
+            defaultReporterLabel: 'રિપોર્ટર'
+        };
+    }
+
+    if (language === 'en') {
+        return {
+            stateCode,
+            language,
+            subDistrictLabel: unit,
+            unauthenticatedErr: 'Please log in to the app to apply as a reporter.',
+            alreadyReporterMsg: 'You are already an approved Alfa News reporter.',
+            invalidFullNameErr: 'Please enter your full name (at least 3 characters).',
+            invalidFatherNameErr: "Please enter your father's name (at least 3 characters).",
+            invalidPhoneErr: 'Please enter a valid 10-digit mobile number (starting with 6-9).',
+            invalidAddressErr: 'Please enter your full address (at least 6 characters).',
+            invalidLocationErr: `Please select both District and ${unit}.`,
+            invalidCategoryErr: 'Please enter your interested news category.',
+            invalidEducationErr: 'Please enter your educational qualification.',
+            invalidOrgErr: 'Please enter your current organization or profession.',
+            incompleteReason: `Mandatory details (full name, valid 10-digit phone, district, ${unit}) are missing.`,
+            welcomeDeskMsg: (name, area) =>
+                `Hello ${name || 'Friend'}, welcome to the Alfa News Reporter Team! 🎉\n\nYou have been appointed as the reporter for ${area} ${unit}. Please post at least one fresh local news story from your area every day. If you need any assistance, you can message the Editorial Desk directly here. Best wishes!`,
+            welcomePushTitle: 'Welcome to Alfa News Reporter Team! 🎉',
+            welcomePushBody: (area) => `You are approved as the reporter for ${area} ${unit}. Start posting local news today!`,
+            conflictDeskMsg: (name, area, existingRepName) =>
+                `Hello ${name || 'Friend'}, an active reporter (${existingRepName || 'Assigned Reporter'}) is already covering ${area} ${unit}.\n\nYour application has been forwarded to the Editorial Admin team for special review. Our team will evaluate and reach out to you soon. You can message the Editorial Desk directly here for any queries. Thank you!`,
+            conflictTitle: 'Application Under Review ⏳',
+            conflictPushBody: (area) => `An active reporter already exists for ${area} ${unit}, so your application has been sent for Admin review. Check Desk Chat for details.`,
+            defaultReporterLabel: 'Reporter'
+        };
+    }
+
+    // Default: Telugu (AP & TS — 100% preserved legacy phrasing)
+    return {
+        stateCode,
+        language: 'te',
+        subDistrictLabel: 'మండలం',
+        unauthenticatedErr: 'రిపోర్టర్‌గా దరఖాస్తు చేసుకోవడానికి దయచేసి యాప్‌లో లాగిన్ అవ్వండి.',
+        alreadyReporterMsg: 'మీరు ఇప్పటికే ఆల్ఫా న్యూస్ ఆమోదిత విలేకరిగా ఉన్నారు.',
+        invalidFullNameErr: 'కనీసం 3 అక్షరాలతో పూర్తి పేరు నమోదు చేయాలి.',
+        invalidFatherNameErr: 'కనీసం 3 అక్షరాలతో తండ్రి పేరు నమోదు చేయాలి.',
+        invalidPhoneErr: 'చెల్లుబాటు అయ్యే 10 అంకెల మొబైల్ నంబర్ తప్పనిసరి (6-9 తో ప్రారంభం కావాలి).',
+        invalidAddressErr: 'కనీసం 6 అక్షరాలతో చిరునామా నమోదు చేయాలి.',
+        invalidLocationErr: 'జిల్లా మరియు మండలం తప్పనిసరిగా ఎంచుకోవాలి.',
+        invalidCategoryErr: 'ఆసక్తి ఉన్న కేటగిరీ తప్పనిసరి.',
+        invalidEducationErr: 'విద్యార్హత తప్పనిసరి.',
+        invalidOrgErr: 'ప్రస్తుత సంస్థ లేదా వృత్తి తప్పనిసరి.',
+        incompleteReason: 'తప్పనిసరి వివరాలు (కనీసం 3 అక్షరాల పేరు, చెల్లుబాటు అయ్యే 10 అంకెల ఫోన్, జిల్లా, మండలం) లేవు.',
+        welcomeDeskMsg: (name, area) =>
+            `నమస్కారం ${name || 'మిత్రమా'}, ఆల్ఫా న్యూస్ విలేకరి బృందానికి మీకు హృదయపూర్వక స్వాగతం! 🎉\n\nమీరు ${area} మండల విలేకరిగా నియమించబడ్డారు. మీ మండల తాజా వార్తలను ప్రతిరోజూ కనీసం ఒకటైనా యాప్‌లో పోస్ట్ చేయండి. ఏదైనా సహాయం లేదా సందేహాలు ఉంటే ఇక్కడ నేరుగా మాకు మెసేజ్ చేయవచ్చు. శుభాకాంక్షలు!`,
+        welcomePushTitle: 'ఆల్ఫా న్యూస్ విలేకరి బృందానికి స్వాగతం! 🎉',
+        welcomePushBody: (area) => `మీరు ${area} మండల విలేకరిగా ఆమోదించబడ్డారు. నేటి నుంచే వార్తలను పోస్ట్ చేయడం ప్రారంభించండి!`,
+        conflictDeskMsg: (name, area, existingRepName) =>
+            `నమస్కారం ${name || 'మిత్రమా'}, మీరు కోరిన ${area} మండలానికి ఇప్పటికే క్రియాశీల విలేకరి (${existingRepName || 'ఇతరులు'}) ఉన్నారు.\n\nఅందువల్ల మీ దరఖాస్తు అడ్మిన్ ప్రత్యేక పరిశీలనకు (పోటీ / ప్రొబేషన్) పంపబడింది. మా అడ్మిన్ టీమ్ పరిశీలించి త్వరలోనే మిమ్మల్ని సంప్రదిస్తారు. మీకు ఏవైనా సందేహాలున్నా లేదా మీ వివరాలు తెలియజేయాలన్నా ఇక్కడే అడ్మిన్‌కు నేరుగా మెసేజ్ / రిప్లై ఇవ్వవచ్చు. ధన్యవాదాలు!`,
+        conflictTitle: 'మీ దరఖాస్తు పరిశీలనలో ఉంది ⏳',
+        conflictPushBody: (area) => `${area} మండలానికి ఇప్పటికే విలేకరి ఉన్నందున మీ దరఖాస్తు అడ్మిన్ పరిశీలనకు పంపబడింది. వివరాలకు అడ్మిన్ డెస్క్ సందేశాన్ని చూడండి.`,
+        defaultReporterLabel: 'విలేకరి'
     };
 }
 
 /**
- * Helper: Check if a mandal currently has an active REPORTER in the users collection.
+ * Helper: Check if a mandal/tehsil/taluka/sub-division currently has an active REPORTER in the users collection.
+ * State-aware so identically named districts across different states (e.g., Hamirpur in UP vs HP) never collide.
  */
-export async function checkMandalVacancy(district: string, mandal: string, excludeUserId?: string): Promise<MandalVacancyResult> {
-    const trimmedDistrict = district.trim();
+export async function checkMandalVacancy(
+    district: string,
+    mandal: string,
+    excludeUserId?: string,
+    stateCode?: StateCode | string | null
+): Promise<MandalVacancyResult> {
+    let trimmedDistrict = district.trim();
     const trimmedMandal = mandal.trim();
     if (!trimmedDistrict || !trimmedMandal) return { vacant: false };
 
-    // Check users collection for active reporter
+    const targetStateCode = resolveStateCode(stateCode, trimmedDistrict);
+    if (targetStateCode && targetStateCode !== 'AP' && targetStateCode !== 'TS') {
+        const canonical = resolveExpansionDistrict(trimmedDistrict, targetStateCode);
+        if (canonical) trimmedDistrict = canonical.district;
+    }
+
+    const matchesActiveReporterInState = (doc: FirebaseFirestore.QueryDocumentSnapshot): boolean => {
+        if (doc.id === excludeUserId) return false;
+        const repData = doc.data();
+        if (repData.suspended === true || repData.previouslyDowngraded === true) return false;
+        if (targetStateCode) {
+            const repState = resolveStateCode(repData.stateCode || repData.state, repData.district);
+            // If the existing reporter has an explicit/resolvable different state (e.g., UP vs HP Hamirpur), it is NOT a conflict
+            if (repState && repState !== targetStateCode) return false;
+        }
+        return true;
+    };
+
+    const toExistingReporter = (doc: FirebaseFirestore.QueryDocumentSnapshot) => {
+        const repData = doc.data();
+        return {
+            id: doc.id,
+            name: repData.name || "Reporter",
+            phone: repData.phone || "",
+            district: repData.district || trimmedDistrict,
+            mandal: repData.assignedMandal || repData.mandal || trimmedMandal,
+            stateCode: resolveStateCode(repData.stateCode || repData.state, repData.district)
+        };
+    };
+
+    // 1. Primary fast check on assignedMandal (uses existing composite index: role + district + assignedMandal)
     const reporterQuery = await db.collection('users')
         .where('role', 'in', ['REPORTER', 2, 2.0, '2'])
         .where('district', '==', trimmedDistrict)
         .where('assignedMandal', '==', trimmedMandal)
-        .limit(2)
+        .limit(10)
         .get();
 
     if (!reporterQuery.empty) {
-        const activeReporters = reporterQuery.docs.filter(doc => {
-            if (doc.id === excludeUserId) return false;
-            const repData = doc.data();
-            if (repData.suspended === true || repData.previouslyDowngraded === true) return false;
-            return true;
-        });
+        const activeReporters = reporterQuery.docs.filter(matchesActiveReporterInState);
         if (activeReporters.length > 0) {
-            const repData = activeReporters[0].data();
             return {
                 vacant: false,
-                existingReporter: {
-                    id: activeReporters[0].id,
-                    name: repData.name || "Reporter",
-                    phone: repData.phone || "",
-                    district: repData.district || trimmedDistrict,
-                    mandal: repData.assignedMandal || repData.mandal || trimmedMandal
-                }
+                existingReporter: toExistingReporter(activeReporters[0])
             };
         }
     }
 
-    // Secondary check: in case assignedMandal wasn't set but mandal was set
+    // 2. Secondary check: in case assignedMandal wasn't set but mandal was set
     const mandalQuery = await db.collection('users')
         .where('role', 'in', ['REPORTER', 2, 2.0, '2'])
         .where('district', '==', trimmedDistrict)
         .where('mandal', '==', trimmedMandal)
-        .limit(2)
+        .limit(10)
         .get();
 
     if (!mandalQuery.empty) {
-        const activeReporters = mandalQuery.docs.filter(doc => {
-            if (doc.id === excludeUserId) return false;
-            const repData = doc.data();
-            if (repData.suspended === true || repData.previouslyDowngraded === true) return false;
-            return true;
-        });
+        const activeReporters = mandalQuery.docs.filter(matchesActiveReporterInState);
         if (activeReporters.length > 0) {
-            const repData = activeReporters[0].data();
             return {
                 vacant: false,
-                existingReporter: {
-                    id: activeReporters[0].id,
-                    name: repData.name || "Reporter",
-                    phone: repData.phone || "",
-                    district: repData.district || trimmedDistrict,
-                    mandal: repData.assignedMandal || repData.mandal || trimmedMandal
-                }
+                existingReporter: toExistingReporter(activeReporters[0])
             };
         }
+    }
+
+    // 3. Case-insensitive / alias sub-district check within the same district (uses existing composite index: role + district, bounded to 100)
+    try {
+        const districtReportersSnap = await db.collection('users')
+            .where('role', 'in', ['REPORTER', 2, 2.0, '2'])
+            .where('district', '==', trimmedDistrict)
+            .limit(100)
+            .get();
+
+        if (districtReportersSnap && !districtReportersSnap.empty) {
+            const matchedAliasDoc = districtReportersSnap.docs.find(doc => {
+                if (!matchesActiveReporterInState(doc)) return false;
+                const repData = doc.data();
+                const repMandal = String(repData.assignedMandal || repData.mandal || '').trim();
+                if (!repMandal) return false;
+                return areMandalsMatching(repMandal, trimmedMandal, trimmedDistrict);
+            });
+            if (matchedAliasDoc) {
+                return {
+                    vacant: false,
+                    existingReporter: toExistingReporter(matchedAliasDoc)
+                };
+            }
+        }
+    } catch (e: any) {
+        console.warn(`[VACANCY_CHECK] District alias scan fallback warning for ${trimmedDistrict}:`, e.message);
     }
 
     return { vacant: true };
 }
 
-export async function isMandalVacant(district: string, mandal: string, excludeUserId?: string): Promise<boolean> {
-    const res = await checkMandalVacancy(district, mandal, excludeUserId);
+export async function isMandalVacant(
+    district: string,
+    mandal: string,
+    excludeUserId?: string,
+    stateCode?: StateCode | string | null
+): Promise<boolean> {
+    const res = await checkMandalVacancy(district, mandal, excludeUserId, stateCode);
     return res.vacant;
 }
 
 /**
- * Helper: Notify an applicant when their desired mandal is occupied, letting them know
+ * Helper: Notify an applicant when their desired mandal/tehsil/taluka is occupied, letting them know
  * their application is forwarded to Admin for competition / probation review.
  */
 export async function notifyApplicantOfConflict(
@@ -1095,11 +1332,14 @@ export async function notifyApplicantOfConflict(
     applicantName: string,
     district: string,
     mandal: string,
-    existingReporterName: string
+    existingReporterName: string,
+    stateCode?: StateCode | string | null,
+    language?: LanguageCode | string | null
 ) {
     if (!userId) return;
     try {
-        const conflictText = `నమస్కారం ${applicantName || 'మిత్రమా'}, మీరు కోరిన ${mandal} మండలానికి ఇప్పటికే క్రియాశీల విలేకరి (${existingReporterName || 'ఇతరులు'}) ఉన్నారు.\n\nఅందువల్ల మీ దరఖాస్తు అడ్మిన్ ప్రత్యేక పరిశీలనకు (పోటీ / ప్రొబేషన్) పంపబడింది. మా అడ్మిన్ టీమ్ పరిశీలించి త్వరలోనే మిమ్మల్ని సంప్రదిస్తారు. మీకు ఏవైనా సందేహాలున్నా లేదా మీ వివరాలు తెలియజేయాలన్నా ఇక్కడే అడ్మిన్‌కు నేరుగా మెసేజ్ / రిప్లై ఇవ్వవచ్చు. ధన్యవాదాలు!`;
+        const locale = getReporterApplicationLocale(stateCode, language, district);
+        const conflictText = locale.conflictDeskMsg(applicantName, mandal, existingReporterName);
         const msgTimestamp = admin.firestore.FieldValue.serverTimestamp();
         
         // 1. Add to 2-way reporter conversation for chat
@@ -1116,6 +1356,7 @@ export async function notifyApplicantOfConflict(
         await db.collection('reporter_conversations').doc(userId).set({
             reporterId: userId,
             reporterName: applicantName || "Applicant",
+            reporterState: locale.stateCode,
             reporterDistrict: district,
             reporterMandal: mandal,
             lastMessage: conflictText,
@@ -1128,7 +1369,7 @@ export async function notifyApplicantOfConflict(
 
         // 2. Add to user's general in-app messages list
         await db.collection('users').doc(userId).collection('messages').add({
-            title: "మీ దరఖాస్తు పరిశీలనలో ఉంది ⏳",
+            title: locale.conflictTitle,
             body: conflictText,
             senderName: "AlfaNews Editorial Desk",
             senderRole: "ADMIN",
@@ -1146,18 +1387,19 @@ export async function notifyApplicantOfConflict(
             const push = tokens.map(token => ({
                 token,
                 notification: {
-                    title: "మీ దరఖాస్తు పరిశీలనలో ఉంది ⏳",
-                    body: `${mandal} మండలానికి ఇప్పటికే విలేకరి ఉన్నందున మీ దరఖాస్తు అడ్మిన్ పరిశీలనకు పంపబడింది. వివరాలకు అడ్మిన్ డెస్క్ సందేశాన్ని చూడండి.`
+                    title: locale.conflictTitle,
+                    body: locale.conflictPushBody(mandal)
                 },
                 data: {
                     type: "REPORTER_APP_PENDING",
+                    state: locale.stateCode,
                     district: district,
                     mandal: mandal
                 }
             }));
             await admin.messaging().sendEach(push).catch(() => {});
         }
-        console.log(`[CONFLICT_NOTIF] 📩 Sent conflict notice to applicant ${userId} for ${mandal}`);
+        console.log(`[CONFLICT_NOTIF] 📩 Sent conflict notice (${locale.stateCode}/${locale.language}) to applicant ${userId} for ${mandal}`);
     } catch (e: any) {
         console.error("[CONFLICT_NOTIF] Failed to send conflict notification:", e.message);
     }
@@ -1344,16 +1586,32 @@ export async function promoteUserToReporter(
     district: string,
     mandal: string,
     promoter: string = "AUTO_APPROVAL_SYSTEM",
-    options?: { isChallenger?: boolean; inProbation?: boolean; existingReporterId?: string; existingReporterName?: string; photoUrl?: string }
+    options?: {
+        isChallenger?: boolean;
+        inProbation?: boolean;
+        existingReporterId?: string;
+        existingReporterName?: string;
+        photoUrl?: string;
+        stateCode?: StateCode | string | null;
+        language?: LanguageCode | string | null;
+    }
 ) {
     const userRef = db.collection('users').doc(userId);
     const userDoc = await userRef.get();
     const existingData = userDoc.exists ? (userDoc.data() || {}) : {};
 
     const finalPhoto = options?.photoUrl || existingData.photoUrl || "";
+    const locale = getReporterApplicationLocale(
+        options?.stateCode || existingData.stateCode || existingData.state,
+        options?.language || existingData.language,
+        district
+    );
 
     await userRef.set({
         role: "REPORTER",
+        state: locale.stateCode,
+        stateCode: locale.stateCode,
+        language: locale.language,
         district: district,
         assignedMandal: mandal,
         mandal: mandal,
@@ -1378,11 +1636,11 @@ export async function promoteUserToReporter(
         badges: existingData.badges ?? []
     }, { merge: true });
 
-    console.log(`[REPORTER_PROMOTION] 👑 Promoted user ${userId} to REPORTER for ${district} - ${mandal}`);
+    console.log(`[REPORTER_PROMOTION] 👑 Promoted user ${userId} to REPORTER for ${locale.stateCode} / ${district} - ${mandal} (${locale.language})`);
 
-    // Send In-App Welcome Desk Message & Push to the newly joined reporter
+    // Send In-App Welcome Desk Message & Push to the newly joined reporter in their state-bound language
     try {
-        const welcomeText = `నమస్కారం ${fullName || 'మిత్రమా'}, ఆల్ఫా న్యూస్ విలేకరి బృందానికి మీకు హృదయపూర్వక స్వాగతం! 🎉\n\nమీరు ${mandal} మండల విలేకరిగా నియమించబడ్డారు. మీ మండల తాజా వార్తలను ప్రతిరోజూ కనీసం ఒకటైనా యాప్‌లో పోస్ట్ చేయండి. ఏదైనా సహాయం లేదా సందేహాలు ఉంటే ఇక్కడ నేరుగా మాకు మెసేజ్ చేయవచ్చు. శుభాకాంక్షలు!`;
+        const welcomeText = locale.welcomeDeskMsg(fullName, mandal);
         
         const msgTimestamp = admin.firestore.FieldValue.serverTimestamp();
         await db.collection('reporter_conversations').doc(userId).collection('messages').add({
@@ -1399,6 +1657,7 @@ export async function promoteUserToReporter(
             reporterId: userId,
             reporterName: fullName || existingData.name || "Reporter",
             reporterPhone: phone || existingData.phone || "",
+            reporterState: locale.stateCode,
             reporterDistrict: district,
             reporterMandal: mandal,
             lastMessage: welcomeText,
@@ -1415,11 +1674,12 @@ export async function promoteUserToReporter(
             const pushMessages = userTokens.map(token => ({
                 token,
                 notification: {
-                    title: "ఆల్ఫా న్యూస్ విలేకరి బృందానికి స్వాగతం! 🎉",
-                    body: `మీరు ${mandal} మండల విలేకరిగా ఆమోదించబడ్డారు. నేటి నుంచే వార్తలను పోస్ట్ చేయడం ప్రారంభించండి!`
+                    title: locale.welcomePushTitle,
+                    body: locale.welcomePushBody(mandal)
                 },
                 data: {
                     type: "REPORTER_WELCOME",
+                    state: locale.stateCode,
                     mandal: mandal,
                     district: district
                 }
@@ -1574,14 +1834,16 @@ export async function sendReporterApplicationEmail(
 }
 
 export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL_PASS"] }, async (request) => {
+    const data = request.data || {};
+    const prelimLocale = getReporterApplicationLocale(data.state || data.stateCode, data.language, data.district);
+
     // 🛡️ SECURITY FIX: Enforce authentication to prevent unauthenticated/spoofed applications
     const auth = request.auth;
     if (!auth || !auth.uid) {
-        throw new HttpsError('unauthenticated', 'రిపోర్టర్‌గా దరఖాస్తు చేసుకోవడానికి దయచేసి యాప్‌లో లాగిన్ అవ్వండి.');
+        throw new HttpsError('unauthenticated', prelimLocale.unauthenticatedErr);
     }
     const currentUserId = auth.uid;
 
-    const data = request.data;
     let {
         fullName,
         fatherName,
@@ -1594,7 +1856,8 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
         state,
         district,
         mandal,
-        message
+        message,
+        language
     } = data;
 
     const userId = currentUserId;
@@ -1602,6 +1865,21 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
     // Fetch existing user profile
     const userDoc = await db.collection('users').doc(userId).get();
     const existingUserData = userDoc.exists ? (userDoc.data() || {}) : {};
+
+    let rawDistrict = district || data.assignedDistrict || data.selectedDistrict || data.state_district || "";
+    let rawMandal = mandal || data.assignedMandal || data.selectedMandal || data.mandalam || "";
+    let trimmedDistrict = String(rawDistrict || "").trim();
+    let trimmedMandal = String(rawMandal || "").trim();
+
+    const resolvedStateCode: StateCode = resolveStateCode(
+        state || data.stateCode || existingUserData.stateCode || existingUserData.state,
+        trimmedDistrict || existingUserData.district
+    ) || 'TS';
+    const resolvedLanguage: LanguageCode = validateLanguageForState(
+        resolvedStateCode,
+        language || existingUserData.language
+    );
+    const locale = getReporterApplicationLocale(resolvedStateCode, resolvedLanguage, trimmedDistrict);
 
     // Check if user is already an active reporter
     const currentRole = String(existingUserData.role || '').toUpperCase();
@@ -1613,17 +1891,15 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
     if (isAlreadyReporter) {
         return { 
             success: true, 
-            message: "మీరు ఇప్పటికే ఆల్ఫా న్యూస్ ఆమోదిత విలేకరిగా ఉన్నారు.",
-            autoApproved: true 
+            message: locale.alreadyReporterMsg,
+            autoApproved: true,
+            state: resolvedStateCode,
+            language: resolvedLanguage,
+            subDistrictLabel: locale.subDistrictLabel
         };
     }
 
     const photoUrl = String(data.photoUrl || existingUserData.photoUrl || "").trim();
-
-    let rawDistrict = district || data.assignedDistrict || data.selectedDistrict || data.state_district || "";
-    let rawMandal = mandal || data.assignedMandal || data.selectedMandal || data.mandalam || "";
-    let trimmedDistrict = String(rawDistrict || "").trim();
-    let trimmedMandal = String(rawMandal || "").trim();
 
     const rawPhone = String(phone || data.phoneNumber || "").trim();
     const clean10 = rawPhone.replace(/\D/g, '').slice(-10);
@@ -1635,18 +1911,18 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
     const finalEducation = String(education || "").trim();
     const finalCurrentOrg = String(currentOrg || "").trim();
 
-    // Strict input validation
+    // Strict input validation (localized to the applicant's state-bound language)
     if (!finalFullName || finalFullName.length < 3) {
-        throw new HttpsError('invalid-argument', 'కనీసం 3 అక్షరాలతో పూర్తి పేరు నమోదు చేయాలి.');
+        throw new HttpsError('invalid-argument', locale.invalidFullNameErr);
     }
     if (!finalFatherName || finalFatherName.length < 3) {
-        throw new HttpsError('invalid-argument', 'కనీసం 3 అక్షరాలతో తండ్రి పేరు నమోదు చేయాలి.');
+        throw new HttpsError('invalid-argument', locale.invalidFatherNameErr);
     }
     if (clean10.length !== 10 || !/^[6-9]\d{9}$/.test(clean10)) {
-        throw new HttpsError('invalid-argument', 'చెల్లుబాటు అయ్యే 10 అంకెల మొబైల్ నంబర్ తప్పనిసరి (6-9 తో ప్రారంభం కావాలి).');
+        throw new HttpsError('invalid-argument', locale.invalidPhoneErr);
     }
     if (!finalAddress || finalAddress.length < 6) {
-        throw new HttpsError('invalid-argument', 'కనీసం 6 అక్షరాలతో చిరునామా నమోదు చేయాలి.');
+        throw new HttpsError('invalid-argument', locale.invalidAddressErr);
     }
 
     if (!trimmedDistrict && existingUserData.district) {
@@ -1663,23 +1939,30 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
         if (!trimmedMandal) trimmedMandal = extracted.mandal;
     }
 
+    // Normalize expansion-state district aliases (e.g. "SAS Nagar (Mohali)" -> "Sahibzada Ajit Singh Nagar")
+    // AP & TS Telugu district names are NEVER altered.
+    if (resolvedStateCode !== 'AP' && resolvedStateCode !== 'TS' && trimmedDistrict) {
+        const canonical = resolveExpansionDistrict(trimmedDistrict, resolvedStateCode);
+        if (canonical) trimmedDistrict = canonical.district;
+    }
+
     if (!trimmedDistrict || !trimmedMandal) {
-        throw new HttpsError('invalid-argument', 'జిల్లా మరియు మండలం తప్పనిసరిగా ఎంచుకోవాలి.');
+        throw new HttpsError('invalid-argument', locale.invalidLocationErr);
     }
     if (!finalInterestedArea) {
-        throw new HttpsError('invalid-argument', 'ఆసక్తి ఉన్న కేటగిరీ తప్పనిసరి.');
+        throw new HttpsError('invalid-argument', locale.invalidCategoryErr);
     }
     if (!finalEducation) {
-        throw new HttpsError('invalid-argument', 'విద్యార్హత తప్పనిసరి.');
+        throw new HttpsError('invalid-argument', locale.invalidEducationErr);
     }
     if (!finalCurrentOrg) {
-        throw new HttpsError('invalid-argument', 'ప్రస్తుత సంస్థ లేదా వృత్తి తప్పనిసరి.');
+        throw new HttpsError('invalid-argument', locale.invalidOrgErr);
     }
 
-    console.log(`[REPORTER_APP] 📥 Processing application for ${finalFullName} (District: ${trimmedDistrict}, Mandal: ${trimmedMandal}, UserId: ${userId || 'N/A'}, Phone: ${clean10})`);
+    console.log(`[REPORTER_APP] 📥 Processing application for ${finalFullName} (State: ${resolvedStateCode}, Lang: ${resolvedLanguage}, District: ${trimmedDistrict}, Area: ${trimmedMandal}, UserId: ${userId || 'N/A'}, Phone: ${clean10})`);
 
-    // 1. Check vacancy for mandal in users collection
-    const vacancyResult = await checkMandalVacancy(trimmedDistrict, trimmedMandal, userId);
+    // 1. Check state-aware vacancy for mandal/tehsil/taluka in users collection
+    const vacancyResult = await checkMandalVacancy(trimmedDistrict, trimmedMandal, userId, resolvedStateCode);
     const vacant = vacancyResult.vacant;
     const existingRep = vacancyResult.existingReporter;
 
@@ -1704,12 +1987,12 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
         }
     }
 
-    // Auto-approve IF user is not previously downgraded and mandal is vacant
+    // Auto-approve IF user is not previously downgraded and mandal/tehsil is vacant
     const shouldAutoApprove = Boolean(userId && !isPreviouslyDowngraded && vacant);
     const finalStatus = shouldAutoApprove ? "JOINED" : "PENDING";
     const isConflict = !vacant;
 
-    console.log(`[REPORTER_APP] ⚖️ Decision: shouldAutoApprove=${shouldAutoApprove}, finalStatus=${finalStatus}, isPrevDowngraded=${isPreviouslyDowngraded}, isVacant=${vacant}, isConflict=${isConflict}`);
+    console.log(`[REPORTER_APP] ⚖️ Decision: state=${resolvedStateCode}, shouldAutoApprove=${shouldAutoApprove}, finalStatus=${finalStatus}, isPrevDowngraded=${isPreviouslyDowngraded}, isVacant=${vacant}, isConflict=${isConflict}`);
 
     // Save application to Firestore
     const newAppRef = await db.collection('reporter_applications').add({
@@ -1722,6 +2005,9 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
         interestedArea: finalInterestedArea,
         education: finalEducation,
         currentOrg: finalCurrentOrg,
+        state: resolvedStateCode,
+        stateCode: resolvedStateCode,
+        language: resolvedLanguage,
         district: trimmedDistrict,
         mandal: trimmedMandal,
         userId: userId,
@@ -1765,8 +2051,16 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
             console.error("[REPORTER_APP] Non-critical error updating previous applications:", e.message);
         }
 
-        // Promote user role to REPORTER immediately
-        await promoteUserToReporter(userId, finalFullName, clean10, trimmedDistrict, trimmedMandal, "AUTO_APPROVAL_SYSTEM", { photoUrl });
+        // Promote user role to REPORTER immediately with stateCode & language preserved
+        await promoteUserToReporter(
+            userId,
+            finalFullName,
+            clean10,
+            trimmedDistrict,
+            trimmedMandal,
+            "AUTO_APPROVAL_SYSTEM",
+            { photoUrl, stateCode: resolvedStateCode, language: resolvedLanguage }
+        );
     } else if (isConflict && existingRep) {
         let perfAudit: ReporterPerformanceAudit | undefined;
         try {
@@ -1780,9 +2074,17 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
             console.error("[REPORTER_APP] Performance audit error:", auditErr.message);
         }
 
-        // Notify applicant that mandal is occupied and application is forwarded for Admin competition review
+        // Notify applicant in their state-bound language that area is occupied & forwarded to Admin
         if (userId) {
-            await notifyApplicantOfConflict(userId, finalFullName, trimmedDistrict, trimmedMandal, existingRep.name || "విలేకరి");
+            await notifyApplicantOfConflict(
+                userId,
+                finalFullName,
+                trimmedDistrict,
+                trimmedMandal,
+                existingRep.name || locale.defaultReporterLabel,
+                resolvedStateCode,
+                resolvedLanguage
+            );
         }
 
         // Send notification email to admin with performance audit attached
@@ -1796,6 +2098,7 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
                 interestedArea: finalInterestedArea, 
                 education: finalEducation, 
                 currentOrg: finalCurrentOrg, 
+                state: resolvedStateCode,
                 district: trimmedDistrict, 
                 mandal: trimmedMandal, 
                 userId 
@@ -1819,7 +2122,10 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
                 meetsBenchmark: perfAudit.meetsBenchmark,
                 shortfall: perfAudit.shortfall
             } : null,
-            status: finalStatus 
+            status: finalStatus,
+            state: resolvedStateCode,
+            language: resolvedLanguage,
+            subDistrictLabel: locale.subDistrictLabel
         };
     }
 
@@ -1834,6 +2140,7 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
             interestedArea: finalInterestedArea, 
             education: finalEducation, 
             currentOrg: finalCurrentOrg, 
+            state: resolvedStateCode,
             district: trimmedDistrict, 
             mandal: trimmedMandal, 
             userId 
@@ -1850,7 +2157,10 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
         isPreviouslyDowngraded,
         isConflict,
         existingReporterName: existingRep?.name || null,
-        status: finalStatus 
+        status: finalStatus,
+        state: resolvedStateCode,
+        language: resolvedLanguage,
+        subDistrictLabel: locale.subDistrictLabel
     };
 });
 
@@ -1915,6 +2225,21 @@ export const onReporterApplicationCreated = onDocumentCreated({
         if (!mandal) mandal = extracted.mandal;
     }
 
+    const resolvedStateCode: StateCode = resolveStateCode(
+        data.stateCode || data.state || userDocData?.stateCode || userDocData?.state,
+        district || userDocData?.district
+    ) || 'TS';
+    const resolvedLanguage: LanguageCode = validateLanguageForState(
+        resolvedStateCode,
+        data.language || userDocData?.language
+    );
+    const locale = getReporterApplicationLocale(resolvedStateCode, resolvedLanguage, district);
+
+    if (resolvedStateCode !== 'AP' && resolvedStateCode !== 'TS' && district) {
+        const canonical = resolveExpansionDistrict(district, resolvedStateCode);
+        if (canonical) district = canonical.district;
+    }
+
     // Check if application has all mandatory fields completed
     const isApplicationComplete = Boolean(
         applicantName.length >= 3 &&
@@ -1926,11 +2251,14 @@ export const onReporterApplicationCreated = onDocumentCreated({
     );
 
     if (!isApplicationComplete) {
-        console.warn(`[REPORTER_APP_TRIGGER] ⚠️ Application ${appId} is incomplete (name: '${applicantName}', phone: '${clean10}', dist: '${district}', mandal: '${mandal}'). Flagging as INCOMPLETE and skipping auto-approval.`);
+        console.warn(`[REPORTER_APP_TRIGGER] ⚠️ Application ${appId} is incomplete (name: '${applicantName}', phone: '${clean10}', state: '${resolvedStateCode}', dist: '${district}', mandal: '${mandal}'). Flagging as INCOMPLETE and skipping auto-approval.`);
         await event.data?.ref.update({
             status: "INCOMPLETE",
             autoApproved: false,
-            incompleteReason: "తప్పనిసరి వివరాలు (కనీసం 3 అక్షరాల పేరు, చెల్లుబాటు అయ్యే 10 అంకెల ఫోన్, జిల్లా, మండలం) లేవు."
+            state: resolvedStateCode,
+            stateCode: resolvedStateCode,
+            language: resolvedLanguage,
+            incompleteReason: locale.incompleteReason
         });
         return;
     }
@@ -1943,10 +2271,10 @@ export const onReporterApplicationCreated = onDocumentCreated({
         }
     }
 
-    // Check vacancy for mandal in users collection
+    // Check state-aware vacancy for mandal/tehsil/taluka in users collection
     let vacancyResult: MandalVacancyResult = { vacant: false };
     if (district && mandal) {
-        vacancyResult = await checkMandalVacancy(district, mandal, userId);
+        vacancyResult = await checkMandalVacancy(district, mandal, userId, resolvedStateCode);
     }
     const vacant = vacancyResult.vacant;
     const existingRep = vacancyResult.existingReporter;
@@ -1955,15 +2283,18 @@ export const onReporterApplicationCreated = onDocumentCreated({
     const canAutoApprove = Boolean(district && mandal && userId && !isPreviouslyDowngraded && vacant);
     const isConflict = Boolean(district && mandal && !vacant);
 
-    console.log(`[REPORTER_APP_TRIGGER] 📋 Processing ${appId} for ${applicantName} (dist: '${district}', mandal: '${mandal}', userId: '${userId}', canAutoApprove: ${canAutoApprove}, isConflict: ${isConflict})`);
+    console.log(`[REPORTER_APP_TRIGGER] 📋 Processing ${appId} for ${applicantName} (state: '${resolvedStateCode}', dist: '${district}', mandal: '${mandal}', userId: '${userId}', canAutoApprove: ${canAutoApprove}, isConflict: ${isConflict})`);
 
     if (canAutoApprove) {
-        console.log(`[REPORTER_APP_TRIGGER] ✅ Mandal ${mandal} is VACANT. Auto-approving application ${appId}...`);
+        console.log(`[REPORTER_APP_TRIGGER] ✅ Area ${mandal} (${resolvedStateCode}) is VACANT. Auto-approving application ${appId}...`);
 
         // Update application document
         await event.data?.ref.update({
             status: "JOINED",
             autoApproved: true,
+            state: resolvedStateCode,
+            stateCode: resolvedStateCode,
+            language: resolvedLanguage,
             district,
             mandal,
             userId,
@@ -1978,18 +2309,19 @@ export const onReporterApplicationCreated = onDocumentCreated({
             rawPhone || userDocData?.phone || "",
             district,
             mandal,
-            "AUTO_APPROVAL_TRIGGER"
+            "AUTO_APPROVAL_TRIGGER",
+            { stateCode: resolvedStateCode, language: resolvedLanguage }
         );
 
         // Send notification email to admin
         await sendReporterApplicationEmail(
-            { ...data, district, mandal, fullName: applicantName, phone: rawPhone, userId },
+            { ...data, state: resolvedStateCode, district, mandal, fullName: applicantName, phone: rawPhone, userId },
             true,
             false,
             "JOINED"
         );
     } else if (isConflict) {
-        console.log(`[REPORTER_APP_TRIGGER] ⚠️ Mandal ${mandal} in ${district} is occupied by ${existingRep?.name}. Auditing existing reporter performance...`);
+        console.log(`[REPORTER_APP_TRIGGER] ⚠️ Area ${mandal} in ${district} (${resolvedStateCode}) is occupied by ${existingRep?.name}. Auditing existing reporter performance...`);
 
         let perfAudit: ReporterPerformanceAudit | undefined;
         if (existingRep?.id) {
@@ -2017,6 +2349,9 @@ export const onReporterApplicationCreated = onDocumentCreated({
         }
 
         await event.data?.ref.update({
+            state: resolvedStateCode,
+            stateCode: resolvedStateCode,
+            language: resolvedLanguage,
             district,
             mandal,
             userId: userId || null,
@@ -2036,12 +2371,20 @@ export const onReporterApplicationCreated = onDocumentCreated({
         });
 
         if (userId) {
-            await notifyApplicantOfConflict(userId, applicantName, district, mandal, existingRep?.name || "విలేకరి");
+            await notifyApplicantOfConflict(
+                userId,
+                applicantName,
+                district,
+                mandal,
+                existingRep?.name || locale.defaultReporterLabel,
+                resolvedStateCode,
+                resolvedLanguage
+            );
         }
 
         // Send email alert to admin with performance audit attached
         await sendReporterApplicationEmail(
-            { ...data, district, mandal, fullName: applicantName, phone: rawPhone, userId },
+            { ...data, state: resolvedStateCode, district, mandal, fullName: applicantName, phone: rawPhone, userId },
             false,
             isPreviouslyDowngraded,
             "PENDING",
@@ -2054,6 +2397,9 @@ export const onReporterApplicationCreated = onDocumentCreated({
 
         if (district || mandal || userId) {
             await event.data?.ref.update({
+                state: resolvedStateCode,
+                stateCode: resolvedStateCode,
+                language: resolvedLanguage,
                 district: district || data.district || "",
                 mandal: mandal || data.mandal || "",
                 userId: userId || data.userId || null,
@@ -2063,7 +2409,7 @@ export const onReporterApplicationCreated = onDocumentCreated({
 
         // ALWAYS SEND EMAIL TO ADMIN SO YOU NEVER MISS ANY APPLICANT!
         await sendReporterApplicationEmail(
-            { ...data, district: district || "N/A", mandal: mandal || "N/A", fullName: applicantName, phone: rawPhone, userId },
+            { ...data, state: resolvedStateCode, district: district || "N/A", mandal: mandal || "N/A", fullName: applicantName, phone: rawPhone, userId },
             false,
             isPreviouslyDowngraded,
             rawStatus === "JOINED" ? "JOINED" : "PENDING"

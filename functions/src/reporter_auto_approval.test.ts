@@ -1,5 +1,7 @@
 import { describe, test, expect, jest, beforeEach } from '@jest/globals';
 import * as admin from 'firebase-admin';
+import { resolveExpansionDistrict } from './editions';
+import { getReporterApplicationLocale, checkMandalVacancy } from './reporter_handler';
 
 // Mock dependencies
 jest.mock('firebase-admin', () => {
@@ -257,3 +259,143 @@ describe('Reporter Application & Auto-Approval Logic Tests', () => {
         expect(alertText).toContain('13');
     });
 });
+
+describe('Multi-State (9 States × 5 Languages) Reporter Onboarding & Conflict Isolation', () => {
+    let db: any;
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        db = admin.firestore();
+    });
+
+    test('Cross-platform Web/Android expansion district aliases normalize to canonical backend names', () => {
+        expect(resolveExpansionDistrict('SAS Nagar (Mohali)', 'PB')).toEqual({
+            district: 'Sahibzada Ajit Singh Nagar',
+            stateCode: 'PB',
+        });
+        expect(resolveExpansionDistrict('SBS Nagar (Nawanshahr)', 'PB')).toEqual({
+            district: 'Shahid Bhagat Singh Nagar',
+            stateCode: 'PB',
+        });
+        expect(resolveExpansionDistrict('Devbhumi Dwarka', 'GJ')).toEqual({
+            district: 'Devbhoomi Dwarka',
+            stateCode: 'GJ',
+        });
+        expect(resolveExpansionDistrict('Hamirpur (HP)', 'HP')).toEqual({
+            district: 'Hamirpur',
+            stateCode: 'HP',
+        });
+        expect(resolveExpansionDistrict('Hamirpur', 'UP')).toEqual({
+            district: 'Hamirpur',
+            stateCode: 'UP',
+        });
+        expect(resolveExpansionDistrict('Hamirpur', 'HP')).toEqual({
+            district: 'Hamirpur',
+            stateCode: 'HP',
+        });
+    });
+
+    test('getReporterApplicationLocale returns localized sub-district labels and 100% human Editorial copy for all 9 states', () => {
+        const cases: Array<{ state: string; lang?: string; expectedLang: string; expectedLabel: string }> = [
+            { state: 'TS', expectedLang: 'te', expectedLabel: 'మండలం' },
+            { state: 'AP', expectedLang: 'te', expectedLabel: 'మండలం' },
+            { state: 'UP', expectedLang: 'hi', expectedLabel: 'तहसील' },
+            { state: 'UK', expectedLang: 'hi', expectedLabel: 'तहसील' },
+            { state: 'HP', expectedLang: 'hi', expectedLabel: 'तहसील' },
+            { state: 'PB', expectedLang: 'pa', expectedLabel: 'ਤਹਿਸੀਲ' },
+            { state: 'GJ', expectedLang: 'gu', expectedLabel: 'તાલુકા' },
+            { state: 'GA', expectedLang: 'en', expectedLabel: 'Taluka' },
+            { state: 'MN', expectedLang: 'en', expectedLabel: 'Sub-Division' },
+        ];
+
+        for (const c of cases) {
+            const loc = getReporterApplicationLocale(c.state, c.lang);
+            expect(loc.language).toBe(c.expectedLang);
+            expect(loc.subDistrictLabel).toBe(c.expectedLabel);
+
+            const welcome = loc.welcomeDeskMsg('Amit', 'Sadar');
+            const conflict = loc.conflictDeskMsg('Amit', 'Sadar', 'Existing Reporter');
+            expect(welcome).toContain('Sadar');
+            expect(conflict).toContain('Sadar');
+            // Zero AI/Bot wording policy check
+            expect(welcome.toLowerCase()).not.toMatch(/\b(ai|gemini|bot)\b/);
+            expect(conflict.toLowerCase()).not.toMatch(/\b(ai|gemini|bot)\b/);
+        }
+    });
+
+    test('checkMandalVacancy isolates shared district names across states (UP Hamirpur does NOT block HP Hamirpur)', async () => {
+        const upReporterDoc = {
+            id: 'rep_up_01',
+            data: () => ({
+                role: 'REPORTER',
+                name: 'Rajesh UP',
+                phone: '9876543210',
+                stateCode: 'UP',
+                district: 'Hamirpur',
+                assignedMandal: 'Hamirpur',
+                suspended: false,
+            }),
+        };
+
+        const mockQuery = {
+            where: jest.fn().mockReturnThis(),
+            limit: jest.fn().mockReturnThis(),
+            get: jest.fn<any>().mockResolvedValue({ empty: false, docs: [upReporterDoc] }),
+        };
+
+        db.collection.mockImplementation((collName: string) => {
+            if (collName === 'users') {
+                return { where: jest.fn().mockReturnValue(mockQuery) };
+            }
+            return { where: jest.fn().mockReturnValue({ where: jest.fn().mockReturnThis(), limit: jest.fn().mockReturnThis(), get: jest.fn<any>().mockResolvedValue({ empty: true, docs: [] }) }) };
+        });
+
+        // Applicant for HP Hamirpur should see VACANT because active reporter is in UP
+        const hpResult = await checkMandalVacancy('Hamirpur (HP)', 'Hamirpur', 'applicant_hp_1', 'HP');
+        expect(hpResult.vacant).toBe(true);
+
+        // Applicant for UP Hamirpur should see CONFLICT with Rajesh UP
+        const upResult = await checkMandalVacancy('Hamirpur', 'Hamirpur', 'applicant_up_2', 'UP');
+        expect(upResult.vacant).toBe(false);
+        expect(upResult.existingReporter?.id).toBe('rep_up_01');
+        expect(upResult.existingReporter?.name).toBe('Rajesh UP');
+    });
+
+    test('checkMandalVacancy catches cross-platform Web alias conflict (SAS Nagar (Mohali) vs Sahibzada Ajit Singh Nagar)', async () => {
+        const pbReporterDoc = {
+            id: 'rep_pb_01',
+            data: () => ({
+                role: 'REPORTER',
+                name: 'Harpreet Singh',
+                phone: '9812345678',
+                stateCode: 'PB',
+                district: 'Sahibzada Ajit Singh Nagar',
+                assignedMandal: 'Kharar',
+                suspended: false,
+            }),
+        };
+
+        const queriedDistricts: string[] = [];
+        const mockQuery = {
+            where: jest.fn((field: string, _op: string, val: any) => {
+                if (field === 'district') queriedDistricts.push(val);
+                return mockQuery;
+            }),
+            limit: jest.fn().mockReturnThis(),
+            get: jest.fn<any>().mockResolvedValue({ empty: false, docs: [pbReporterDoc] }),
+        };
+
+        db.collection.mockImplementation((collName: string) => {
+            if (collName === 'users') {
+                return { where: jest.fn().mockReturnValue(mockQuery) };
+            }
+            return { where: jest.fn().mockReturnValue({ where: jest.fn().mockReturnThis(), limit: jest.fn().mockReturnThis(), get: jest.fn<any>().mockResolvedValue({ empty: true, docs: [] }) }) };
+        });
+
+        const res = await checkMandalVacancy('SAS Nagar (Mohali)', 'Kharar', 'applicant_pb_2', 'PB');
+        expect(queriedDistricts).toContain('Sahibzada Ajit Singh Nagar');
+        expect(res.vacant).toBe(false);
+        expect(res.existingReporter?.name).toBe('Harpreet Singh');
+    });
+});
+

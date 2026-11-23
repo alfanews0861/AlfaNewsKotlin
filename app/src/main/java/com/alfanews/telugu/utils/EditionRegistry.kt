@@ -511,8 +511,10 @@ object EditionRegistry {
         return listOf(clean)
     }
 
-    fun getSubDistrictsForDistrict(district: String?): List<String> {
+    fun getSubDistrictsForDistrict(district: String?, stateCode: StateCode? = null): List<String> {
         if (district.isNullOrBlank()) return emptyList()
+        val fromFullCatalog = ExpansionSubDistrictData.getSubDistricts(district, stateCode)
+        if (fromFullCatalog.isNotEmpty()) return fromFullCatalog
         val map = EXPANSION_CONSTITUENCY_MAP[district]
             ?: EXPANSION_CONSTITUENCY_MAP.entries.firstOrNull { it.key.equals(district, ignoreCase = true) }?.value
             ?: return listOf("$district Sadar", "$district Rural")

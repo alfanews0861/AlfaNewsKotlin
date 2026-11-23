@@ -126,9 +126,10 @@ object FirebaseFunctionsService {
         district: String,
         mandal: String,
         message: String,
-        userId: String? = null
+        userId: String? = null,
+        language: String? = null
     ): Result<Map<String, Any>> {
-        return callFunction("submitReporterApplication", mapOf(
+        val payload = mutableMapOf<String, Any>(
             "fullName" to fullName,
             "fatherName" to fatherName,
             "phone" to phone,
@@ -142,7 +143,9 @@ object FirebaseFunctionsService {
             "mandal" to mandal,
             "message" to message,
             "userId" to (userId ?: "")
-        ))
+        )
+        language?.takeIf { it.isNotBlank() }?.let { payload["language"] = it }
+        return callFunction("submitReporterApplication", payload)
     }
 
     suspend fun triggerReporterActivityCheck(dryRun: Boolean = false): Result<Map<String, Any>> {

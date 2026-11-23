@@ -189,8 +189,8 @@ export const EXPANSION_DISTRICT_ALIASES: Record<string, string> = {
   'ਜਲੰਧਰ': 'Jalandhar', 'जालंधर': 'Jalandhar',
   'ਪਟਿਆਲਾ': 'Patiala', 'पटियाला': 'Patiala',
   'ਬਠਿੰਡਾ': 'Bathinda', 'बठिंडा': 'Bathinda',
-  'ਮੋਹਾਲੀ': 'Sahibzada Ajit Singh Nagar', 'mohali': 'Sahibzada Ajit Singh Nagar', 'sas nagar': 'Sahibzada Ajit Singh Nagar',
-  'ਨਵਾਂਸ਼ਹਿਰ': 'Shahid Bhagat Singh Nagar', 'nawanshahr': 'Shahid Bhagat Singh Nagar', 'sbs nagar': 'Shahid Bhagat Singh Nagar',
+  'ਮੋਹਾਲੀ': 'Sahibzada Ajit Singh Nagar', 'mohali': 'Sahibzada Ajit Singh Nagar', 'sas nagar': 'Sahibzada Ajit Singh Nagar', 'sas nagar (mohali)': 'Sahibzada Ajit Singh Nagar',
+  'ਨਵਾਂਸ਼ਹਿਰ': 'Shahid Bhagat Singh Nagar', 'nawanshahr': 'Shahid Bhagat Singh Nagar', 'sbs nagar': 'Shahid Bhagat Singh Nagar', 'sbs nagar (nawanshahr)': 'Shahid Bhagat Singh Nagar',
   'ਰੋਪੜ': 'Rupnagar', 'ropar': 'Rupnagar',
   'ਮੁਕਤਸਰ': 'Sri Muktsar Sahib', 'muktsar': 'Sri Muktsar Sahib',
   // Uttarakhand
@@ -205,7 +205,7 @@ export const EXPANSION_DISTRICT_ALIASES: Record<string, string> = {
   // Himachal Pradesh
   'शिमला': 'Shimla', 'कांगड़ा': 'Kangra', 'धर्मशाला': 'Kangra', 'dharamshala': 'Kangra',
   'मंडी': 'Mandi', 'कुल्लू': 'Kullu', 'मनाली': 'Kullu', 'manali': 'Kullu',
-  'सोलन': 'Solan', 'चंबा': 'Chamba', 'ऊना': 'Una', 'हमीरपुर': 'Hamirpur', 'बिलासपुर': 'Bilaspur',
+  'सोलन': 'Solan', 'चंबा': 'Chamba', 'ऊना': 'Una', 'हमीरपुर': 'Hamirpur', 'hamirpur (hp)': 'Hamirpur', 'hamirpur hp': 'Hamirpur', 'बिलासपुर': 'Bilaspur',
   // Gujarat
   'અમદાવાદ': 'Ahmedabad', 'अहमदाबाद': 'Ahmedabad',
   'સુરત': 'Surat', 'सूरत': 'Surat',
@@ -215,7 +215,7 @@ export const EXPANSION_DISTRICT_ALIASES: Record<string, string> = {
   'ભાવનગર': 'Bhavnagar', 'જામનગર': 'Jamnagar', 'જૂનાગઢ': 'Junagadh',
   'કચ્છ': 'Kutch', 'bhuj': 'Kutch', 'ભુજ': 'Kutch', 'kachchh': 'Kutch',
   'આણંદ': 'Anand', 'મહેસાણા': 'Mehsana', 'ભરૂચ': 'Bharuch', 'નવસારી': 'Navsari', 'વલસાડ': 'Valsad', 'vapi': 'Valsad',
-  'દ્વારકા': 'Devbhoomi Dwarka', 'dwarka': 'Devbhoomi Dwarka', 'સોમનાથ': 'Gir Somnath', 'veraval': 'Gir Somnath',
+  'દ્વારકા': 'Devbhoomi Dwarka', 'dwarka': 'Devbhoomi Dwarka', 'devbhumi dwarka': 'Devbhoomi Dwarka', 'સોમનાથ': 'Gir Somnath', 'veraval': 'Gir Somnath',
   'પાલનપુર': 'Banaskantha', 'palanpur': 'Banaskantha', 'હિંમતનગર': 'Sabarkantha', 'ગોધરા': 'Panchmahal', 'godhra': 'Panchmahal',
 };
 
@@ -393,13 +393,22 @@ export function resolveStateCode(
   return null;
 }
 
-export function resolveExpansionDistrict(raw?: string | null): { district: string; stateCode: StateCode } | null {
+export function resolveExpansionDistrict(
+  raw?: string | null,
+  preferredStateCode?: StateCode | null
+): { district: string; stateCode: StateCode } | null {
   if (!raw || typeof raw !== 'string') return null;
   const clean = raw.trim();
   if (!clean) return null;
   const lower = clean.toLowerCase();
   const mapped = EXPANSION_DISTRICT_ALIASES[clean] || EXPANSION_DISTRICT_ALIASES[lower] || clean;
   const mappedLower = mapped.toLowerCase();
+
+  // Check preferred state first so shared district names (e.g., Hamirpur in UP & HP) resolve accurately
+  if (preferredStateCode && preferredStateCode !== 'AP' && preferredStateCode !== 'TS') {
+    const prefExact = EDITIONS[preferredStateCode]?.districts.find((d) => d.toLowerCase() === mappedLower);
+    if (prefExact) return { district: prefExact, stateCode: preferredStateCode };
+  }
 
   for (const code of ALL_STATE_CODES) {
     if (code === 'AP' || code === 'TS') continue;

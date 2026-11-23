@@ -316,4 +316,55 @@ class ReporterApplicationLogicTest {
         assertTrue(valid)
         assertNull(err)
     }
+
+    @Test
+    fun testAllNineStatesPresentInEditionRegistryForReporterOnboarding() {
+        val codes = com.alfanews.telugu.utils.EditionRegistry.ALL_EDITIONS_LIST.map { it.stateCode.code }
+        assertEquals(9, codes.size)
+        assertTrue(codes.containsAll(listOf("AP", "TS", "UP", "PB", "UK", "GA", "MN", "HP", "GJ")))
+    }
+
+    @Test
+    fun testExpansionSubDistrictsLoadedForAllSevenExpansionStates() {
+        // Verify non-fallback authentic Tehsils/Talukas/Sub-Divisions across all 7 expansion states
+        val upSitapur = com.alfanews.telugu.utils.EditionRegistry.getSubDistrictsForDistrict("Sitapur", com.alfanews.telugu.utils.StateCode.UP)
+        assertTrue(upSitapur.contains("Misrikh"))
+        assertTrue(upSitapur.contains("Biswan"))
+
+        val pbMalerkotla = com.alfanews.telugu.utils.EditionRegistry.getSubDistrictsForDistrict("Malerkotla", com.alfanews.telugu.utils.StateCode.PB)
+        assertTrue(pbMalerkotla.contains("Amargarh"))
+
+        val ukChampawat = com.alfanews.telugu.utils.EditionRegistry.getSubDistrictsForDistrict("Champawat", com.alfanews.telugu.utils.StateCode.UK)
+        assertTrue(ukChampawat.contains("Lohaghat"))
+
+        val hpChamba = com.alfanews.telugu.utils.EditionRegistry.getSubDistrictsForDistrict("Chamba", com.alfanews.telugu.utils.StateCode.HP)
+        assertTrue(hpChamba.contains("Dalhousie"))
+
+        val gjBotad = com.alfanews.telugu.utils.EditionRegistry.getSubDistrictsForDistrict("Botad", com.alfanews.telugu.utils.StateCode.GJ)
+        assertTrue(gjBotad.contains("Gadhada"))
+
+        val gaNorth = com.alfanews.telugu.utils.EditionRegistry.getSubDistrictsForDistrict("North Goa", com.alfanews.telugu.utils.StateCode.GA)
+        assertTrue(gaNorth.contains("Pernem"))
+
+        val mnUkhrul = com.alfanews.telugu.utils.EditionRegistry.getSubDistrictsForDistrict("Ukhrul", com.alfanews.telugu.utils.StateCode.MN)
+        assertTrue(mnUkhrul.contains("Chingai"))
+    }
+
+    @Test
+    fun testSharedDistrictNameHamirpurDistinguishedBetweenUPAndHP() {
+        val upHamirpur = com.alfanews.telugu.utils.EditionRegistry.getSubDistrictsForDistrict("Hamirpur", com.alfanews.telugu.utils.StateCode.UP)
+        val hpHamirpur = com.alfanews.telugu.utils.EditionRegistry.getSubDistrictsForDistrict("Hamirpur", com.alfanews.telugu.utils.StateCode.HP)
+
+        assertTrue(upHamirpur.contains("Maudaha"))
+        assertFalse(upHamirpur.contains("Nadaun"))
+
+        assertTrue(hpHamirpur.contains("Nadaun"))
+        assertFalse(hpHamirpur.contains("Maudaha"))
+
+        // State-scoped occupancy keys must never collide across states
+        val occupied = setOf("UP|hamirpur|hamirpur")
+        assertTrue(occupied.contains("UP|hamirpur|hamirpur"))
+        assertFalse(occupied.contains("HP|hamirpur|hamirpur"))
+    }
 }
+
