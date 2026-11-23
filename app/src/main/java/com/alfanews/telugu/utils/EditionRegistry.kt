@@ -450,20 +450,19 @@ object EditionRegistry {
     }
 
     /**
-     * Resolves an already-typed StateCode or falls back to resolving by district.
+     * Resolves any state string/alias, StateCode enum, or district name into a canonical StateCode.
      */
-    fun resolveStateCode(stateCode: StateCode?, rawDistrict: String? = null): StateCode? {
-        if (stateCode != null) return stateCode
-        return resolveStateCode(null as String?, rawDistrict)
-    }
+    fun resolveStateCode(rawState: Any?, rawDistrict: String? = null): StateCode? {
+        if (rawState is StateCode) return rawState
+        val stateStr = when (rawState) {
+            is String -> rawState
+            is StateCode -> rawState.code
+            else -> rawState?.toString()
+        }
 
-    /**
-     * Resolves any state string/alias or district name into a canonical StateCode.
-     */
-    fun resolveStateCode(rawState: String?, rawDistrict: String? = null): StateCode? {
-        if (!rawState.isNullOrBlank()) {
-            StateCode.fromCode(rawState)?.let { return it }
-            val clean = rawState.trim()
+        if (!stateStr.isNullOrBlank()) {
+            StateCode.fromCode(stateStr)?.let { return it }
+            val clean = stateStr.trim()
             for (ed in ALL_EDITIONS_LIST) {
                 if (ed.nameEn.equals(clean, ignoreCase = true) ||
                     ed.nameNative.equals(clean, ignoreCase = true) ||
